@@ -1,0 +1,101 @@
+class,class id,ap,ap50,ap25
+wall,0,nan,nan,nan
+ceiling,1,nan,nan,nan
+floor,2,nan,nan,nan
+table,3,0.0,0.0,0.0
+door,4,0.0,0.0,0.0
+ceiling lamp,5,0.0,0.0,0.0
+cabinet,6,0.0,0.0,0.0
+blinds,7,0.0,0.0,0.0
+curtain,8,nan,nan,nan
+chair,9,nan,nan,nan
+storage cabinet,10,0.0,0.0,0.0
+office chair,11,0.0,0.0,0.0
+bookshelf,12,0.0,0.0,0.0
+whiteboard,13,0.0,0.0,0.0
+window,14,0.0,0.0,0.0
+box,15,0.0,0.0,0.0
+window frame,16,nan,nan,nan
+monitor,17,0.0,0.0,0.0
+shelf,18,nan,nan,nan
+doorframe,19,nan,nan,nan
+pipe,20,nan,nan,nan
+heater,21,0.0,0.0,0.0
+kitchen cabinet,22,nan,nan,nan
+sofa,23,nan,nan,nan
+windowsill,24,nan,nan,nan
+bed,25,nan,nan,nan
+shower wall,26,nan,nan,nan
+trash can,27,0.0,0.0,0.0
+book,28,0.0,0.0,0.0
+plant,29,nan,nan,nan
+blanket,30,nan,nan,nan
+tv,31,nan,nan,nan
+computer tower,32,nan,nan,nan
+kitchen counter,33,nan,nan,nan
+refrigerator,34,nan,nan,nan
+jacket,35,nan,nan,nan
+electrical duct,36,nan,nan,nan
+sink,37,nan,nan,nan
+bag,38,nan,nan,nan
+picture,39,nan,nan,nan
+pillow,40,nan,nan,nan
+towel,41,nan,nan,nan
+suitcase,42,nan,nan,nan
+backpack,43,nan,nan,nan
+crate,44,nan,nan,nan
+keyboard,45,0.0,0.0,0.0
+rack,46,nan,nan,nan
+toilet,47,nan,nan,nan
+paper,48,nan,nan,nan
+printer,49,nan,nan,nan
+poster,50,nan,nan,nan
+painting,51,nan,nan,nan
+microwave,52,nan,nan,nan
+board,53,nan,nan,nan
+shoes,54,nan,nan,nan
+socket,55,0.0,0.0,0.0
+bottle,56,0.0,0.0,0.0
+bucket,57,nan,nan,nan
+cushion,58,nan,nan,nan
+basket,59,nan,nan,nan
+shoe rack,60,nan,nan,nan
+telephone,61,0.0,0.0,0.0
+file folder,62,nan,nan,nan
+cloth,63,nan,nan,nan
+blind rail,64,nan,nan,nan
+laptop,65,nan,nan,nan
+plant pot,66,nan,nan,nan
+exhaust fan,67,nan,nan,nan
+cup,68,0.0,0.0,0.0
+coat hanger,69,nan,nan,nan
+light switch,70,0.0,0.0,0.0
+speaker,71,nan,nan,nan
+table lamp,72,nan,nan,nan
+air vent,73,nan,nan,nan
+clothes hanger,74,nan,nan,nan
+kettle,75,nan,nan,nan
+smoke detector,76,nan,nan,nan
+container,77,0.0,0.0,0.0
+power strip,78,0.0,0.0,0.0
+slippers,79,nan,nan,nan
+paper bag,80,nan,nan,nan
+mouse,81,0.0,0.0,0.0
+cutting board,82,nan,nan,nan
+toilet paper,83,nan,nan,nan
+paper towel,84,nan,nan,nan
+pot,85,nan,nan,nan
+clock,86,nan,nan,nan
+pan,87,nan,nan,nan
+tap,88,nan,nan,nan
+jar,89,nan,nan,nan
+soap dispenser,90,nan,nan,nan
+binder,91,nan,nan,nan
+bowl,92,nan,nan,nan
+tissue box,93,nan,nan,nan
+whiteboard eraser,94,0.0,0.0,0.0
+toilet brush,95,nan,nan,nan
+spray bottle,96,nan,nan,nan
+headphones,97,nan,nan,nan
+stapler,98,nan,nan,nan
+marker,99,nan,nan,nan
