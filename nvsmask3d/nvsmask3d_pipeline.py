@@ -10,8 +10,8 @@ import torch.distributed as dist
 from torch.cuda.amp.grad_scaler import GradScaler
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-from method_template.template_datamanager import TemplateDataManagerConfig
-from method_template.template_model import TemplateModel, TemplateModelConfig
+from nvsmask3d.nvsmask3d_datamanager import TemplateDataManagerConfig
+from nvsmask3d.nvsmask3d_model import NVSMask3dModel, NVSMask3dModelConfig
 from nerfstudio.data.datamanagers.base_datamanager import (
     DataManager,
     DataManagerConfig,
@@ -31,7 +31,7 @@ class TemplatePipelineConfig(VanillaPipelineConfig):
     """target class to instantiate"""
     datamanager: DataManagerConfig = TemplateDataManagerConfig()
     """specifies the datamanager config"""
-    model: ModelConfig = TemplateModelConfig()
+    model: ModelConfig = NVSMask3dModelConfig()
     """specifies the model config"""
 
 
@@ -72,6 +72,6 @@ class TemplatePipeline(VanillaPipeline):
         self.world_size = world_size
         if world_size > 1:
             self._model = typing.cast(
-                TemplateModel, DDP(self._model, device_ids=[local_rank], find_unused_parameters=True)
+                NVSMask3dModel, DDP(self._model, device_ids=[local_rank], find_unused_parameters=True)
             )
             dist.barrier(device_ids=[local_rank])

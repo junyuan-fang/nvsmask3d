@@ -6,11 +6,11 @@ Define your custom method here that registers with Nerfstudio CLI.
 
 from __future__ import annotations
 
-from method_template.template_datamanager import (
+from nvsmask3d.nvsmask3d_datamanager import (
     TemplateDataManagerConfig,
 )
-from method_template.template_model import TemplateModelConfig
-from method_template.template_pipeline import (
+from nvsmask3d.nvsmask3d_model import NVSMask3dModelConfig
+from nvsmask3d.nvsmask3d_pipeline import (
     TemplatePipelineConfig,
 )
 from nerfstudio.configs.base_config import ViewerConfig
@@ -22,23 +22,25 @@ from nerfstudio.engine.schedulers import (
 from nerfstudio.engine.trainer import TrainerConfig
 from nerfstudio.plugins.types import MethodSpecification
 
+from nerfstudio.plugins.registry_dataparser import DataParserSpecification
+from nerfstudio.data.dataparsers.scannet_dataparser import ScanNetDataParserConfig
 
-method_template = MethodSpecification(
+NvsMask3d = MethodSpecification(
     config=TrainerConfig(
-        method_name="method-template",  # TODO: rename to your own model
+        method_name="nvsmask3d",  # TODO: rename to your own model
         steps_per_eval_batch=500,
         steps_per_save=2000,
         max_num_iterations=30000,
         mixed_precision=True,
         pipeline=TemplatePipelineConfig(
             datamanager=TemplateDataManagerConfig(
-                dataparser=NerfstudioDataParserConfig(),
+                dataparser=ScanNetDataParserConfig(),
                 train_num_rays_per_batch=4096,
                 eval_num_rays_per_batch=4096,
             ),
-            model=TemplateModelConfig(
-                eval_num_rays_per_chunk=1 << 15,
-                average_init_density=0.01,
+            model=NVSMask3dModelConfig(
+                cull_alpha_thresh=0.005,
+                continue_cull_post_densification=False,
             ),
         ),
         optimizers={
@@ -59,5 +61,10 @@ method_template = MethodSpecification(
         viewer=ViewerConfig(num_rays_per_chunk=1 << 15),
         vis="viewer",
     ),
-    description="Nerfstudio method template.",
+    description="Nerfstudio method nvsmask3d.",
 )
+
+
+
+ScanNetDataparser = DataParserSpecification(config=ScanNetDataParserConfig())
+
