@@ -31,4 +31,6 @@ ns-install-cli
 This repository creates a new Nerfstudio method named "method-template". To train with it, run the command:
 ```
 ns-train method-template --data [PATH]
+
+ns-train nvsmask3d --data nvsmask3d/data/scene_example
 ```

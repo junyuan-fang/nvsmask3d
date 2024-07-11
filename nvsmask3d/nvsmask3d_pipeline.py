@@ -10,7 +10,7 @@ import torch.distributed as dist
 from torch.cuda.amp.grad_scaler import GradScaler
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-from nvsmask3d.nvsmask3d_datamanager import TemplateDataManagerConfig
+from nvsmask3d.nvsmask3d_datamanager import NVSMask3dDataManagerConfig
 from nvsmask3d.nvsmask3d_model import NVSMask3dModel, NVSMask3dModelConfig
 from nerfstudio.data.datamanagers.base_datamanager import (
     DataManager,
@@ -29,7 +29,7 @@ class TemplatePipelineConfig(VanillaPipelineConfig):
 
     _target: Type = field(default_factory=lambda: TemplatePipeline)
     """target class to instantiate"""
-    datamanager: DataManagerConfig = TemplateDataManagerConfig()
+    datamanager: DataManagerConfig = NVSMask3dDataManagerConfig()
     """specifies the datamanager config"""
     model: ModelConfig = NVSMask3dModelConfig()
     """specifies the model config"""

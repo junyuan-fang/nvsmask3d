@@ -7,7 +7,7 @@ Define your custom method here that registers with Nerfstudio CLI.
 from __future__ import annotations
 
 from nvsmask3d.nvsmask3d_datamanager import (
-    TemplateDataManagerConfig,
+    NVSMask3dDataManagerConfig,
 )
 from nvsmask3d.nvsmask3d_model import NVSMask3dModelConfig
 from nvsmask3d.nvsmask3d_pipeline import (
@@ -33,31 +33,54 @@ NvsMask3d = MethodSpecification(
         max_num_iterations=30000,
         mixed_precision=True,
         pipeline=TemplatePipelineConfig(
-            datamanager=TemplateDataManagerConfig(
-                dataparser=ScanNetDataParserConfig(),
-                train_num_rays_per_batch=4096,
-                eval_num_rays_per_batch=4096,
+            datamanager=NVSMask3dDataManagerConfig(
+                dataparser=ScanNetDataParserConfig()
             ),
             model=NVSMask3dModelConfig(
                 cull_alpha_thresh=0.005,
                 continue_cull_post_densification=False,
             ),
         ),
-        optimizers={
-            # TODO: consider changing optimizers depending on your custom method
-            "proposal_networks": {
-                "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=0.0001, max_steps=200000),
+         optimizers={
+            "means": {
+                "optimizer": AdamOptimizerConfig(lr=1.6e-4, eps=1e-15),
+                "scheduler": ExponentialDecaySchedulerConfig(
+                    lr_final=1.6e-6, max_steps=30000
+                ),
             },
-            "fields": {
-                "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-4, max_steps=50000),
+            "features_dc": {
+                "optimizer": AdamOptimizerConfig(lr=0.0025, eps=1e-15),
+                "scheduler": None,
+            },
+            "features_rest": {
+                "optimizer": AdamOptimizerConfig(lr=0.0025 / 20, eps=1e-15),
+                "scheduler": None,
+            },
+            "opacities": {
+                "optimizer": AdamOptimizerConfig(lr=0.05, eps=1e-15),
+                "scheduler": None,
+            },
+            "scales": {
+                "optimizer": AdamOptimizerConfig(lr=0.005, eps=1e-15),
+                "scheduler": None,
+            },
+            "quats": {
+                "optimizer": AdamOptimizerConfig(lr=0.001, eps=1e-15),
+                "scheduler": None,
             },
             "camera_opt": {
                 "optimizer": AdamOptimizerConfig(lr=1e-3, eps=1e-15),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-4, max_steps=5000),
+                "scheduler": ExponentialDecaySchedulerConfig(
+                    lr_final=5e-5, max_steps=30000
+                ),
             },
-        },
+            "normals": {
+                "optimizer": AdamOptimizerConfig(
+                    lr=1e-3, eps=1e-15
+                ),  # this does nothing, its just here to make the trainer happy
+                "scheduler": None,
+            },
+         },
         viewer=ViewerConfig(num_rays_per_chunk=1 << 15),
         vis="viewer",
     ),
