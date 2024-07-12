@@ -73,13 +73,7 @@ NvsMask3d = MethodSpecification(
                 "scheduler": ExponentialDecaySchedulerConfig(
                     lr_final=5e-5, max_steps=30000
                 ),
-            },
-            "normals": {
-                "optimizer": AdamOptimizerConfig(
-                    lr=1e-3, eps=1e-15
-                ),  # this does nothing, its just here to make the trainer happy
-                "scheduler": None,
-            },
+            }
          },
         viewer=ViewerConfig(num_rays_per_chunk=1 << 15),
         vis="viewer",

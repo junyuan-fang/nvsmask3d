@@ -8,7 +8,6 @@ from copy import deepcopy
 
 import torch
 
-from nerfstudio.cameras.rays import RayBundle
 from nerfstudio.data.datamanagers.full_images_datamanager import (
     FullImageDatamanager,
     FullImageDatamanagerConfig,
