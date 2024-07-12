@@ -23,7 +23,7 @@ from nerfstudio.engine.trainer import TrainerConfig
 from nerfstudio.plugins.types import MethodSpecification
 
 from nerfstudio.plugins.registry_dataparser import DataParserSpecification
-from nerfstudio.data.dataparsers.scannet_dataparser import ScanNetDataParserConfig
+from nvsmask3d.dataparsers.scannet_dataparser import ScanNetDataParserConfig
 
 NvsMask3d = MethodSpecification(
     config=TrainerConfig(
