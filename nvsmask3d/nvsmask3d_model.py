@@ -8,7 +8,12 @@ from typing import Type
 import torch
 from typing import Dict, List, Literal, Optional, Tuple, Type, Union
 from torch.nn import Parameter
+from nerfstudio.cameras.camera_optimizers import CameraOptimizer
 from pytorch_msssim import SSIM
+from nerfstudio.utils.colors import get_color
+import math
+from nerfstudio.utils.rich_utils import CONSOLE
+from nerfstudio.data.scene_box import OrientedBox
 
 
 
@@ -22,6 +27,34 @@ from nerfstudio.models.splatfacto import (
     get_viewmat,
 )
 
+def random_quat_tensor(N):
+    """
+    Defines a random quaternion tensor of shape (N, 4)
+    """
+    u = torch.rand(N)
+    v = torch.rand(N)
+    w = torch.rand(N)
+    return torch.stack(
+        [
+            torch.sqrt(1 - u) * torch.sin(2 * math.pi * v),
+            torch.sqrt(1 - u) * torch.cos(2 * math.pi * v),
+            torch.sqrt(u) * torch.sin(2 * math.pi * w),
+            torch.sqrt(u) * torch.cos(2 * math.pi * w),
+        ],
+        dim=-1,
+    )
+
+def num_sh_bases(degree: int):
+    if degree == 0:
+        return 1
+    if degree == 1:
+        return 4
+    if degree == 2:
+        return 9
+    if degree == 3:
+        return 16
+    return 25
+
 
 @dataclass
 class NVSMask3dModelConfig(SplatfactoModelConfig):
@@ -31,21 +64,24 @@ class NVSMask3dModelConfig(SplatfactoModelConfig):
     """
 
     _target: Type = field(default_factory=lambda: NVSMask3dModel)
+    
+    random_init: bool = False
 
 
 class NVSMask3dModel(SplatfactoModel):
     """Template Model."""
 
     config: NVSMask3dModelConfig
+    
+    def random_quat_tensor(num_points):
+        super().random_quat_tensor(num_points)
 
     def populate_modules(self):
-        if self.seed_points is None and "points3D_xyz" in self.config.metadata:
-            means =  torch.nn.Parameter(self.config.metadata["points3D_xyz"], requires_grad=False)
+        if self.seed_points is not None and not self.config.random_init:
+            #print(self.seed_points.shape)#torch.Size([237360, 3])
+            means = torch.nn.Parameter(self.seed_points)  # (Location, Color)
         else:
-            if self.seed_points is not None and not self.config.random_init:
-                means = torch.nn.Parameter(self.seed_points[0])  # (Location, Color)
-            else:
-                means = torch.nn.Parameter((torch.rand((self.config.num_random, 3)) - 0.5) * self.config.random_scale)
+            means = torch.nn.Parameter((torch.rand((self.config.num_random, 3)) - 0.5) * self.config.random_scale)
         
         self.xys_grad_norm = None
         self.max_2Dsize = None
@@ -65,13 +101,13 @@ class NVSMask3dModel(SplatfactoModel):
             # We can have colors without points.
             and self.seed_points[1].shape[0] > 0
         ):
-            shs = torch.zeros((self.seed_points[1].shape[0], dim_sh, 3)).float().cuda()
+            shs = torch.zeros((self.seed_points.shape[0], dim_sh, 3)).float().cuda()
             if self.config.sh_degree > 0:
-                shs[:, 0, :3] = RGB2SH(self.seed_points[1] / 255)
+                shs[:, 0, :3] = RGB2SH(self.seed_points / 255)
                 shs[:, 1:, 3:] = 0.0
             else:
                 CONSOLE.log("use color only optimization with sigmoid activation")
-                shs[:, 0, :3] = torch.logit(self.seed_points[1] / 255, eps=1e-10)
+                shs[:, 0, :3] = torch.logit(self.seed_points / 255, eps=1e-10)
             features_dc = torch.nn.Parameter(shs[:, 0, :])
             features_rest = torch.nn.Parameter(shs[:, 1:, :])
         else:

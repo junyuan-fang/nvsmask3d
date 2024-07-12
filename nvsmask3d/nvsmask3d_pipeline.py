@@ -57,15 +57,31 @@ class TemplatePipeline(VanillaPipeline):
         self.datamanager: DataManager = config.datamanager.setup(
             device=device, test_mode=test_mode, world_size=world_size, local_rank=local_rank
         )
-        self.datamanager.to(device)
+        
+        seed_pts = None
+        if (
+            hasattr(self.datamanager, "train_dataparser_outputs")
+            and "points3D_xyz" in self.datamanager.train_dataparser_outputs.metadata
+        ):
 
+            pts = self.datamanager.train_dataparser_outputs.metadata["points3D_xyz"]
+            if (hasattr(self.datamanager.train_dataparser_outputs.metadata, "points3D_rgb")):
+                pts_rgb = self.datamanager.train_dataparser_outputs.metadata["points3D_rgb"]
+                seed_pts = (pts,pts_rgb)
+            else:
+                print()
+                seed_pts = (pts)
+        self.datamanager.to(device)
+        
         assert self.datamanager.train_dataset is not None, "Missing input dataset"
         self._model = config.model.setup(
             scene_box=self.datamanager.train_dataset.scene_box,
             num_train_data=len(self.datamanager.train_dataset),
-            metadata=self.datamanager.train_dataset.metadata,
+            metadata=self.datamanager.train_dataset.metadata,   
             device=device,
             grad_scaler=grad_scaler,
+            seed_points=seed_pts,# add seed points from metadata
+
         )
         self.model.to(device)
 

@@ -62,7 +62,7 @@ class ScanNetDataParserConfig(DataParserConfig):
     """The fraction of images to use for training. The remaining images are for eval."""
     depth_unit_scale_factor: float = 1e-3
     """Scales the depth values to meters. Default value is 0.001 for a millimeter to meter conversion."""
-    load_3D_points: bool = False
+    load_3D_points: bool = True
     """Whether to load the 3D points from the .ply"""
     point_cloud_color: bool = False
     """read point cloud colors from .ply files or not """
@@ -232,14 +232,10 @@ class ScanNet(DataParser):
         )
         points3D *= scale_factor
         
-        points3D_rgb = torch.from_numpy((np.asarray(pcd.colors) * 255).astype(np.uint8))
 
         out = {
             "points3D_xyz": points3D,
         }
 
-        if point_cloud_color:
-            points3D_rgb = torch.from_numpy((np.asarray(pcd.colors) * 255).astype(np.uint8))
-            out["points3D_rgb"] = points3D_rgb
 
         return out
