@@ -28,9 +28,9 @@ from nvsmask3d.dataparsers.scannet_dataparser import ScanNetDataParserConfig
 NvsMask3d = MethodSpecification(
     config=TrainerConfig(
         method_name="nvsmask3d",  # TODO: rename to your own model
-        steps_per_eval_batch=500,
-        steps_per_save=2000,
-        max_num_iterations=30000,
+        steps_per_eval_batch=10,
+        steps_per_save=10,
+        max_num_iterations=10,
         mixed_precision=True,
         pipeline=TemplatePipelineConfig(
             datamanager=NVSMask3dDataManagerConfig(
@@ -42,12 +42,7 @@ NvsMask3d = MethodSpecification(
             ),
         ),
          optimizers={
-            "means": {
-                "optimizer": AdamOptimizerConfig(lr=1.6e-4, eps=1e-15),
-                "scheduler": ExponentialDecaySchedulerConfig(
-                    lr_final=1.6e-6, max_steps=30000
-                ),
-            },
+
             "features_dc": {
                 "optimizer": AdamOptimizerConfig(lr=0.0025, eps=1e-15),
                 "scheduler": None,
@@ -71,7 +66,7 @@ NvsMask3d = MethodSpecification(
             "camera_opt": {
                 "optimizer": AdamOptimizerConfig(lr=1e-3, eps=1e-15),
                 "scheduler": ExponentialDecaySchedulerConfig(
-                    lr_final=5e-5, max_steps=30000
+                    lr_final=5e-5, max_steps=100
                 ),
             }
          },

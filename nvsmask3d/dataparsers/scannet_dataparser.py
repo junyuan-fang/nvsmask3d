@@ -64,7 +64,7 @@ class ScanNetDataParserConfig(DataParserConfig):
     """Scales the depth values to meters. Default value is 0.001 for a millimeter to meter conversion."""
     load_3D_points: bool = True
     """Whether to load the 3D points from the .ply"""
-    point_cloud_color: bool = False
+    point_cloud_color: bool = True
     """read point cloud colors from .ply files or not """
     ply_file_path: Path = data / (data.name + ".ply")
     """path to the .ply file containing the 3D points"""
@@ -101,7 +101,7 @@ class ScanNet(DataParser):
             # We cannot accept files directly, as some of the poses are invalid
             if np.isinf(pose).any():
                 continue
-
+            
             poses.append(pose)
             intrinsics.append(K)
             image_filenames.append(img)
@@ -167,26 +167,13 @@ class ScanNet(DataParser):
             camera_type=CameraType.PERSPECTIVE,
         )
 
-        # dataparser_outputs = DataparserOutputs(
-        #     image_filenames=image_filenames,
-        #     cameras=cameras,
-        #     scene_box=scene_box,
-        #     dataparser_scale=scale_factor,
-        #     dataparser_transform=transform_matrix,
-        #     metadata={
-        #         "depth_filenames": depth_filenames if len(depth_filenames) > 0 else None,
-        #         "depth_unit_scale_factor": self.config.depth_unit_scale_factor,
-        #     },
-        # )
-        # return dataparser_outputs
-        
         metadata = {
             "depth_filenames": depth_filenames if len(depth_filenames) > 0 else None,
             "depth_unit_scale_factor": self.config.depth_unit_scale_factor,
         }
 
         if self.config.load_3D_points:
-            point_cloud_data = self._load_3D_points(self.config.ply_file_path, transform_matrix, scale_factor, self.config.point_cloud_color)
+            point_cloud_data = self._load_3D_points(self.config.ply_file_path, transform_matrix, scale_factor)
             if point_cloud_data is not None:
                 metadata.update(point_cloud_data)
 
@@ -200,7 +187,7 @@ class ScanNet(DataParser):
         )
         return dataparser_outputs
     
-    def _load_3D_points(self, ply_file_path: Path, transform_matrix: torch.Tensor, scale_factor: float, point_cloud_color: bool = False):
+    def _load_3D_points(self, ply_file_path: Path, transform_matrix: torch.Tensor, scale_factor: float ) -> dict:
         """Loads point clouds positions and colors from .ply
 
         Args:
@@ -231,11 +218,12 @@ class ScanNet(DataParser):
             @ transform_matrix.T
         )
         points3D *= scale_factor
-        
-
         out = {
             "points3D_xyz": points3D,
         }
-
+        
+        if self.config.point_cloud_color:
+            points3D_rgb = torch.from_numpy((np.asarray(pcd.colors) * 255).astype(np.uint8))
+            out["points3D_rgb"] = points3D_rgb
 
         return out

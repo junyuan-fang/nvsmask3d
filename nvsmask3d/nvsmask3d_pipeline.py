@@ -65,12 +65,8 @@ class TemplatePipeline(VanillaPipeline):
         ):
 
             pts = self.datamanager.train_dataparser_outputs.metadata["points3D_xyz"]
-            if (hasattr(self.datamanager.train_dataparser_outputs.metadata, "points3D_rgb")):
-                pts_rgb = self.datamanager.train_dataparser_outputs.metadata["points3D_rgb"]
-                seed_pts = (pts,pts_rgb)
-            else:
-                print()
-                seed_pts = (pts)
+            pts_rgb = self.datamanager.train_dataparser_outputs.metadata["points3D_rgb"]
+            seed_pts = (pts,pts_rgb)
         self.datamanager.to(device)
         
         assert self.datamanager.train_dataset is not None, "Missing input dataset"

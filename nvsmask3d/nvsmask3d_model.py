@@ -18,6 +18,7 @@ from nerfstudio.data.scene_box import OrientedBox
 
 
 
+from nerfstudio.engine.optimizers import Optimizers
 from nerfstudio.models.nerfacto import NerfactoModel, NerfactoModelConfig  # for subclassing Nerfacto model
 from nerfstudio.models.base_model import Model, ModelConfig  # for custom Model
 from nerfstudio.models.splatfacto import (
@@ -66,6 +67,13 @@ class NVSMask3dModelConfig(SplatfactoModelConfig):
     _target: Type = field(default_factory=lambda: NVSMask3dModel)
     
     random_init: bool = False
+    use_scale_regularization: bool = True
+    max_gauss_ratio: float = 1.5
+    warmup_length: int = 5 # need to be big, we don't cull or densify gaussians
+    refine_every: int = 100 # need to be big, we don't cull or densify gaussians
+
+
+
 
 
 class NVSMask3dModel(SplatfactoModel):
@@ -78,8 +86,7 @@ class NVSMask3dModel(SplatfactoModel):
 
     def populate_modules(self):
         if self.seed_points is not None and not self.config.random_init:
-            #print(self.seed_points.shape)#torch.Size([237360, 3])
-            means = torch.nn.Parameter(self.seed_points)  # (Location, Color)
+            means = torch.nn.Parameter(self.seed_points[0],requires_grad=False)  # (Location, Color)
         else:
             means = torch.nn.Parameter((torch.rand((self.config.num_random, 3)) - 0.5) * self.config.random_scale)
         
@@ -101,13 +108,13 @@ class NVSMask3dModel(SplatfactoModel):
             # We can have colors without points.
             and self.seed_points[1].shape[0] > 0
         ):
-            shs = torch.zeros((self.seed_points.shape[0], dim_sh, 3)).float().cuda()
+            shs = torch.zeros((self.seed_points[1].shape[0], dim_sh, 3)).float().cuda()
             if self.config.sh_degree > 0:
-                shs[:, 0, :3] = RGB2SH(self.seed_points / 255)
+                shs[:, 0, :3] = RGB2SH(self.seed_points[1] / 255)
                 shs[:, 1:, 3:] = 0.0
             else:
                 CONSOLE.log("use color only optimization with sigmoid activation")
-                shs[:, 0, :3] = torch.logit(self.seed_points / 255, eps=1e-10)
+                shs[:, 0, :3] = torch.logit(self.seed_points[1] / 255, eps=1e-10)
             features_dc = torch.nn.Parameter(shs[:, 0, :])
             features_rest = torch.nn.Parameter(shs[:, 1:, :])
         else:
@@ -149,9 +156,22 @@ class NVSMask3dModel(SplatfactoModel):
             
     # we don't update means
     def get_gaussian_param_groups(self) -> Dict[str, List[Parameter]]:
-        param_groups = {
-            name: [param]
-            for name, param in self.gauss_params.items()
-            if name != "means"
+        # param_groups = {
+        #     name: [param]
+        #     for name, param in self.gauss_params.items()
+        #     if name != "means"
+        # }
+        # return param_groups
+        return {
+            name: [self.gauss_params[name]]
+            for name in ["scales", "quats", "features_dc", "features_rest", "opacities"]
         }
-        return param_groups
+    
+    #we don't cull or densify gaussians
+    def refinement_after(self, optimizers: Optimizers, step): 
+        self.binarize_opacities()
+        return
+    
+    def binarize_opacities(self):
+        with torch.no_grad():
+            self.gauss_params['opacities'].data = (self.gauss_params['opacities'] > 0).float()
