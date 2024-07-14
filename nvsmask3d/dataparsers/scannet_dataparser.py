@@ -173,7 +173,9 @@ class ScanNet(DataParser):
         }
 
         if self.config.load_3D_points:
-            point_cloud_data = self._load_3D_points(self.config.ply_file_path, transform_matrix, scale_factor)
+            point_color = self.config.point_cloud_color
+            ply_file_path = self.config.ply_file_path
+            point_cloud_data = self._load_3D_points(ply_file_path, transform_matrix, scale_factor, point_color)
             if point_cloud_data is not None:
                 metadata.update(point_cloud_data)
 
@@ -187,16 +189,19 @@ class ScanNet(DataParser):
         )
         return dataparser_outputs
     
-    def _load_3D_points(self, ply_file_path: Path, transform_matrix: torch.Tensor, scale_factor: float ) -> dict:
+    def _load_3D_points(self, ply_file_path: Path, transform_matrix: torch.Tensor, scale_factor: float, points_color: bool ) -> dict:
         """Loads point clouds positions and colors from .ply
 
         Args:
             ply_file_path: Path to .ply file
             transform_matrix: Matrix to transform world coordinates
             scale_factor: How much to scale the camera origins by.
+            points_color: Whether to load the point cloud colors or not
 
         Returns:
-            A dictionary of points: points3D_xyz and colors: points3D_rgb (depemding on point_cloud_color flag)
+            A dictionary of points: points3D_xyz and colors: points3D_rgb
+            or
+            A dictionary of points: points3D_xyz if points_color is False
         """
         import open3d as o3d  # Importing open3d is slow, so we only do it if we need it.
 
@@ -222,7 +227,7 @@ class ScanNet(DataParser):
             "points3D_xyz": points3D,
         }
         
-        if self.config.point_cloud_color:
+        if points_color:
             points3D_rgb = torch.from_numpy((np.asarray(pcd.colors) * 255).astype(np.uint8))
             out["points3D_rgb"] = points3D_rgb
 
