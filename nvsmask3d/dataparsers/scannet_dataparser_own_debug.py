@@ -43,11 +43,12 @@ class ScanNetDataParserConfig(DataParserConfig):
         ├── depth/
         ├── intrinsic/
         ├── pose/
+        |── ply/
     """
 
     _target: Type = field(default_factory=lambda: ScanNet)
     """target class to instantiate"""
-    data: Path = Path("data/scannet/scene0423_02")
+    data: Path = Path("./nvsmask3d/data/scene0000_00")
     """Path to ScanNet folder with densely extracted scenes."""
     scale_factor: float = 1.0
     """How much to scale the camera origins by."""
@@ -61,6 +62,15 @@ class ScanNetDataParserConfig(DataParserConfig):
     """The fraction of images to use for training. The remaining images are for eval."""
     depth_unit_scale_factor: float = 1e-3
     """Scales the depth values to meters. Default value is 0.001 for a millimeter to meter conversion."""
+    load_3D_points: bool = True
+    """Whether to load the 3D points from the .ply"""
+    point_cloud_color: bool = True
+    """read point cloud colors from .ply files or not """
+    ply_file_path: Path = data / (data.name + ".ply")
+    """path to the .ply file containing the 3D points"""
+    load_every: int = 5
+    """load every n'th frame from the dense trajectory"""
+    
 
 
 @dataclass
@@ -68,7 +78,7 @@ class ScanNet(DataParser):
     """ScanNet DatasetParser"""
 
     config: ScanNetDataParserConfig
-
+    
     def _generate_dataparser_outputs(self, split="train"):
         image_dir = self.config.data / "color"
         depth_dir = self.config.data / "depth"
@@ -89,11 +99,14 @@ class ScanNet(DataParser):
             pose = np.array(pose).reshape(4, 4)
             pose[:3, 1] *= -1
             pose[:3, 2] *= -1
+            #pose[0:3, 1:3] *= -1
+            #pose = pose[np.array([1, 0, 2, 3]), :]
+            #pose[2, :] *= -1
             pose = torch.from_numpy(pose).float()
             # We cannot accept files directly, as some of the poses are invalid
             if np.isinf(pose).any():
                 continue
-
+            
             poses.append(pose)
             intrinsics.append(K)
             image_filenames.append(img)
@@ -101,6 +114,8 @@ class ScanNet(DataParser):
 
         # filter image_filenames and poses based on train/eval split percentage
         num_images = len(image_filenames)
+        print(num_images)
+        num_images = 800
         num_train_images = math.ceil(num_images * self.config.train_split_fraction)
         num_eval_images = num_images - num_train_images
         i_all = np.arange(num_images)
@@ -111,6 +126,8 @@ class ScanNet(DataParser):
         assert len(i_eval) == num_eval_images
         if split == "train":
             indices = i_train
+            if self.config.load_every > 1:
+                indices = indices[:: self.config.load_every]
         elif split in ["val", "test"]:
             indices = i_eval
         else:
@@ -159,15 +176,94 @@ class ScanNet(DataParser):
             camera_type=CameraType.PERSPECTIVE,
         )
 
+        metadata = {
+            "depth_filenames": depth_filenames if len(depth_filenames) > 0 else None,
+            "depth_unit_scale_factor": self.config.depth_unit_scale_factor,
+        }
+
+        if self.config.load_3D_points:
+            point_color = self.config.point_cloud_color
+            ply_file_path = self.config.ply_file_path
+            point_cloud_data = self._load_3D_points(ply_file_path, transform_matrix, scale_factor, point_color)
+            if point_cloud_data is not None:
+                metadata.update(point_cloud_data)
+        ### test######################################################
+        from nvsmask3d.utils.camera_utils import project_pix
+        p = metadata["points3D_xyz"]#torch.Size([237360, 3])
+        colors = metadata["points3D_rgb"] / 255 #torch.Size([237360, 3])
+        fx=intrinsics[0, 0, 0].to(torch.device('cuda'))
+        fy=intrinsics[0, 1, 1].to(torch.device('cuda'))
+        cx=intrinsics[0, 0, 2].to(torch.device('cuda'))
+        cy=intrinsics[0, 1, 2].to(torch.device('cuda'))
+        c2w = poses[0, :3, :4].to(torch.device('cuda'))
+        device = torch.device('cuda')
+
+        colors = colors.to(device)
+        uv_coords = project_pix(p, fx, fy, cx, cy, c2w, device, return_z_depths=True) # returns uv -> (pix_x,pix_y,z_depth)
+        sparse_map = torch.zeros((h, w, 3), dtype=torch.float32, device=device)
+        valid_points = (uv_coords[..., 0] >= 0) & (uv_coords[..., 0] < w) & (uv_coords[..., 1] >= 0) & (uv_coords[..., 1] < h ) &  (uv_coords[..., 2] > 0)       
+        sparse_map[[uv_coords[valid_points,1].long(), uv_coords[valid_points,0].long()]] = colors[valid_points][None,:].float()
+
+        print("Projected UV coordinates's shape:", uv_coords.shape)#Projected UV coordinates's shape: torch.Size([237360, 3])
+        print(sparse_map.min(), sparse_map.max())
+        from  nvsmask3d.utils.utils import save_img, image_path_to_tensor
+        from nerfstudio.utils.colormaps import apply_depth_colormap
+        gt_img = image_path_to_tensor(image_filenames[0])
+        save_img(gt_img, "/home/wangs9/junyuan/nerfstudio-nvsmask3d/nvsmask3d/data/scene_example/gt_img.png")
+        save_img(sparse_map, "/home/wangs9/junyuan/nerfstudio-nvsmask3d/nvsmask3d/data/scene_example/rendered.png",)
+        #quit()
+        ###################################################################
+        
         dataparser_outputs = DataparserOutputs(
             image_filenames=image_filenames,
             cameras=cameras,
             scene_box=scene_box,
             dataparser_scale=scale_factor,
             dataparser_transform=transform_matrix,
-            metadata={
-                "depth_filenames": depth_filenames if len(depth_filenames) > 0 else None,
-                "depth_unit_scale_factor": self.config.depth_unit_scale_factor,
-            },
+            metadata=metadata,
         )
         return dataparser_outputs
+    
+    def _load_3D_points(self, ply_file_path: Path, transform_matrix: torch.Tensor, scale_factor: float, points_color: bool ) -> dict:
+        """Loads point clouds positions and colors from .ply
+
+        Args:
+            ply_file_path: Path to .ply file
+            transform_matrix: Matrix to transform world coordinates
+            scale_factor: How much to scale the camera origins by.
+            points_color: Whether to load the point cloud colors or not
+
+        Returns:
+            A dictionary of points: points3D_xyz and colors: points3D_rgb
+            or
+            A dictionary of points: points3D_xyz if points_color is False
+        """
+        import open3d as o3d  # Importing open3d is slow, so we only do it if we need it.
+
+        pcd = o3d.io.read_point_cloud(str(ply_file_path))
+
+        # if no points found don't read in an initial point cloud
+        if len(pcd.points) == 0:
+            return None
+
+        points3D = torch.from_numpy(np.asarray(pcd.points, dtype=np.float32))
+        points3D = (
+            torch.cat(
+                (
+                    points3D,
+                    torch.ones_like(points3D[..., :1]),
+                ),
+                -1,
+            )
+            @ transform_matrix.T
+        )
+        points3D *= scale_factor
+        out = {
+            "points3D_xyz": points3D,
+        }
+        
+        if points_color:
+            points3D_rgb = torch.from_numpy((np.asarray(pcd.colors) * 255).astype(np.uint8))
+            out["points3D_rgb"] = points3D_rgb
+
+        return out

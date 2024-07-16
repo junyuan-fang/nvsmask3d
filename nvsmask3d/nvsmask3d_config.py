@@ -23,26 +23,30 @@ from nerfstudio.engine.trainer import TrainerConfig
 from nerfstudio.plugins.types import MethodSpecification
 
 from nerfstudio.plugins.registry_dataparser import DataParserSpecification
-from nvsmask3d.dataparsers.scannet_dataparser import ScanNetDataParserConfig
+from nvsmask3d.dataparsers.scannet_dataparser_own import ScanNetDataParserConfig
+from nvsmask3d.dataparsers.blender_dataparser import BlenderDataParserConfig
 
 NvsMask3d = MethodSpecification(
     config=TrainerConfig(
         method_name="nvsmask3d",  # TODO: rename to your own model
-        steps_per_eval_batch=10,
-        steps_per_save=10,
-        max_num_iterations=10,
+        steps_per_eval_batch=100,
+        max_num_iterations=30000,
         mixed_precision=True,
         pipeline=TemplatePipelineConfig(
             datamanager=NVSMask3dDataManagerConfig(
                 dataparser=ScanNetDataParserConfig()
             ),
             model=NVSMask3dModelConfig(
-                cull_alpha_thresh=0.005,
-                continue_cull_post_densification=False,
             ),
         ),
          optimizers={
-
+            "means": {
+                "optimizer": AdamOptimizerConfig(lr=1.6e-4, eps=1e-15),
+                "scheduler": ExponentialDecaySchedulerConfig(
+                    lr_final=1.6e-6,
+                    max_steps=30000,
+                ),
+            },
             "features_dc": {
                 "optimizer": AdamOptimizerConfig(lr=0.0025, eps=1e-15),
                 "scheduler": None,
@@ -79,4 +83,5 @@ NvsMask3d = MethodSpecification(
 
 
 ScanNetDataparser = DataParserSpecification(config=ScanNetDataParserConfig())
+
 
