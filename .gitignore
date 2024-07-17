@@ -1,4 +1,7 @@
 outputs/
+data/
+nerfstudio/
+semantic-gaussians/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

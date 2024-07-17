@@ -24,18 +24,18 @@ from nerfstudio.pipelines.base_pipeline import (
 
 
 @dataclass
-class TemplatePipelineConfig(VanillaPipelineConfig):
+class NvsMask3dPipelineConfig(VanillaPipelineConfig):
     """Configuration for pipeline instantiation"""
 
-    _target: Type = field(default_factory=lambda: TemplatePipeline)
+    _target: Type = field(default_factory=lambda: NvsMask3dPipeline)
     """target class to instantiate"""
-    datamanager: DataManagerConfig = NVSMask3dDataManagerConfig()
+    datamanager: DataManagerConfig = field(default_factory=lambda: NVSMask3dDataManagerConfig())#NVSMask3dDataManagerConfig()
     """specifies the datamanager config"""
-    model: ModelConfig = NVSMask3dModelConfig()
+    model: ModelConfig = field(default_factory=lambda: NVSMask3dModelConfig())#NVSMask3dModelConfig()
     """specifies the model config"""
 
 
-class TemplatePipeline(VanillaPipeline):
+class NvsMask3dPipeline(VanillaPipeline):
     """Template Pipeline
 
     Args:
@@ -44,7 +44,7 @@ class TemplatePipeline(VanillaPipeline):
 
     def __init__(
         self,
-        config: TemplatePipelineConfig,
+        config: NvsMask3dPipelineConfig,
         device: str,
         test_mode: Literal["test", "val", "inference"] = "val",
         world_size: int = 1,
@@ -57,7 +57,8 @@ class TemplatePipeline(VanillaPipeline):
         self.datamanager: DataManager = config.datamanager.setup(
             device=device, test_mode=test_mode, world_size=world_size, local_rank=local_rank
         )
-        
+        self.datamanager.to(device)
+
         seed_pts = None
         if (
             hasattr(self.datamanager, "train_dataparser_outputs")

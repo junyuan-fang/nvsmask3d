@@ -54,3 +54,4 @@ class NVSmask3dDataManager(FullImageDatamanager):
             local_rank=local_rank, 
             **kwargs
         )
+        metadata = self.train_dataparser_outputs.metadata

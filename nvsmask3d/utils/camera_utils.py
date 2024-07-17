@@ -165,7 +165,7 @@ def project_pix(
         c2w = c2w.to(device)
 
     points_cam = (p.to(device) - c2w[..., :3, 3]) @ c2w[..., :3, :3]
-    print(points_cam)
+    #print(points_cam)
     u = points_cam[:, 0] * fx / points_cam[:, 2] + cx  # x
     v = points_cam[:, 1] * fy / points_cam[:, 2] + cy  # y
     if return_z_depths:

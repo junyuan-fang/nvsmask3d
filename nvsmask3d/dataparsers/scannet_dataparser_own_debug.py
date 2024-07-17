@@ -83,6 +83,7 @@ class ScanNet(DataParser):
         image_dir = self.config.data / "color"
         depth_dir = self.config.data / "depth"
         pose_dir = self.config.data / "pose"
+        self.config.ply_file_path = self.config.data / (self.config.data.name + ".ply")
 
         img_dir_sorted = list(sorted(image_dir.iterdir(), key=lambda x: int(x.name.split(".")[0])))
         depth_dir_sorted = list(sorted(depth_dir.iterdir(), key=lambda x: int(x.name.split(".")[0])))
@@ -93,7 +94,7 @@ class ScanNet(DataParser):
 
         image_filenames, depth_filenames, intrinsics, poses = [], [], [], []
 
-        K = np.loadtxt(self.config.data / "intrinsic" / "intrinsic_color.txt")
+        K = np.loadtxt(self.config.data / "intrinsic" / "intrinsic_depth.txt")
         for img, depth, pose in zip(img_dir_sorted, depth_dir_sorted, pose_dir_sorted):
             pose = np.loadtxt(pose)
             pose = np.array(pose).reshape(4, 4)
@@ -114,8 +115,6 @@ class ScanNet(DataParser):
 
         # filter image_filenames and poses based on train/eval split percentage
         num_images = len(image_filenames)
-        print(num_images)
-        num_images = 800
         num_train_images = math.ceil(num_images * self.config.train_split_fraction)
         num_eval_images = num_images - num_train_images
         i_all = np.arange(num_images)
@@ -138,7 +137,7 @@ class ScanNet(DataParser):
 
         poses, transform_matrix = camera_utils.auto_orient_and_center_poses(
             poses,
-            method="none",
+            method="up",
             center_method=self.config.center_method,
         )
 
@@ -188,30 +187,29 @@ class ScanNet(DataParser):
             if point_cloud_data is not None:
                 metadata.update(point_cloud_data)
         ### test######################################################
-        from nvsmask3d.utils.camera_utils import project_pix
-        p = metadata["points3D_xyz"]#torch.Size([237360, 3])
-        colors = metadata["points3D_rgb"] / 255 #torch.Size([237360, 3])
-        fx=intrinsics[0, 0, 0].to(torch.device('cuda'))
-        fy=intrinsics[0, 1, 1].to(torch.device('cuda'))
-        cx=intrinsics[0, 0, 2].to(torch.device('cuda'))
-        cy=intrinsics[0, 1, 2].to(torch.device('cuda'))
-        c2w = poses[0, :3, :4].to(torch.device('cuda'))
-        device = torch.device('cuda')
+        # from nvsmask3d.utils.camera_utils import project_pix
+        # p = metadata["points3D_xyz"]#torch.Size([237360, 3])
+        # colors = metadata["points3D_rgb"] / 255 #torch.Size([237360, 3])
+        # fx=intrinsics[0, 0, 0].to(torch.device('cuda'))
+        # fy=intrinsics[0, 1, 1].to(torch.device('cuda'))
+        # cx=intrinsics[0, 0, 2].to(torch.device('cuda'))
+        # cy=intrinsics[0, 1, 2].to(torch.device('cuda'))
+        # c2w = poses[0, :3, :4].to(torch.device('cuda'))
+        # device = torch.device('cuda')
 
-        colors = colors.to(device)
-        uv_coords = project_pix(p, fx, fy, cx, cy, c2w, device, return_z_depths=True) # returns uv -> (pix_x,pix_y,z_depth)
-        sparse_map = torch.zeros((h, w, 3), dtype=torch.float32, device=device)
-        valid_points = (uv_coords[..., 0] >= 0) & (uv_coords[..., 0] < w) & (uv_coords[..., 1] >= 0) & (uv_coords[..., 1] < h ) &  (uv_coords[..., 2] > 0)       
-        sparse_map[[uv_coords[valid_points,1].long(), uv_coords[valid_points,0].long()]] = colors[valid_points][None,:].float()
+        # colors = colors.to(device)
+        # uv_coords = project_pix(p, fx, fy, cx, cy, c2w, device, return_z_depths=True) # returns uv -> (pix_x,pix_y,z_depth)
+        # sparse_map = torch.zeros((h, w, 3), dtype=torch.float32, device=device)
+        # valid_points = (uv_coords[..., 0] >= 0) & (uv_coords[..., 0] < w) & (uv_coords[..., 1] >= 0) & (uv_coords[..., 1] < h ) &  (uv_coords[..., 2] > 0)       
+        # sparse_map[[uv_coords[valid_points,1].long(), uv_coords[valid_points,0].long()]] = colors[valid_points][None,:].float()
 
-        print("Projected UV coordinates's shape:", uv_coords.shape)#Projected UV coordinates's shape: torch.Size([237360, 3])
-        print(sparse_map.min(), sparse_map.max())
-        from  nvsmask3d.utils.utils import save_img, image_path_to_tensor
-        from nerfstudio.utils.colormaps import apply_depth_colormap
-        gt_img = image_path_to_tensor(image_filenames[0])
-        save_img(gt_img, "/home/wangs9/junyuan/nerfstudio-nvsmask3d/nvsmask3d/data/scene_example/gt_img.png")
-        save_img(sparse_map, "/home/wangs9/junyuan/nerfstudio-nvsmask3d/nvsmask3d/data/scene_example/rendered.png",)
-        #quit()
+        # print("Projected UV coordinates's shape:", uv_coords.shape)#Projected UV coordinates's shape: torch.Size([237360, 3])
+        # print(sparse_map.min(), sparse_map.max())
+        # from  nvsmask3d.utils.utils import save_img, image_path_to_tensor
+        # gt_img = image_path_to_tensor(image_filenames[0])
+        # save_img(gt_img, "/home/wangs9/junyuan/nerfstudio-nvsmask3d/nvsmask3d/data/scene0000_00/gt_img.png")
+        # save_img(sparse_map, "/home/wangs9/junyuan/nerfstudio-nvsmask3d/nvsmask3d/data/scene0000_00/rendered.png",)
+        # quit()
         ###################################################################
         
         dataparser_outputs = DataparserOutputs(
@@ -224,7 +222,7 @@ class ScanNet(DataParser):
         )
         return dataparser_outputs
     
-    def _load_3D_points(self, ply_file_path: Path, transform_matrix: torch.Tensor, scale_factor: float, points_color: bool ) -> dict:
+    def _load_3D_points(self, ply_file_path: Path, transform_matrix: torch.Tensor,  scale_factor: float, points_color: bool, sample_rate = 0.001) -> dict:
         """Loads point clouds positions and colors from .ply
 
         Args:
@@ -246,7 +244,12 @@ class ScanNet(DataParser):
         if len(pcd.points) == 0:
             return None
 
-        points3D = torch.from_numpy(np.asarray(pcd.points, dtype=np.float32))
+        num_points = len(pcd.points)
+        sampled_indices = np.random.choice(num_points, int(num_points * sample_rate), replace=False)
+
+        #points3D = torch.from_numpy(np.asarray(pcd.points, dtype=np.float32))
+        points3D = torch.from_numpy(np.asarray(pcd.points)[sampled_indices].astype(np.float32))
+
         points3D = (
             torch.cat(
                 (
@@ -263,7 +266,8 @@ class ScanNet(DataParser):
         }
         
         if points_color:
-            points3D_rgb = torch.from_numpy((np.asarray(pcd.colors) * 255).astype(np.uint8))
+            #points3D_rgb = torch.from_numpy((np.asarray(pcd.colors) * 255).astype(np.uint8))
+            points3D_rgb = torch.from_numpy((np.asarray(pcd.colors)[sampled_indices] * 255).astype(np.uint8))
             out["points3D_rgb"] = points3D_rgb
 
         return out

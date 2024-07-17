@@ -11,7 +11,7 @@ from nvsmask3d.nvsmask3d_datamanager import (
 )
 from nvsmask3d.nvsmask3d_model import NVSMask3dModelConfig
 from nvsmask3d.nvsmask3d_pipeline import (
-    TemplatePipelineConfig,
+    NvsMask3dPipelineConfig,
 )
 from nerfstudio.configs.base_config import ViewerConfig
 from nerfstudio.data.dataparsers.nerfstudio_dataparser import NerfstudioDataParserConfig
@@ -23,8 +23,7 @@ from nerfstudio.engine.trainer import TrainerConfig
 from nerfstudio.plugins.types import MethodSpecification
 
 from nerfstudio.plugins.registry_dataparser import DataParserSpecification
-from nvsmask3d.dataparsers.scannet_dataparser_own import ScanNetDataParserConfig
-from nvsmask3d.dataparsers.blender_dataparser import BlenderDataParserConfig
+from nvsmask3d.dataparsers.scannet_dataparser import ScanNetDataParserConfig
 
 NvsMask3d = MethodSpecification(
     config=TrainerConfig(
@@ -32,9 +31,9 @@ NvsMask3d = MethodSpecification(
         steps_per_eval_batch=100,
         max_num_iterations=30000,
         mixed_precision=True,
-        pipeline=TemplatePipelineConfig(
+        pipeline=NvsMask3dPipelineConfig(
             datamanager=NVSMask3dDataManagerConfig(
-                dataparser=ScanNetDataParserConfig()
+                dataparser=ScanNetDataParserConfig(load_3D_points=True),
             ),
             model=NVSMask3dModelConfig(
             ),
@@ -82,6 +81,6 @@ NvsMask3d = MethodSpecification(
 
 
 
-ScanNetDataparser = DataParserSpecification(config=ScanNetDataParserConfig())
+ScanNetDataparser = DataParserSpecification(config=ScanNetDataParserConfig(load_3D_points=True))
 
 
