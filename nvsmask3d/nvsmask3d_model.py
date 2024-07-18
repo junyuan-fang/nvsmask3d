@@ -25,7 +25,6 @@ from nerfstudio.data.scene_box import OrientedBox
 
 
 from nerfstudio.engine.optimizers import Optimizers
-from nerfstudio.models.nerfacto import NerfactoModel, NerfactoModelConfig  # for subclassing Nerfacto model
 from nerfstudio.models.base_model import Model, ModelConfig  # for custom Model
 from nerfstudio.models.splatfacto import (
     RGB2SH,
@@ -160,25 +159,25 @@ class NVSMask3dModel(SplatfactoModel):
     #     else:
     #         self.background_color = get_color(self.config.background_color)
             
-    #we don't update means
+    ##we don't update means
     
-    # def get_gaussian_param_groups(self) -> Dict[str, List[Parameter]]:
-    #     # param_groups = {
-    #     #     name: [param]
-    #     #     for name, param in self.gauss_params.items()
-    #     #     if name != "means"
-    #     # }
-    #     # return param_groups
-    #     return {
-    #         name: [self.gauss_params[name]]
-    #         for name in ["scales", "quats", "features_dc", "features_rest", "opacities"]#exclude means
-    #     }
+    def get_gaussian_param_groups(self) -> Dict[str, List[Parameter]]:
+        # param_groups = {
+        #     name: [param]
+        #     for name, param in self.gauss_params.items()
+        #     if name != "means"
+        # }
+        # return param_groups
+        return {
+            name: [self.gauss_params[name]]
+            for name in ["scales", "quats", "features_dc", "features_rest", "opacities"]#exclude means
+        }
     
-    # #we don't cull or densify gaussians
-    # def refinement_after(self, optimizers: Optimizers, step): 
-    #     self.binarize_opacities()
-    #     return
+    #we don't cull or densify gaussians
+    def refinement_after(self, optimizers: Optimizers, step): 
+        #self.binarize_opacities()
+        return
     
-    # def binarize_opacities(self):
-    #     with torch.no_grad():
-    #         self.gauss_params['opacities'].data = (self.gauss_params['opacities'] > 0.5).float()
+    def binarize_opacities(self):
+        with torch.no_grad():
+            self.gauss_params['opacities'].data = (self.gauss_params['opacities'] > 0.5).float()

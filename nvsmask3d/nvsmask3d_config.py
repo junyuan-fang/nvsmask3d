@@ -28,12 +28,16 @@ from nvsmask3d.dataparsers.scannet_dataparser import ScanNetDataParserConfig
 NvsMask3d = MethodSpecification(
     config=TrainerConfig(
         method_name="nvsmask3d",  # TODO: rename to your own model
-        steps_per_eval_batch=100,
+        steps_per_eval_image=100,
+        steps_per_eval_batch=0,
+        steps_per_save=2000,
+        steps_per_eval_all_images=1000,
         max_num_iterations=30000,
-        mixed_precision=True,
+        mixed_precision=False,
         pipeline=NvsMask3dPipelineConfig(
             datamanager=NVSMask3dDataManagerConfig(
                 dataparser=ScanNetDataParserConfig(load_3D_points=True),
+                cache_images_type="uint8",
             ),
             model=NVSMask3dModelConfig(
             ),
@@ -62,19 +66,16 @@ NvsMask3d = MethodSpecification(
                 "optimizer": AdamOptimizerConfig(lr=0.005, eps=1e-15),
                 "scheduler": None,
             },
-            "quats": {
-                "optimizer": AdamOptimizerConfig(lr=0.001, eps=1e-15),
-                "scheduler": None,
-            },
+            "quats": {"optimizer": AdamOptimizerConfig(lr=0.001, eps=1e-15), "scheduler": None},
             "camera_opt": {
-                "optimizer": AdamOptimizerConfig(lr=1e-3, eps=1e-15),
+                "optimizer": AdamOptimizerConfig(lr=1e-4, eps=1e-15),
                 "scheduler": ExponentialDecaySchedulerConfig(
-                    lr_final=5e-5, max_steps=100
+                    lr_final=5e-7, max_steps=30000, warmup_steps=1000, lr_pre_warmup=0
                 ),
             }
          },
         viewer=ViewerConfig(num_rays_per_chunk=1 << 15),
-        vis="viewer",
+        vis="viewer+wandb",
     ),
     description="Nerfstudio method nvsmask3d.",
 )
