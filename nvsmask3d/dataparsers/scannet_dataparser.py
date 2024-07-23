@@ -57,7 +57,8 @@ class ScanNetDataParserConfig(DataParserConfig):
     """path to the .ply file containing the 3D points"""
     load_every: int = 5
     """load every n'th frame from the dense trajectory"""
-
+    load_mask: bool = True
+    mask_path: Path = Path('/home/wangs9/junyuan/openmask3d/output/2024-07-23-11-44-44-scene0000_00_/scene0000_00__masks.pt')  
 
 @dataclass
 class ScanNet(DataParser):
@@ -70,7 +71,8 @@ class ScanNet(DataParser):
         depth_dir = self.config.data / "depth"
         pose_dir = self.config.data / "pose"
         self.config.ply_file_path = self.config.data / (self.config.data.name + ".ply")
-
+        #self.config.mask_path = 
+        
         img_dir_sorted = list(sorted(image_dir.iterdir(), key=lambda x: int(x.name.split(".")[0])))
         depth_dir_sorted = list(sorted(depth_dir.iterdir(), key=lambda x: int(x.name.split(".")[0])))
         pose_dir_sorted = list(sorted(pose_dir.iterdir(), key=lambda x: int(x.name.split(".")[0])))
@@ -172,6 +174,12 @@ class ScanNet(DataParser):
             point_cloud_data = self._load_3D_points(ply_file_path, transform_matrix, scale_factor, point_color)
             if point_cloud_data is not None:
                 metadata.update(point_cloud_data)
+                
+        if self.config.load_mask:
+            #mask_path = self.config.mask_path
+            mask_data = self._load_mask(self.config.mask_path)
+            if mask_data is not None :
+                metadata.update(mask_data)
         ### test######################################################
         # from nvsmask3d.utils.camera_utils import project_pix
         # p = metadata["points3D_xyz"]#torch.Size([237360, 3])
@@ -208,7 +216,7 @@ class ScanNet(DataParser):
         )
         return dataparser_outputs
     
-    def _load_3D_points(self, ply_file_path: Path, transform_matrix: torch.Tensor,  scale_factor: float, points_color: bool, sample_rate = 0.001) -> dict:
+    def _load_3D_points(self, ply_file_path: Path, transform_matrix: torch.Tensor,  scale_factor: float, points_color: bool, sample_rate = 1) -> dict:
         """Loads point clouds positions and colors from .ply
 
         Args:
@@ -256,4 +264,12 @@ class ScanNet(DataParser):
             points3D_rgb = torch.from_numpy((np.asarray(pcd.colors)[sampled_indices] * 255).astype(np.uint8))
             out["points3D_rgb"] = points3D_rgb
 
+        return out
+    def _load_mask(self, mask_path: Path):
+        masks = torch.load(mask_path)#torch.Size([points_num, class_num])
+        cls_num = masks.shape[1]
+        out = {
+            "points3D_mask": masks,
+            "points3D_cls_num": cls_num
+        }
         return out

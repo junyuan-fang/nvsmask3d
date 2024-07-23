@@ -17,3 +17,15 @@ ns-train nvsmask3d --data nvsmask3d/data/scene_example
 ns-train nvsmask3d --data nvsmask3d/data/scene0000_00_ --vis viewer+wandb
 
 ```
+
+## Single scene predction path
+```
+/home/wangs9/junyuan/openmask3d/output/2024-07-23-11-44-44-scene0000_00_/scene0000_00__masks.pt
+```
+
+[INFO] Shape of instance masks: (1990518, 166)
+
+1) Start local server: 
+    cd /home/wangs9/junyuan/openmask3d/openmask3d/saved/scene0000_00_/visualizations/scene0000_00_; python -m http.server 6008
+2) Open in browser:
+    http://0.0.0.0:6008

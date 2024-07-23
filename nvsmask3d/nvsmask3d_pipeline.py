@@ -10,8 +10,10 @@ import torch.distributed as dist
 from torch.cuda.amp.grad_scaler import GradScaler
 from torch.nn.parallel import DistributedDataParallel as DDP
 
+
 from nvsmask3d.nvsmask3d_datamanager import NVSMask3dDataManagerConfig
 from nvsmask3d.nvsmask3d_model import NVSMask3dModel, NVSMask3dModelConfig
+
 from nerfstudio.data.datamanagers.base_datamanager import (
     DataManager,
     DataManagerConfig,
@@ -21,7 +23,7 @@ from nerfstudio.pipelines.base_pipeline import (
     VanillaPipeline,
     VanillaPipelineConfig,
 )
-
+from nerfstudio.viewer.viewer_elements import *
 
 @dataclass
 class NvsMask3dPipelineConfig(VanillaPipelineConfig):
@@ -88,3 +90,16 @@ class NvsMask3dPipeline(VanillaPipeline):
                 NVSMask3dModel, DDP(self._model, device_ids=[local_rank], find_unused_parameters=True)
             )
             dist.barrier(device_ids=[local_rank])
+        
+        if(
+            hasattr(self.datamanager, "train_dataparser_outputs")
+            and "points3D_cls_num" in self.datamanager.train_dataparser_outputs.metadata
+        ):  
+            max_cls_num = self.datamanager.train_dataparser_outputs.metadata["points3D_cls_num"]
+            self.segmant_gaussian = ViewerSlider (name="Segment Gaussian by the class agnostic ID ", min_value=0, max_value=max_cls_num, step=1, default_value=0, disabled=False,cb_hook=self._update_masked_scene_with_cls, visible=True)
+            print(self.model.config)
+            print("----------------------------------------------------------------------")
+    
+    def _update_masked_scene_with_cls(self, value):
+        self.model.update_masked_scene_with_cls(value)
+        return
