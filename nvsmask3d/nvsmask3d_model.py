@@ -13,6 +13,12 @@ os.environ['TORCH_CUDA_ARCH_LIST'] = "7.5;8.0"
 # 启用 TensorFloat32
 torch.set_float32_matmul_precision('high')
 from typing import Dict, List, Literal, Optional, Tuple, Type, Union
+
+try:
+    from gsplat.rendering import rasterization
+except ImportError:
+    print("Please install gsplat>=1.0.0")
+    
 from torch.nn import Parameter
 from nerfstudio.cameras.camera_optimizers import CameraOptimizer
 from pytorch_msssim import SSIM
@@ -20,6 +26,7 @@ from nerfstudio.utils.colors import get_color
 import math
 from nerfstudio.utils.rich_utils import CONSOLE
 from nerfstudio.data.scene_box import OrientedBox
+from nerfstudio.cameras.cameras import Cameras
 
 
 
@@ -32,6 +39,9 @@ from nerfstudio.models.splatfacto import (
     SplatfactoModelConfig,
     get_viewmat,
 )
+
+from nerfstudio.viewer.viewer_elements import *
+
 
 def random_quat_tensor(N):
     """
@@ -86,9 +96,50 @@ class NVSMask3dModel(SplatfactoModel):
 
     config: NVSMask3dModelConfig
     
+    def __init__(
+        self,
+        *args,
+        seed_points: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
+        metadata: Optional[Dict] = None,
+        **kwargs,
+    ):
+        self.seed_points = seed_points
+        self.metadata = metadata
+        super().__init__(*args, **kwargs)
+    #########viewer sliders#####
+        try:
+            self.max_cls_num = self.metadata["points3D_cls_num"]
+        except:
+            self.max_cls_num = 0
+            
+        self.segmant_gaussian = ViewerSlider (name="Segment Gaussian by the class agnostic ID ", min_value=1, max_value=self.max_cls_num, step=1, default_value=1, disabled=False,cb_hook=self._update_masked_scene_with_cls, visible=True)
+    
+    def _update_masked_scene_with_cls(self, number: ViewerSlider) -> None:
+        if number.value > self.metadata["points3D_cls_num"]:
+            number.value = self.metadata["points3D_cls_num"]
+            return   
+        elif number.value < 1:
+            number.value = 1
+            return
+        self.max_cls_num = number.value
+    ############################    
+        
     def populate_modules(self):
         super().populate_modules()
+        
+    # def get_outputs(self, camera: Cameras) -> Dict[str, Union[torch.Tensor, List]]:
+    #     """Takes in a camera and returns a dictionary of outputs.
 
+    #     Args:
+    #         camera: The camera(s) for which output images are rendered. It should have
+    #         all the needed information to compute the outputs.
+
+    #     Returns:
+    #         Outputs of model. (ie. rendered colors)
+    #     """
+    #     outputs = super().get_outputs(camera)
+    #     return outputs
+        
     # def populate_modules(self):
     #     if self.seed_points is not None and not self.config.random_init:
     #         means = torch.nn.Parameter(self.seed_points[0])  # (Location, Color)
