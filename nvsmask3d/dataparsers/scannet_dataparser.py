@@ -241,8 +241,8 @@ class ScanNet(DataParser):
         num_points = len(pcd.points)
         sampled_indices = np.random.choice(num_points, int(num_points * sample_rate), replace=False)
 
-        #points3D = torch.from_numpy(np.asarray(pcd.points, dtype=np.float32))
-        points3D = torch.from_numpy(np.asarray(pcd.points)[sampled_indices].astype(np.float32))
+        points3D = torch.from_numpy(np.asarray(pcd.points, dtype=np.float32))
+        #points3D = torch.from_numpy(np.asarray(pcd.points)[sampled_indices].astype(np.float32))
         
         points3D = (
             torch.cat(
