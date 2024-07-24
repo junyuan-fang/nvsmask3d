@@ -257,6 +257,7 @@ class ScanNet(DataParser):
         points3D *= scale_factor
         out = {
             "points3D_xyz": points3D,
+            "points3D_num": points3D.shape[0],
         }
         
         if points_color:

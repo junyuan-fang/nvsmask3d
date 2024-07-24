@@ -90,18 +90,4 @@ class NvsMask3dPipeline(VanillaPipeline):
             )
             dist.barrier(device_ids=[local_rank])
         
-    #     if(
-    #         hasattr(self.datamanager, "train_dataparser_outputs")
-    #         and "points3D_cls_num" in self.datamanager.train_dataparser_outputs.metadata
-    #     ):  
-    #         max_cls_num = self.datamanager.train_dataparser_outputs.metadata["points3D_cls_num"]
 
-    #         self.segmant_gaussian = ViewerSlider (name="Segment Gaussian by the class agnostic ID ", min_value=0, max_value=max_cls_num-1, step=1, default_value=0, disabled=False,cb_hook=self._update_masked_scene_with_cls, visible=True)
-    
-    # def _update_masked_scene_with_cls(self, number: ViewerSlider):
-    #     if number.value > self.datamanager.train_dataparser_outputs.metadata["points3D_cls_num"] - 1:
-    #         number.value = self.datamanager.train_dataparser_outputs.metadata["points3D_cls_num"] - 1
-    #         return   
-    #     elif number.value < 0:
-    #         number.value = 0
-    #         return
