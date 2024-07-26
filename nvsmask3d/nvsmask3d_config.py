@@ -24,6 +24,8 @@ from nerfstudio.plugins.types import MethodSpecification
 
 from nerfstudio.plugins.registry_dataparser import DataParserSpecification
 from nvsmask3d.dataparsers.scannet_dataparser import ScanNetDataParserConfig
+from nvsmask3d.encoders.openclip_encoder import OpenCLIPNetworkConfig
+
 
 NvsMask3d = MethodSpecification(
     config=TrainerConfig(
@@ -41,8 +43,10 @@ NvsMask3d = MethodSpecification(
             ),
             model=NVSMask3dModelConfig(    
                 #warmup_length = 7500
-
             ),
+            # network=OpenCLIPNetworkConfig(
+            #     clip_model_type="ViT-B-16", clip_model_pretrained="laion2b_s34b_b88k", clip_n_dims=512
+            # ),
         ),
          optimizers={
             "means": {

@@ -112,7 +112,7 @@ class NVSMask3dModel(SplatfactoModel):
     ########viewer sliders#####
         self.max_cls_num = max(0,self.points3D_cls_num)
         self.segmant_gaussian = ViewerSlider(
-            name="Segment Gaussian by the class agnostic ID",
+            name="Segment Gaussians by the class agnostic ID",
             min_value=0,
             max_value=self.max_cls_num - 1,
             step=1,
@@ -120,7 +120,8 @@ class NVSMask3dModel(SplatfactoModel):
             disabled=False,
             cb_hook=self._update_masked_scene_with_cls,
             visible=True
-        )    
+        )
+        se    
     def _update_masked_scene_with_cls(self, number: ViewerSlider) -> None:
         if number.value > self.metadata["points3D_cls_num"]:
             number.value = self.metadata["points3D_cls_num"]
@@ -242,7 +243,7 @@ class NVSMask3dModel(SplatfactoModel):
             tile_size=BLOCK_WIDTH,
             packed=False,
             near_plane=0.01,
-            far_plane=1e10,
+            far_plane=1e10, 
             render_mode=render_mode,
             sh_degree=sh_degree_to_use,
             sparse_grad=False,
