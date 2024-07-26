@@ -39,7 +39,9 @@ NvsMask3d = MethodSpecification(
                 dataparser=ScanNetDataParserConfig(load_3D_points=True),
                 cache_images_type="uint8",
             ),
-            model=NVSMask3dModelConfig(
+            model=NVSMask3dModelConfig(    
+                #warmup_length = 7500
+
             ),
         ),
          optimizers={

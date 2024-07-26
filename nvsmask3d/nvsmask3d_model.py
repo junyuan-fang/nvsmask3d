@@ -30,7 +30,7 @@ from nerfstudio.cameras.cameras import Cameras
 
 
 
-
+from nerfstudio.cameras.camera_optimizers import CameraOptimizer, CameraOptimizerConfig
 from nerfstudio.engine.optimizers import Optimizers
 from nerfstudio.models.base_model import Model, ModelConfig  # for custom Model
 from nerfstudio.models.splatfacto import (
@@ -83,6 +83,8 @@ class NVSMask3dModelConfig(SplatfactoModelConfig):
     _target: Type = field(default_factory=lambda: NVSMask3dModel)
     
     random_init: bool = False
+    camera_optimizer: CameraOptimizerConfig = field(default_factory=lambda: CameraOptimizerConfig(mode="off"))#off #SO3xR3 #SE3
+    """Config of the camera optimizer to use"""
     #use_scale_regularization: bool = true
     #max_gauss_ratio: float = 1.5
     #refine_every: int = 100 # we don't cull or densify gaussians
@@ -105,10 +107,10 @@ class NVSMask3dModel(SplatfactoModel):
         **kwargs,
     ):
         self.metadata = metadata
-        self.cls_num = 0
+        self.cls_index = 0
         super().__init__(seed_points=seed_points, *args,**kwargs)
     ########viewer sliders#####
-        self.max_cls_num = max(0,self.num_points)
+        self.max_cls_num = max(0,self.points3D_cls_num)
         self.segmant_gaussian = ViewerSlider(
             name="Segment Gaussian by the class agnostic ID",
             min_value=0,
@@ -126,7 +128,7 @@ class NVSMask3dModel(SplatfactoModel):
         elif number.value < 0:
             number.value = 0
             return
-        self.cls_num = number.value
+        self.cls_index = number.value
     
     
     
@@ -183,7 +185,7 @@ class NVSMask3dModel(SplatfactoModel):
         # Apply mask
         points3D_mask = self.points3D_mask  # Assumes this function returns a mask of appropriate shape
         if points3D_mask is not None:
-            mask_indices = points3D_mask[:, self.cls_num] > 0
+            mask_indices = points3D_mask[:, self.cls_index] > 0
             opacities_masked = opacities_crop[mask_indices]
             means_masked = means_crop[mask_indices]
             features_dc_masked = features_dc_crop[mask_indices]
@@ -331,3 +333,6 @@ class NVSMask3dModel(SplatfactoModel):
     @property
     def points3D_mask(self):
         return self.metadata["points3D_mask"]
+    @property
+    def points3D_cls_num(self):
+        return self.metadata["points3D_cls_num"]
