@@ -92,9 +92,6 @@ class NVSMask3dModelConfig(SplatfactoModelConfig):
     #warmup_length = 500
 
 
-
-
-
 class NVSMask3dModel(SplatfactoModel):
     """Template Model."""
 
@@ -125,12 +122,21 @@ class NVSMask3dModel(SplatfactoModel):
             visible=True
         )
         
+        self.output_text = ViewerText(
+            name="Output",
+            default_value="Results will be displayed here",
+            disabled=True,  # Make it non-interactive
+            visible=True,
+            hint="Output will be displayed here"
+        )
+        
         self.segment_gaussian_positives = ViewerButton(
             name="Segment Gaussians with Positives", 
             cb_hook=self._segment_gaussians, 
             visible=True)
 
     def _segment_gaussians(self, element):
+        self.output_text.value = "Segmenting Gaussians..."
         return
     
     def _update_masked_scene_with_cls(self, number: ViewerSlider) -> None:

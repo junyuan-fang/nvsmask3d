@@ -48,7 +48,7 @@ class OpenCLIPNetwork(BaseImageEncoder):
         self.model = model.to("cuda")
         self.clip_n_dims = self.config.clip_n_dims
 
-        #viewers
+        ############viewers############
         self.scannet_checkbox= ViewerCheckbox(
             name="Use ScanNet200",
             default_value=False,
@@ -61,6 +61,7 @@ class OpenCLIPNetwork(BaseImageEncoder):
             cb_hook=self._set_positives, 
             hint="Seperate classes with ;")
         
+        ##############################
 
         self.positives = self.positive_input.value.split(";")
         self.negatives = self.config.negatives
@@ -93,11 +94,6 @@ class OpenCLIPNetwork(BaseImageEncoder):
         
     def _set_positives(self, element):
         self.positives = element.value.split(";")
-    #     self.positives = text_list
-    #     with torch.no_grad():
-    #         tok_phrases = torch.cat([self.tokenizer(phrase) for phrase in self.positives]).to("cuda")
-    #         self.pos_embeds = self.model.encode_text(tok_phrases)
-    #     self.pos_embeds /= self.pos_embeds.norm(dim=-1, keepdim=True)
 
     def get_relevancy(self, image: torch.Tensor, positive_id: int) -> torch.Tensor:
         # Encode the image to get the embedding
