@@ -24,7 +24,7 @@ from nerfstudio.plugins.types import MethodSpecification
 
 from nerfstudio.plugins.registry_dataparser import DataParserSpecification
 from nvsmask3d.dataparsers.scannet_dataparser import ScanNetDataParserConfig
-from nvsmask3d.encoders.openclip_encoder import OpenCLIPNetworkConfig
+from nvsmask3d.encoders.open_clip_encoder import OpenCLIPNetworkConfig
 
 
 NvsMask3d = MethodSpecification(
