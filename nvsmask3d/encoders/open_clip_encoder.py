@@ -11,7 +11,9 @@ except ImportError:
 
 from nvsmask3d.encoders.image_encoder import (BaseImageEncoder,
                                          BaseImageEncoderConfig)
-from nerfstudio.viewer.viewer_elements import ViewerText
+from nerfstudio.viewer.viewer_elements import *
+from nvsmask3d.utils.utils import SCANNET200_CLASSES
+
 
 
 @dataclass
@@ -46,7 +48,19 @@ class OpenCLIPNetwork(BaseImageEncoder):
         self.model = model.to("cuda")
         self.clip_n_dims = self.config.clip_n_dims
 
-        self.positive_input = ViewerText("LERF Positives", "", cb_hook=self.gui_cb)
+        #viewers
+        self.scannet_checkbox= ViewerCheckbox(
+            name="Use ScanNet200",
+            default_value=False,
+            cb_hook=self._scannet_checkbox_update,
+        )
+        
+        self.positive_input = ViewerText(
+            name = "NVSMask3D Positives", 
+            default_value = "object;things;stuff;texture", 
+            cb_hook=self._set_positives, 
+            hint="Seperate classes with ;")
+        
 
         self.positives = self.positive_input.value.split(";")
         self.negatives = self.config.negatives
@@ -72,28 +86,36 @@ class OpenCLIPNetwork(BaseImageEncoder):
     @property
     def embedding_dim(self) -> int:
         return self.config.clip_n_dims
-    
-    def gui_cb(self,element):
-        self.set_positives(element.value.split(";"))
 
-    def set_positives(self, text_list):
-        self.positives = text_list
-        with torch.no_grad():
-            tok_phrases = torch.cat([self.tokenizer(phrase) for phrase in self.positives]).to("cuda")
-            self.pos_embeds = self.model.encode_text(tok_phrases)
-        self.pos_embeds /= self.pos_embeds.norm(dim=-1, keepdim=True)
+    def _scannet_checkbox_update(self, element):
+        self.positive_input.set_disabled(element.value)
+        self.positives = SCANNET200_CLASSES
+        
+    def _set_positives(self, element):
+        self.positives = element.value.split(";")
+    #     self.positives = text_list
+    #     with torch.no_grad():
+    #         tok_phrases = torch.cat([self.tokenizer(phrase) for phrase in self.positives]).to("cuda")
+    #         self.pos_embeds = self.model.encode_text(tok_phrases)
+    #     self.pos_embeds /= self.pos_embeds.norm(dim=-1, keepdim=True)
 
-    def get_relevancy(self, embed: torch.Tensor, positive_id: int) -> torch.Tensor:
+    def get_relevancy(self, image: torch.Tensor, positive_id: int) -> torch.Tensor:
+        # Encode the image to get the embedding
+        embed = self.encode_image(image)
+
+        # Ensure phrases_embeds has the same dtype as embed
         phrases_embeds = torch.cat([self.pos_embeds, self.neg_embeds], dim=0)
         p = phrases_embeds.to(embed.dtype)  # phrases x 512
-        output = torch.mm(embed, p.T)  # rays x phrases
-        positive_vals = output[..., positive_id : positive_id + 1]  # rays x 1
-        negative_vals = output[..., len(self.positives) :]  # rays x N_phrase
-        repeated_pos = positive_vals.repeat(1, len(self.negatives))  # rays x N_phrase
 
-        sims = torch.stack((repeated_pos, negative_vals), dim=-1)  # rays x N-phrase x 2
-        softmax = torch.softmax(10 * sims, dim=-1)  # rays x n-phrase x 2
-        best_id = softmax[..., 0].argmin(dim=1)  # rays x 2
+        # Compute the relevancy
+        output = torch.mm(embed, p.T)  # embedding x phrases
+        positive_vals = output[..., positive_id : positive_id + 1]  # embedding x 1
+        negative_vals = output[..., len(self.positives) :]  # embedding x N_phrase
+        repeated_pos = positive_vals.repeat(1, len(self.negatives))  # embedding x N_phrase
+
+        sims = torch.stack((repeated_pos, negative_vals), dim=-1)  # embedding x N-phrase x 2
+        softmax = torch.softmax(10 * sims, dim=-1)  # embedding x n-phrase x 2
+        best_id = softmax[..., 0].argmin(dim=1)  # embedding x 2
         return torch.gather(softmax, 1, best_id[..., None, None].expand(best_id.shape[0], len(self.negatives), 2))[
             :, 0, :
         ]

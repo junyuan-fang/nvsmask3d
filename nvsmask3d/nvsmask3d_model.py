@@ -21,7 +21,8 @@ except ImportError:
     
 from torch.nn import Parameter
 from nerfstudio.cameras.camera_optimizers import CameraOptimizer
-from pytorch_msssim import SSIM
+from nvsmask3d.encoders.image_encoder import BaseImageEncoder
+
 from nerfstudio.utils.colors import get_color
 import math
 from nerfstudio.utils.rich_utils import CONSOLE
@@ -112,11 +113,6 @@ class NVSMask3dModel(SplatfactoModel):
         self.max_cls_num = max(0,self.points3D_cls_num)
         self.positives = self.negatives = ["object", "things", "stuff", "texture"]
         #viewers
-        self.scannet_checkbox= ViewerCheckbox(
-            name="Use ScanNet200",
-            default_value=False,
-            cb_hook=self._scannet_checkbox_update,
-        )
         
         self.segmant_gaussian = ViewerSlider(
             name="Segment Gaussians by the class agnostic ID",
@@ -129,36 +125,11 @@ class NVSMask3dModel(SplatfactoModel):
             visible=True
         )
         
-        self.positive_input = ViewerText(
-            name = "NVSMask3D Positives", 
-            default_value = "object;things;stuff;texture", 
-            cb_hook=self._set_positives, 
-            hint="Seperate classes with ;")
-        
         self.segment_gaussian_positives = ViewerButton(
             name="Segment Gaussians with Positives", 
             cb_hook=self._segment_gaussians, 
             visible=True)
-    def _scannet_checkbox_update(self, element):
-        self.positive_input.set_disabled(element.value)
-        self.positives = ['wall', 'chair', 'floor', 'table', 'door', 'couch', 'cabinet', 'shelf', 'desk', 'office chair', 'bed', 'pillow', 'sink', 'picture', 'window', 'toilet', 'bookshelf', 'monitor', 'curtain', 'book', 'armchair', 'coffee table', 'box',
-'refrigerator', 'lamp', 'kitchen cabinet', 'towel', 'clothes', 'tv', 'nightstand', 'counter', 'dresser', 'stool', 'cushion', 'plant', 'ceiling', 'bathtub', 'end table', 'dining table', 'keyboard', 'bag', 'backpack', 'toilet paper',
-'printer', 'tv stand', 'whiteboard', 'blanket', 'shower curtain', 'trash can', 'closet', 'stairs', 'microwave', 'stove', 'shoe', 'computer tower', 'bottle', 'bin', 'ottoman', 'bench', 'board', 'washing machine', 'mirror', 'copier',
-'basket', 'sofa chair', 'file cabinet', 'fan', 'laptop', 'shower', 'paper', 'person', 'paper towel dispenser', 'oven', 'blinds', 'rack', 'plate', 'blackboard', 'piano', 'suitcase', 'rail', 'radiator', 'recycling bin', 'container',
-'wardrobe', 'soap dispenser', 'telephone', 'bucket', 'clock', 'stand', 'light', 'laundry basket', 'pipe', 'clothes dryer', 'guitar', 'toilet paper holder', 'seat', 'speaker', 'column', 'bicycle', 'ladder', 'bathroom stall', 'shower wall',
-'cup', 'jacket', 'storage bin', 'coffee maker', 'dishwasher', 'paper towel roll', 'machine', 'mat', 'windowsill', 'bar', 'toaster', 'bulletin board', 'ironing board', 'fireplace', 'soap dish', 'kitchen counter', 'doorframe',
-'toilet paper dispenser', 'mini fridge', 'fire extinguisher', 'ball', 'hat', 'shower curtain rod', 'water cooler', 'paper cutter', 'tray', 'shower door', 'pillar', 'ledge', 'toaster oven', 'mouse', 'toilet seat cover dispenser',
-'furniture', 'cart', 'storage container', 'scale', 'tissue box', 'light switch', 'crate', 'power outlet', 'decoration', 'sign', 'projector', 'closet door', 'vacuum cleaner', 'candle', 'plunger', 'stuffed animal', 'headphones', 'dish rack',
-'broom', 'guitar case', 'range hood', 'dustpan', 'hair dryer', 'water bottle', 'handicap bar', 'purse', 'vent', 'shower floor', 'water pitcher', 'mailbox', 'bowl', 'paper bag', 'alarm clock', 'music stand', 'projector screen', 'divider',
-'laundry detergent', 'bathroom counter', 'object', 'bathroom vanity', 'closet wall', 'laundry hamper', 'bathroom stall door', 'ceiling light', 'trash bin', 'dumbbell', 'stair rail', 'tube', 'bathroom cabinet', 'cd case', 'closet rod',
-'coffee kettle', 'structure', 'shower head', 'keyboard piano', 'case of water bottles', 'coat rack', 'storage organizer', 'folded chair', 'fire alarm', 'power strip', 'calendar', 'poster', 'potted plant', 'luggage', 'mattress']
-    def _set_positives(self, element):
-        self.positives = element.value.split(";")
-        # self.positives = element.value.split(";")
-        # with torch.no_grad():
-        #     tok_phrases = torch.cat([self.tokenizer(phrase) for phrase in self.positives]).to("cuda")
-        #     self.pos_embeds = self.model.encode_text(tok_phrases)
-        # self.pos_embeds /= self.pos_embeds.norm(dim=-1, keepdim=True)
+
     def _segment_gaussians(self, element):
         return
     
@@ -174,6 +145,8 @@ class NVSMask3dModel(SplatfactoModel):
     
     def populate_modules(self):
         super().populate_modules()
+        self.image_encoder: BaseImageEncoder = self.kwargs["image_encoder"]
+
         
     def get_outputs(self, camera: Cameras) -> Dict[str, Union[torch.Tensor, List]]:
         """Takes in a camera and returns a dictionary of outputs.

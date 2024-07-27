@@ -13,6 +13,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 
 from nvsmask3d.nvsmask3d_datamanager import NVSMask3dDataManagerConfig
 from nvsmask3d.nvsmask3d_model import NVSMask3dModel, NVSMask3dModelConfig
+from nvsmask3d.encoders.image_encoder import BaseImageEncoderConfig, BaseImageEncoder
 
 from nerfstudio.data.datamanagers.base_datamanager import (
     DataManager,
@@ -34,7 +35,8 @@ class NvsMask3dPipelineConfig(VanillaPipelineConfig):
     """specifies the datamanager config"""
     model: ModelConfig = field(default_factory=lambda: NVSMask3dModelConfig())#NVSMask3dModelConfig()
     """specifies the model config"""
-
+    network: BaseImageEncoderConfig = BaseImageEncoderConfig()
+    """specifies the vision-language network config"""
 
 class NvsMask3dPipeline(VanillaPipeline):
     """Template Pipeline
@@ -55,8 +57,14 @@ class NvsMask3dPipeline(VanillaPipeline):
         super(VanillaPipeline, self).__init__()
         self.config = config
         self.test_mode = test_mode
+        
+        self.image_encoder: BaseImageEncoder = config.network.setup()
+        
         self.datamanager: DataManager = config.datamanager.setup(
-            device=device, test_mode=test_mode, world_size=world_size, local_rank=local_rank
+            device=device, 
+            test_mode=test_mode, 
+            world_size=world_size, 
+            local_rank=local_rank
         )
         self.datamanager.to(device)
 
@@ -75,7 +83,8 @@ class NvsMask3dPipeline(VanillaPipeline):
         self._model = config.model.setup(
             scene_box=self.datamanager.train_dataset.scene_box,
             num_train_data=len(self.datamanager.train_dataset),
-            metadata=self.datamanager.train_dataset.metadata,   
+            metadata=self.datamanager.train_dataset.metadata,
+            image_encoder=self.image_encoder,   
             device=device,
             grad_scaler=grad_scaler,
             seed_points=seed_pts,# add seed points from metadata
