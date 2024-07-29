@@ -41,9 +41,7 @@ from nerfstudio.models.splatfacto import (
     get_viewmat,
 )
 from nerfstudio.viewer.viewer_elements import *
-
-from nerfstudio.viewer.viewer_elements import *
-
+from nvsmask3d.utils.camera_utils import object_optimal_k_camera_poses
 
 def random_quat_tensor(N):
     """
@@ -109,6 +107,7 @@ class NVSMask3dModel(SplatfactoModel):
         super().__init__(seed_points=seed_points, *args,**kwargs)
         self.max_cls_num = max(0,self.points3D_cls_num)
         self.positives = self.negatives = ["object", "things", "stuff", "texture"]
+        self.inference = False
         #viewers
         
         self.segmant_gaussian = ViewerSlider(
@@ -137,6 +136,9 @@ class NVSMask3dModel(SplatfactoModel):
 
     def _segment_gaussians(self, element):
         self.output_text.value = "Segmenting Gaussians..."
+        #get optimal cameraposes use mask proposal and poses
+        optimal_cameraposes = object_optimal_k_camera_poses(self.points3D_mask, self.metadata["poses"], k_poses = 2)
+        #call get_outputs to render pictures of the rgb_mask
         return
     
     def _update_masked_scene_with_cls(self, number: ViewerSlider) -> None:

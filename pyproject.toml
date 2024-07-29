@@ -13,4 +13,6 @@ include = ["nvsmask3d*"]
 method-template = 'nvsmask3d.nvsmask3d_config:NvsMask3d'
 custom-dataparser = 'nvsmask3d.nvsmask3d_config:ScanNetDataparser'
 
-
+[project.scripts]
+# export viewer scripts
+ns-viewer = "nvsmask3d.nvsmask3d_run_viewer:entrypoint"

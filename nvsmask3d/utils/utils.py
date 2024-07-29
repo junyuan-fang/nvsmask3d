@@ -44,7 +44,6 @@ SCANNET200_CLASSES = ['wall', 'chair', 'floor', 'table', 'door', 'couch', 'cabin
 # Depth Scale Factor m to mm
 SCALE_FACTOR = 0.001
 
-
 def video_to_frames(
     video_path: Path, image_dir: Path("./data/frames"), force: bool = False
 ):

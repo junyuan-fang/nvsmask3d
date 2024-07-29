@@ -14,6 +14,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from nvsmask3d.nvsmask3d_datamanager import NVSMask3dDataManagerConfig
 from nvsmask3d.nvsmask3d_model import NVSMask3dModel, NVSMask3dModelConfig
 from nvsmask3d.encoders.image_encoder import BaseImageEncoderConfig, BaseImageEncoder
+from nvsmask3d.encoders.open_clip_encoder import OpenCLIPNetworkConfig
 
 from nerfstudio.data.datamanagers.base_datamanager import (
     DataManager,
@@ -35,7 +36,7 @@ class NvsMask3dPipelineConfig(VanillaPipelineConfig):
     """specifies the datamanager config"""
     model: ModelConfig = field(default_factory=lambda: NVSMask3dModelConfig())#NVSMask3dModelConfig()
     """specifies the model config"""
-    network: BaseImageEncoderConfig = BaseImageEncoderConfig()
+    network: BaseImageEncoderConfig = OpenCLIPNetworkConfig()
     """specifies the vision-language network config"""
 
 class NvsMask3dPipeline(VanillaPipeline):
@@ -57,7 +58,6 @@ class NvsMask3dPipeline(VanillaPipeline):
         super(VanillaPipeline, self).__init__()
         self.config = config
         self.test_mode = test_mode
-        
         self.image_encoder: BaseImageEncoder = config.network.setup()
         
         self.datamanager: DataManager = config.datamanager.setup(
