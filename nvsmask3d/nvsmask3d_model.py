@@ -141,7 +141,10 @@ class NVSMask3dModel(SplatfactoModel):
     def _segment_gaussians(self, element):
         self.output_text.value = "Segmenting Gaussians..."
         #get optimal cameraposes use mask proposal and poses
-        optimal_cameraposes = object_optimal_k_camera_poses(self.points3D_mask, self.metadata["poses"], k_poses = 2)
+        import time
+        start = time.time()
+        optimal_cameraposes = object_optimal_k_camera_poses(seed_points_0 = self.seed_points[0],class_agnostic_3d_mask=self.points3D_mask[:,self.cls_index], camera=self.cameras, k_poses = 2)
+        print("Time taken to get optimal camera poses: ", time.time() - start)
         #call get_outputs to render pictures of the rgb_mask
         return
     

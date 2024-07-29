@@ -12,18 +12,18 @@ from torch import Tensor
 OPENGL_TO_OPENCV = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
 
 # give k optimal camera poses from pose data
-def object_optimal_k_camera_poses(class_agnostic_3d_mask, camera: Cameras,k_poses = 2, camera_scale_fac = 1):# after training 
+def object_optimal_k_camera_poses(seed_points_0, class_agnostic_3d_mask, camera: Cameras,k_poses = 2, camera_scale_fac = 1):# after training 
     optimized_camera_to_world = camera.camera_to_worlds
     viewmat = get_viewmat(optimized_camera_to_world)# from c2w to w2c
     K = camera.get_intrinsics_matrices().cuda()
-    W, H = int(camera.width.item()), int(camera.height.item())
+    W, H = int(camera.width[0].item()), int(camera.height[0].item())
     camera.rescale_output_resolution(camera_scale_fac)  # type: ignore
     
     visibility_scores = []
     
     # calculate visibility score for each pose
-    for pose in viewmat:
-        score = compute_visibility_score(class_agnostic_3d_mask, pose, K, W, H)
+    for i, pose in enumerate(viewmat):
+        score = compute_visibility_score(seed_points_0, class_agnostic_3d_mask, pose, K[i], W, H)
         visibility_scores.append(score)
     
     # select top k poses
@@ -32,11 +32,13 @@ def object_optimal_k_camera_poses(class_agnostic_3d_mask, camera: Cameras,k_pose
     
     return best_poses
 
-def compute_visibility_score(class_agnostic_3d_mask, camera_pose, K, W, H):
+def compute_visibility_score(p, class_agnostic_3d_mask, camera_pose, K, W, H):
     """
     compute 3D mask visibility score
 
-    :param class_agnostic_3d_mask: torch.Tensor, size is (N, 3), for masks
+    :param p: torch.Tensor, size is (N, 3), for points
+    :param class_agnostic_3d_mask: torch.Tensor, size is (N, 1), for masks
+
     :param camera_pose: torch.Tensor, size is (3, 4), for c2w poses
     :param K: torch.Tensor, size is (3, 3), for intrinsics
     :param W: int, imgage width
@@ -44,22 +46,23 @@ def compute_visibility_score(class_agnostic_3d_mask, camera_pose, K, W, H):
     :return: torch.Tensor, visibility score
     """
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    
+    # Convert numpy array to torch tensor and move to GPU
+    class_agnostic_3d_mask = torch.from_numpy(class_agnostic_3d_mask).to(device)
+
     # take camera parameters
     fx = K[0, 0].to(device)
     fy = K[1, 1].to(device)
     cx = K[0, 2].to(device)
     cy = K[1, 2].to(device)
     
-    # move to GPU
-    p = class_agnostic_3d_mask.to(device)
     c2w = camera_pose.to(device)
-    
     # 2D plane
     uv_coords = project_pix(p, fx, fy, cx, cy, c2w, device, return_z_depths=True)  # returns uv -> (pix_x, pix_y, z_depth)
     valid_points = (uv_coords[..., 0] >= 0) & (uv_coords[..., 0] < W) & (uv_coords[..., 1] >= 0) & (uv_coords[..., 1] < H) & (uv_coords[..., 2] > 0)
-    visibility_score = valid_points.float().mean().item()
+    # Apply mask to valid points
+    valid_points = valid_points & class_agnostic_3d_mask.bool()
     
+    visibility_score = valid_points.float().mean().item()
     return visibility_score
 
 # ndc space is x to the right y up. uv space is x to the right, y down.
