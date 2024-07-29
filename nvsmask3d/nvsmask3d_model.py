@@ -100,10 +100,14 @@ class NVSMask3dModel(SplatfactoModel):
         *args,
         seed_points: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
         metadata: Optional[Dict] = None,
+        cameras: Optional[Cameras] = None,
+        test_mode: Literal["test", "val", "inference","train"] = "val",
         **kwargs,
     ):
         self.metadata = metadata
+        self.cameras = cameras
         self.cls_index = 0
+        self.test_mode = test_mode
         super().__init__(seed_points=seed_points, *args,**kwargs)
         self.max_cls_num = max(0,self.points3D_cls_num)
         self.positives = self.negatives = ["object", "things", "stuff", "texture"]

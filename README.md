@@ -16,6 +16,8 @@ ns-train splatfacto scannet-data --data nvsmask3d/data/scene0000_00_
 ns-train nvsmask3d --data nvsmask3d/data/scene_example
 ns-train nvsmask3d --data nvsmask3d/data/scene0000_00_ --vis viewer+wandb
 
+ns-viewer nvsmask3d --load_config outputs/scene0000_00_/nvsmask3d/2024-07-25_144828/config.yml
+ns-viewer nvsmask3d --load_config outputs/scene0000_00_/nvsmask3d/2024-07-29_211122/config.yml
 ```
 
 ## Single scene predction path

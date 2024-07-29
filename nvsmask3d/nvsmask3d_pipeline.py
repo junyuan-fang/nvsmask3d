@@ -88,6 +88,8 @@ class NvsMask3dPipeline(VanillaPipeline):
             device=device,
             grad_scaler=grad_scaler,
             seed_points=seed_pts,# add seed points from metadata
+            camearas = self.datamanager.train_dataset.cameras if test_mode == "train" else None,
+            test_mode = test_mode
 
         )
         self.model.to(device)
