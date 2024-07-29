@@ -58,7 +58,7 @@ class NvsMask3dPipeline(VanillaPipeline):
         super(VanillaPipeline, self).__init__()
         self.config = config
         self.test_mode = test_mode
-        self.image_encoder: BaseImageEncoder = config.network.setup()
+        self.image_encoder: BaseImageEncoder = config.network.setup(test_mode=test_mode)
         
         self.datamanager: DataManager = config.datamanager.setup(
             device=device, 

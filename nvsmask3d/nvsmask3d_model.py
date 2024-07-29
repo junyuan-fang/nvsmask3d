@@ -129,14 +129,14 @@ class NVSMask3dModel(SplatfactoModel):
             name="Output",
             default_value="Results will be displayed here",
             disabled=True,  # Make it non-interactive
-            visible=True,
+            visible=True if self.test_mode == "train" else False,
             hint="Output will be displayed here"
         )
         
         self.segment_gaussian_positives = ViewerButton(
             name="Segment Gaussians with Positives", 
             cb_hook=self._segment_gaussians, 
-            visible=True)
+            visible=True if self.test_mode == "train" else False)
 
     def _segment_gaussians(self, element):
         self.output_text.value = "Segmenting Gaussians..."

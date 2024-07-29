@@ -3,7 +3,7 @@ from typing import Tuple, Type
 
 import torch
 import torchvision
-
+from typing import Literal
 try:
     import open_clip
 except ImportError:
@@ -26,9 +26,13 @@ class OpenCLIPNetworkConfig(BaseImageEncoderConfig):
 
 
 class OpenCLIPNetwork(BaseImageEncoder):
-    def __init__(self, config: OpenCLIPNetworkConfig):
+    def __init__(self, 
+                 config: OpenCLIPNetworkConfig,
+                test_mode: Literal["test", "val", "inference", "train"] = "val",
+):
         super().__init__()
         self.config = config
+        self.testmode = test_mode   
         self.process = torchvision.transforms.Compose(
             [
                 torchvision.transforms.Resize((224, 224)),
@@ -53,13 +57,15 @@ class OpenCLIPNetwork(BaseImageEncoder):
             name="Use ScanNet200",
             default_value=False,
             cb_hook=self._scannet_checkbox_update,
+            visible=True if self.testmode == "train" else False
         )
         
         self.positive_input = ViewerText(
             name = "NVSMask3D Positives", 
             default_value = "object;things;stuff;texture", 
             cb_hook=self._set_positives, 
-            hint="Seperate classes with ;")
+            hint="Seperate classes with ;",
+            visible=True if self.testmode == "train" else False)
         
         ##############################
 
