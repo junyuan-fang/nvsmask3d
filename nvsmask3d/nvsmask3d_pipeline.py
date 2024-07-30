@@ -78,7 +78,7 @@ class NvsMask3dPipeline(VanillaPipeline):
             pts_rgb = self.datamanager.train_dataparser_outputs.metadata["points3D_rgb"]
             seed_pts = (pts,pts_rgb)
         self.datamanager.to(device)
-        
+        #print(self.datamanager.train_dataset.device)#is cpu, why?
         assert self.datamanager.train_dataset is not None, "Missing input dataset"
         self._model = config.model.setup(
             scene_box=self.datamanager.train_dataset.scene_box,

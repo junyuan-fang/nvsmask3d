@@ -7,30 +7,47 @@ from nerfstudio.models.splatfacto import get_viewmat
 import numpy as np
 import torch
 from torch import Tensor
+# from nerfstudio.cameras.cameras import Cameras as OriginalCameras
+# class Cameras(OriginalCameras):
+#     def __iter__(self):
+#         for i in range(self.camera_to_worlds.shape[0]):
+#             yield OriginalCameras(
+#                 camera_to_worlds=self.camera_to_worlds[i].unsqueeze(0),
+#                 fx=self.fx[i].unsqueeze(0),
+#                 fy=self.fy[i].unsqueeze(0),
+#                 cx=self.cx[i].unsqueeze(0),
+#                 cy=self.cy[i].unsqueeze(0),
+#                 width=self.width[i].unsqueeze(0),
+#                 height=self.height[i].unsqueeze(0),
+#                 distortion_params=None if self.distortion_params is None else self.distortion_params[i].unsqueeze(0),
+#                 camera_type=self.camera_type[i].unsqueeze(0),
+#                 times=None if self.times is None else self.times[i].unsqueeze(0),
+#                 metadata=None if self.metadata is None else {k: v[i].unsqueeze(0) for k, v in self.metadata.items()}
+#             )
+
 
 # opengl to opencv transformation matrix
 OPENGL_TO_OPENCV = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
 
 # give k optimal camera poses from pose data
 def object_optimal_k_camera_poses(seed_points_0, class_agnostic_3d_mask, camera: Cameras,k_poses = 2, camera_scale_fac = 1):# after training 
-    optimized_camera_to_world = camera.camera_to_worlds
-    viewmat = get_viewmat(optimized_camera_to_world)# from c2w to w2c
+    optimized_camera_to_world = camera.camera_to_worlds.cuda()# from w2c to c2w
+    viewmat = get_viewmat(optimized_camera_to_world).cuda()# from c2w to w2c
     K = camera.get_intrinsics_matrices().cuda()
     W, H = int(camera.width[0].item()), int(camera.height[0].item())
     camera.rescale_output_resolution(camera_scale_fac)  # type: ignore
     
-    visibility_scores = []
+    visibility_scores = torch.tensor([])
     
     # calculate visibility score for each pose
     for i, pose in enumerate(viewmat):
         score = compute_visibility_score(seed_points_0, class_agnostic_3d_mask, pose, K[i], W, H)
-        visibility_scores.append(score)
+        visibility_scores = torch.cat((visibility_scores, torch.tensor([score])), dim=0)
     
-    # select top k poses
-    best_poses_indices = np.argsort(visibility_scores)[-k_poses:]
-    best_poses = optimized_camera_to_world[best_poses_indices]
-    
-    return best_poses
+    # Step 4: Select top k poses
+    _, best_poses_indices = torch.topk(visibility_scores, k_poses)
+    best_poses = camera[best_poses_indices]
+    return best_poses#Cameras torch.Size([2])
 
 def compute_visibility_score(p, class_agnostic_3d_mask, camera_pose, K, W, H):
     """

@@ -7,6 +7,10 @@ cd nerfstudio-method-template/
 pip install -e .
 ns-install-cli
 ```
+## info
+20% images used in dataparser
+tran test split = 1
+test_mode = train
 
 ## Running the new method
 This repository creates a new Nerfstudio method named "method-template". To train with it, run the command:
