@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Tuple, Type
-
+import torch.nn.functional as F
 import torch
 import torchvision
 from typing import Literal
@@ -148,11 +148,11 @@ class OpenCLIPNetwork(BaseImageEncoder):
         output = torch.mm(embed, p.T)
 
         for i in range(embed.shape[0]):
-            highest_score_index = output[i].argmax(dim=-1).item()
-            highest_score_value = output[i, highest_score_index].item()
+            probs = F.softmax(output[i], dim=-1)
+            highest_score_index = probs.argmax(dim=-1).item()
+            highest_score_value = probs[highest_score_index].item()
             results.append((self.positives[highest_score_index], highest_score_value))
-        print(output.shape)
-        print(self.positives)
-        print(results)
-        #import pdb;pdb.set_trace()
-        return results
+        
+        positive = max(results, key=lambda x: x[1])[0]
+
+        return positive

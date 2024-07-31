@@ -146,23 +146,17 @@ class NVSMask3dModel(SplatfactoModel):
         #get optimal cameraposes use mask proposal and poses
         # import time
         # start = time.time()
-        optimal_cameras = object_optimal_k_camera_poses(seed_points_0 = self.seed_points[0].cuda(),class_agnostic_3d_mask=self.points3D_mask[:,self.cls_index], camera=self.cameras, k_poses = 2, image_file_names= self.image_file_names)#seedpoints, mask -> cuda, numpy
+        optimal_cameras = object_optimal_k_camera_poses(seed_points_0 = self.seed_points[0].cuda(),class_agnostic_3d_mask=self.points3D_mask[:,self.cls_index], camera=self.cameras, k_poses = 2)#image_file_names= self.image_file_names)#seedpoints, mask -> cuda, numpy
         outputs = []
         for i in range(optimal_cameras.camera_to_worlds.shape[0]):
             single_camera = optimal_cameras[i:i+1]
             assert single_camera.shape[0] == 1, "Only one camera at a time"
             img = self.get_outputs(single_camera)["rgb_mask"]#(H,W,3)
-            ###################save the image#################
-            print(img.shape)
-            print(torch.min(img), torch.max(img))
-            from  nvsmask3d.utils.utils import save_img
-            save_img(img, f"output_{i}.png")
-            ##################################################
+            ###################save rendered image#################
+            # from  nvsmask3d.utils.utils import save_img
+            # save_img(img, f"output_{i}.png")
+            ######################################################
             outputs.append(img)
-        # img = self.get_outputs(self.cameras[0:1])["rgb_mask"]#(H,W,3)
-        # from  nvsmask3d.utils.utils import save_img
-        # save_img(img, f"output.png")
-        # outputs.append(img)
             
         output= torch.stack(outputs)
         #(B,H,W,3)->(B,C,H,W)
