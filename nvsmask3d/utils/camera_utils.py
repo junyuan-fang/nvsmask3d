@@ -3,58 +3,85 @@
 import math
 from typing import List, Optional, Tuple
 from nerfstudio.cameras.cameras import Cameras
-from nerfstudio.models.splatfacto import get_viewmat
+#from nerfstudio.models.splatfacto import get_viewmat
 import numpy as np
 import torch
 from torch import Tensor
-# from nerfstudio.cameras.cameras import Cameras as OriginalCameras
-# class Cameras(OriginalCameras):
-#     def __iter__(self):
-#         for i in range(self.camera_to_worlds.shape[0]):
-#             yield OriginalCameras(
-#                 camera_to_worlds=self.camera_to_worlds[i].unsqueeze(0),
-#                 fx=self.fx[i].unsqueeze(0),
-#                 fy=self.fy[i].unsqueeze(0),
-#                 cx=self.cx[i].unsqueeze(0),
-#                 cy=self.cy[i].unsqueeze(0),
-#                 width=self.width[i].unsqueeze(0),
-#                 height=self.height[i].unsqueeze(0),
-#                 distortion_params=None if self.distortion_params is None else self.distortion_params[i].unsqueeze(0),
-#                 camera_type=self.camera_type[i].unsqueeze(0),
-#                 times=None if self.times is None else self.times[i].unsqueeze(0),
-#                 metadata=None if self.metadata is None else {k: v[i].unsqueeze(0) for k, v in self.metadata.items()}
-#             )
-
+def get_viewmat(optimized_camera_to_world):
+    """
+    function that converts c2w to gsplat world2camera matrix, using compile for some speed
+    """
+    R = optimized_camera_to_world[:, :3, :3]  # 3 x 3
+    T = optimized_camera_to_world[:, :3, 3:4]  # 3 x 1
+    # flip the z and y axes to align with gsplat conventions
+    R = R * torch.tensor([[[1, -1, -1]]], device=R.device, dtype=R.dtype)
+    # analytic matrix inverse to get world2camera matrix
+    R_inv = R.transpose(1, 2)
+    T_inv = -torch.bmm(R_inv, T)
+    viewmat = torch.zeros(R.shape[0], 4, 4, device=R.device, dtype=R.dtype)
+    viewmat[:, 3, 3] = 1.0  # homogenous
+    viewmat[:, :3, :3] = R_inv
+    viewmat[:, :3, 3:4] = T_inv
+    return viewmat
 
 # opengl to opencv transformation matrix
 OPENGL_TO_OPENCV = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
 
+
+
 # give k optimal camera poses from pose data
-def object_optimal_k_camera_poses(seed_points_0, class_agnostic_3d_mask, camera: Cameras,k_poses = 2, camera_scale_fac = 1):# after training 
-    optimized_camera_to_world = camera.camera_to_worlds.cuda()# from w2c to c2w
-    viewmat = get_viewmat(optimized_camera_to_world).cuda()# from c2w to w2c
+@torch.no_grad()
+def object_optimal_k_camera_poses(seed_points_0, class_agnostic_3d_mask, camera: Cameras,k_poses = 2,image_file_names = None):# after training ]
+    optimized_camera_to_world = camera.camera_to_worlds.cuda()
+    # multiply by opengl to opencv transformation matrix
+    optimized_camera_to_world = torch.matmul(optimized_camera_to_world, torch.tensor(OPENGL_TO_OPENCV, device=optimized_camera_to_world.device, dtype=optimized_camera_to_world.dtype))
+    
     K = camera.get_intrinsics_matrices().cuda()
     W, H = int(camera.width[0].item()), int(camera.height[0].item())
-    camera.rescale_output_resolution(camera_scale_fac)  # type: ignore
     
     visibility_scores = torch.tensor([])
-    
+    boolean_mask = torch.from_numpy(class_agnostic_3d_mask).bool().cuda()
     # calculate visibility score for each pose
-    for i, pose in enumerate(viewmat):
-        score = compute_visibility_score(seed_points_0, class_agnostic_3d_mask, pose, K[i], W, H)
+    for i, c2w in enumerate(optimized_camera_to_world):
+        score = compute_visibility_score(seed_points_0[boolean_mask], c2w, K[i], W, H)
         visibility_scores = torch.cat((visibility_scores, torch.tensor([score])), dim=0)
     
     # Step 4: Select top k poses
     _, best_poses_indices = torch.topk(visibility_scores, k_poses)
+    print(best_poses_indices)
     best_poses = camera[best_poses_indices]
+    image_file_ = [image_file_names[int(i)] for i in best_poses_indices]
+    print(image_file_)
+    ################debug################
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    index = best_poses_indices[0]
+    K = K[index]
+    # take camera parameters
+    fx = K[0, 0].to(device)
+    fy = K[1, 1].to(device)
+    cx = K[0, 2].to(device)
+    cy = K[1, 2].to(device)
+    c2w = optimized_camera_to_world[index].to(device)
+
+    # 2D plane
+    uv_coords = project_pix(seed_points_0[boolean_mask], fx, fy, cx, cy, c2w, device, return_z_depths=True)  # returns uv -> (pix_x, pix_y, z_depth)
+    valid_points = (uv_coords[..., 0] >= 0) & (uv_coords[..., 0] < W) & (uv_coords[..., 1] >= 0) & (uv_coords[..., 1] < H) & (uv_coords[..., 2] > 0)
+    sparse_map = torch.zeros((H, W, 3), dtype=torch.float32, device=device)
+    sparse_map[uv_coords[valid_points, 1].long(), uv_coords[valid_points, 0].long()] = 1
+    # Apply mask to valid points
+    from  nvsmask3d.utils.utils import save_img
+    print(sparse_map.shape)
+    save_img(sparse_map, "sparse_map.png")    
+    
+    ################debug################
     return best_poses#Cameras torch.Size([2])
 
-def compute_visibility_score(p, class_agnostic_3d_mask, camera_pose, K, W, H):
+def compute_visibility_score(p, camera_pose, K, W, H):
     """
     compute 3D mask visibility score
 
-    :param p: torch.Tensor, size is (N, 3), for points
-    :param class_agnostic_3d_mask: torch.Tensor, size is (N, 1), for masks
+    :param p: torch.Tensor, size is (N, 3), for points(masked)
+    #:param boolean_mask: torch.Tensor, size is (N, ), for masks
 
     :param camera_pose: torch.Tensor, size is (3, 4), for c2w poses
     :param K: torch.Tensor, size is (3, 3), for intrinsics
@@ -63,9 +90,6 @@ def compute_visibility_score(p, class_agnostic_3d_mask, camera_pose, K, W, H):
     :return: torch.Tensor, visibility score
     """
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    # Convert numpy array to torch tensor and move to GPU
-    class_agnostic_3d_mask = torch.from_numpy(class_agnostic_3d_mask).to(device)
-
     # take camera parameters
     fx = K[0, 0].to(device)
     fy = K[1, 1].to(device)
@@ -76,11 +100,29 @@ def compute_visibility_score(p, class_agnostic_3d_mask, camera_pose, K, W, H):
     # 2D plane
     uv_coords = project_pix(p, fx, fy, cx, cy, c2w, device, return_z_depths=True)  # returns uv -> (pix_x, pix_y, z_depth)
     valid_points = (uv_coords[..., 0] >= 0) & (uv_coords[..., 0] < W) & (uv_coords[..., 1] >= 0) & (uv_coords[..., 1] < H) & (uv_coords[..., 2] > 0)
-    # Apply mask to valid points
-    valid_points = valid_points & class_agnostic_3d_mask.bool()
     
     visibility_score = valid_points.float().mean().item()
     return visibility_score
+
+
+def c2w_to_w2c(c2w: torch.Tensor) -> torch.Tensor:
+    """
+    Converts a 3x4 camera-to-world matrix to a 4x4 world-to-camera matrix.
+    
+    Args:
+        c2w: Tensor of shape (3, 4)
+    
+    Returns:
+        w2c: Tensor of shape (4, 4)
+    """
+    # Convert 3x4 to 4x4 matrix
+    c2w_hom = torch.eye(4, dtype=c2w.dtype, device=c2w.device)
+    c2w_hom[:3, :4] = c2w
+    
+    # Compute the inverse to get the world-to-camera matrix
+    w2c = torch.inverse(c2w_hom)
+    
+    return w2c
 
 # ndc space is x to the right y up. uv space is x to the right, y down.
 def pix2ndc_x(x, W):

@@ -28,6 +28,7 @@ import math
 from nerfstudio.utils.rich_utils import CONSOLE
 from nerfstudio.data.scene_box import OrientedBox
 from nerfstudio.cameras.cameras import Cameras
+#from nvsmask3d.utils.camera_utils import Cameras
 
 
 
@@ -102,15 +103,17 @@ class NVSMask3dModel(SplatfactoModel):
         metadata: Optional[Dict] = None,
         cameras: Optional[Cameras] = None,
         test_mode: Literal["test", "val", "inference","train"] = "val",
+        image_file_names,#test
         **kwargs,
     ):
         self.metadata = metadata
         self.cameras = cameras
         self.cls_index = 0
+        self.image_file_names = image_file_names#debug
+        
         self.test_mode = test_mode
         super().__init__(seed_points=seed_points, *args,**kwargs)
         self.max_cls_num = max(0,self.points3D_cls_num)
-        self.positives = self.negatives = ["object", "things", "stuff", "texture"]
         self.inference = False
         #viewers
         
@@ -141,11 +144,32 @@ class NVSMask3dModel(SplatfactoModel):
     def _segment_gaussians(self, element):
         self.output_text.value = "Segmenting Gaussians..."
         #get optimal cameraposes use mask proposal and poses
-        import time
-        start = time.time()
-        optimal_cameraposes = object_optimal_k_camera_poses(seed_points_0 = self.seed_points[0],class_agnostic_3d_mask=self.points3D_mask[:,self.cls_index], camera=self.cameras, k_poses = 2)
-        print("Time taken to get optimal camera poses: ", time.time() - start)
-        #call get_outputs to render pictures of the rgb_mask
+        # import time
+        # start = time.time()
+        optimal_cameras = object_optimal_k_camera_poses(seed_points_0 = self.seed_points[0].cuda(),class_agnostic_3d_mask=self.points3D_mask[:,self.cls_index], camera=self.cameras, k_poses = 2, image_file_names= self.image_file_names)#seedpoints, mask -> cuda, numpy
+        outputs = []
+        for i in range(optimal_cameras.camera_to_worlds.shape[0]):
+            single_camera = optimal_cameras[i:i+1]
+            assert single_camera.shape[0] == 1, "Only one camera at a time"
+            img = self.get_outputs(single_camera)["rgb_mask"]#(H,W,3)
+            ###################save the image#################
+            print(img.shape)
+            print(torch.min(img), torch.max(img))
+            from  nvsmask3d.utils.utils import save_img
+            save_img(img, f"output_{i}.png")
+            ##################################################
+            outputs.append(img)
+        # img = self.get_outputs(self.cameras[0:1])["rgb_mask"]#(H,W,3)
+        # from  nvsmask3d.utils.utils import save_img
+        # save_img(img, f"output.png")
+        # outputs.append(img)
+            
+        output= torch.stack(outputs)
+        #(B,H,W,3)->(B,C,H,W)
+        output = output.permute(0,3,1,2)
+        texts = self.image_encoder.classify_image(output)
+
+        self.output_text.value = texts#''.join(output)
         return
     
     def _update_masked_scene_with_cls(self, number: ViewerSlider) -> None:
@@ -235,7 +259,7 @@ class NVSMask3dModel(SplatfactoModel):
         BLOCK_WIDTH = 16  # this controls the tile size of rasterization, 16 is a good default
         camera_scale_fac = self._get_downscale_factor()
         camera.rescale_output_resolution(1 / camera_scale_fac)
-        viewmat = get_viewmat(optimized_camera_to_world)
+        viewmat = get_viewmat(optimized_camera_to_world).to(device=self.device)
         K = camera.get_intrinsics_matrices().cuda()
         W, H = int(camera.width.item()), int(camera.height.item())
         self.last_size = (H, W)
@@ -316,11 +340,11 @@ class NVSMask3dModel(SplatfactoModel):
             depth_im = render[:, ..., 3:4]
             depth_im = torch.where(alpha > 0, depth_im, depth_im.detach().max()).squeeze(0)
 
-            depth_mask = render_masked[:, ..., 3:4]
-            depth_mask = torch.where(alpha_masked > 0, depth_mask, depth_mask.detach().max()).squeeze(0)
+            # depth_mask = render_masked[:, ..., 3:4]
+            # depth_mask = torch.where(alpha_masked > 0, depth_mask, depth_mask.detach().max()).squeeze(0)
         else:
             depth_im = None
-            depth_mask = None
+            #depth_mask = None
 
         if background.shape[0] == 3 and not self.training:
             background = background.expand(H, W, 3)
@@ -331,7 +355,7 @@ class NVSMask3dModel(SplatfactoModel):
             "accumulation": alpha.squeeze(0),  # type: ignore
             "background": background,  # type: ignore
             "rgb_mask": rgb_mask.squeeze(0),  # type: ignore
-            "depth_mask": depth_mask,  # type: ignore
+            #"depth_mask": depth_mask,  # type: ignore
         }
 
         

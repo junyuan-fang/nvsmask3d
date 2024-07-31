@@ -34,7 +34,7 @@ class OpenCLIPNetwork(BaseImageEncoder):
         self.config = config
         self.testmode = test_mode   
         self.process = torchvision.transforms.Compose(
-            [
+            [   
                 torchvision.transforms.Resize((224, 224)),
                 torchvision.transforms.Normalize(
                     mean=[0.48145466, 0.4578275, 0.40821073],
@@ -51,11 +51,13 @@ class OpenCLIPNetwork(BaseImageEncoder):
         self.tokenizer = open_clip.get_tokenizer(self.config.clip_model_type)
         self.model = model.to("cuda")
         self.clip_n_dims = self.config.clip_n_dims
+        self.positives = SCANNET200_CLASSES
+
 
         ############viewers############
         self.scannet_checkbox= ViewerCheckbox(
             name="Use ScanNet200",
-            default_value=False,
+            default_value=True,
             cb_hook=self._scannet_checkbox_update,
             visible=True if self.testmode == "train" else False
         )
@@ -65,11 +67,10 @@ class OpenCLIPNetwork(BaseImageEncoder):
             default_value = "object;things;stuff;texture", 
             cb_hook=self._set_positives, 
             hint="Seperate classes with ;",
+            disabled=True,
             visible=True if self.testmode == "train" else False)
         
         ##############################
-
-        self.positives = self.positive_input.value.split(";")
         self.negatives = self.config.negatives
         with torch.no_grad():
             tok_phrases = torch.cat([self.tokenizer(phrase) for phrase in self.positives]).to("cuda")
@@ -93,13 +94,26 @@ class OpenCLIPNetwork(BaseImageEncoder):
     @property
     def embedding_dim(self) -> int:
         return self.config.clip_n_dims
+    def updata_text_embedding(self):
+        with torch.no_grad():
+            tok_phrases = torch.cat([self.tokenizer(phrase) for phrase in self.positives]).to("cuda")
+            self.pos_embeds = self.model.encode_text(tok_phrases)
+        self.pos_embeds /= self.pos_embeds.norm(dim=-1, keepdim=True)
+
 
     def _scannet_checkbox_update(self, element):
         self.positive_input.set_disabled(element.value)
-        self.positives = SCANNET200_CLASSES
+        if element.value:
+            self.positives = SCANNET200_CLASSES
+            self.positive_input.disable = False
+            self.updata_text_embedding()
+        else:
+            self.positive_input.disable = True
+            self.positives = ""
         
     def _set_positives(self, element):
         self.positives = element.value.split(";")
+        self.updata_text_embedding()
 
     def get_relevancy(self, image: torch.Tensor, positive_id: int) -> torch.Tensor:
         # Encode the image to get the embedding
@@ -125,3 +139,20 @@ class OpenCLIPNetwork(BaseImageEncoder):
     def encode_image(self, input):
         processed_input = self.process(input).half()
         return self.model.encode_image(processed_input)
+    
+    def classify_image(self, image: torch.Tensor) -> str:
+        embed = self.encode_image(image)
+        results = []
+        phrases_embeds = self.pos_embeds#torch.cat([self.pos_embeds, self.neg_embeds], dim=0)
+        p = phrases_embeds.to(embed.dtype)
+        output = torch.mm(embed, p.T)
+
+        for i in range(embed.shape[0]):
+            highest_score_index = output[i].argmax(dim=-1).item()
+            highest_score_value = output[i, highest_score_index].item()
+            results.append((self.positives[highest_score_index], highest_score_value))
+        print(output.shape)
+        print(self.positives)
+        print(results)
+        #import pdb;pdb.set_trace()
+        return results
