@@ -85,6 +85,7 @@ class NVSMask3dModelConfig(SplatfactoModelConfig):
     random_init: bool = False
     camera_optimizer: CameraOptimizerConfig = field(default_factory=lambda: CameraOptimizerConfig(mode="off"))#off #SO3xR3 #SE3
     """Config of the camera optimizer to use"""
+    lock_means: bool = True
     #use_scale_regularization: bool = true
     #max_gauss_ratio: float = 1.5
     #refine_every: int = 100 # we don't cull or densify gaussians
@@ -103,13 +104,13 @@ class NVSMask3dModel(SplatfactoModel):
         metadata: Optional[Dict] = None,
         cameras: Optional[Cameras] = None,
         test_mode: Literal["test", "val", "inference","train"] = "val",
-        image_file_names,#test
+        #image_file_names,#test
         **kwargs,
     ):
         self.metadata = metadata
         self.cameras = cameras
         self.cls_index = 0
-        self.image_file_names = image_file_names#debug
+        #self.image_file_names = image_file_names#debug
         
         self.test_mode = test_mode
         super().__init__(seed_points=seed_points, *args,**kwargs)
@@ -153,8 +154,8 @@ class NVSMask3dModel(SplatfactoModel):
             assert single_camera.shape[0] == 1, "Only one camera at a time"
             img = self.get_outputs(single_camera)["rgb_mask"]#(H,W,3)
             ###################save rendered image#################
-            # from  nvsmask3d.utils.utils import save_img
-            # save_img(img, f"output_{i}.png")
+            from  nvsmask3d.utils.utils import save_img
+            save_img(img, f"tests/output_{i}.png")
             ######################################################
             outputs.append(img)
             
@@ -362,15 +363,24 @@ class NVSMask3dModel(SplatfactoModel):
         #     if name != "means"
         # }
         # return param_groups
-        return {
+        if self.config.lock_means:
+            return {
             name: [self.gauss_params[name]]
-            for name in ["scales", "quats", "features_dc", "features_rest", "opacities"]#exclude means
+            for name in ["scales", "quats", "features_dc", "features_rest", "opacities"]
+        }
+        else:
+            return {
+            name: [self.gauss_params[name]]
+            for name in ["means", "scales", "quats", "features_dc", "features_rest", "opacities"]
         }
     
     #we don't cull or densify gaussians
     def refinement_after(self, optimizers: Optimizers, step): 
-        #self.binarize_opacities()
-        return
+        if self.config.lock_means:
+            #self.binarize_opacities()
+            return
+        else:
+            super().refinement_after(optimizers, step)
     
     def binarize_opacities(self):
         with torch.no_grad():

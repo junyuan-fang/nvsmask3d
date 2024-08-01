@@ -38,10 +38,15 @@ NvsMask3d = MethodSpecification(
         mixed_precision=False,
         pipeline=NvsMask3dPipelineConfig(
             datamanager=NVSMask3dDataManagerConfig(
-                dataparser=ScanNetDataParserConfig(load_3D_points=True),
-                cache_images_type="uint8",
+            dataparser=ScanNetDataParserConfig(
+                            load_3D_points=True, 
+                            load_every = 1,
+                            train_split_fraction=0.9,
+                            ),
+            cache_images_type="uint8",
             ),
             model=NVSMask3dModelConfig(    
+                lock_means=False,
                 #warmup_length = 7500
             ),
             network=OpenCLIPNetworkConfig(

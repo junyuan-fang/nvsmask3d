@@ -15,4 +15,5 @@ custom-dataparser = 'nvsmask3d.nvsmask3d_config:ScanNetDataparser'
 
 [project.scripts]
 # export viewer scripts
-ns-viewer = "nvsmask3d.nvsmask3d_run_viewer:entrypoint"
+ns-viewer = "nvsmask3d.script.nvsmask3d_run_viewer:entrypoint"
+ns-eval = "nvsmask3d.script.nvsmask3d_eval:entrypoint"
