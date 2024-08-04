@@ -23,6 +23,8 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+from typing import Literal, Optional, Tuple, Union
+from typing_extensions import Annotated
 
 import tyro
 
@@ -59,16 +61,26 @@ class ComputePSNR:
         # Save output to output file
         self.output_path.write_text(json.dumps(benchmark_info, indent=2), "utf8")
         CONSOLE.print(f"Saved results to: {self.output_path}")
+@dataclass
+class ComputeForAP:#pred_masks.shape, pred_scores.shape, pred_classes.shape #((237360, 177), (177,), (177,))
+    """Load a checkpoint, compute some pred_scores and pred_classes for latter AP computation."""
 
+    pass
+
+Commands = tyro.conf.FlagConversionOff[
+    Union[
+        Annotated[ComputePSNR, tyro.conf.subcommand(name="psnr")],
+        Annotated[ComputeForAP, tyro.conf.subcommand(name="for_ap")],
+    ]
+]
 
 def entrypoint():
     """Entrypoint for use with pyproject scripts."""
     tyro.extras.set_accent_color("bright_yellow")
-    tyro.cli(ComputePSNR).main()
-
+    tyro.cli(Commands).main()
 
 if __name__ == "__main__":
     entrypoint()
 
 # For sphinx docs
-get_parser_fn = lambda: tyro.extras.get_parser(ComputePSNR)  # noqa
+get_parser_fn = lambda: tyro.extras.get_parser(Commands)  # noqa

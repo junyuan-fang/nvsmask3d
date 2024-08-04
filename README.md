@@ -22,14 +22,12 @@ ns-train nvsmask3d --data nvsmask3d/data/scene0000_00_ --vis viewer+wandb
 ```
 ## View
 ```
-ns-viewer nvsmask3d --load_config outputs/scene0000_00_/nvsmask3d/2024-07-25_144828/config.yml
-ns-viewer nvsmask3d --load_config outputs/scene0000_00_/nvsmask3d/2024-07-29_211122/config.yml
 ns-viewer nvsmask3d --load_config outputs/nvsmask3d_whole_data_0.9_train_ratio/nvsmask3d/2024-08-01_144608/config.yml
 ```
 
 ## Evaluation 
 ```
-
+ns-eval ap --load_config outputs/nvsmask3d_whole_data_0.9_train_ratio/nvsmask3d/2024-08-01_144608/config.yml
 ```
 ## Single scene predction path
 ```
