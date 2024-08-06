@@ -7,31 +7,6 @@ from nerfstudio.cameras.cameras import Cameras
 import numpy as np
 import torch
 from torch import Tensor
-
-# opengl to opencv transformation matrix
-OPENGL_TO_OPENCV = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
-
-# give k optimal camera poses from pose data
-@torch.no_grad()
-def object_optimal_k_camera_poses(seed_points_0, class_agnostic_3d_mask, camera: Cameras,k_poses = 2):#,image_file_names = None):# after training ]
-    optimized_camera_to_world = camera.camera_to_worlds.cuda()
-    # multiply by opengl to opencv transformation matrix
-    optimized_camera_to_world = torch.matmul(optimized_camera_to_world, torch.tensor(OPENGL_TO_OPENCV, device=optimized_camera_to_world.device, dtype=optimized_camera_to_world.dtype))
-    
-    K = camera.get_intrinsics_matrices().cuda()
-    W, H = int(camera.width[0].item()), int(camera.height[0].item())
-    
-    visibility_scores = torch.tensor([])
-    boolean_mask = torch.from_numpy(class_agnostic_3d_mask).bool().cuda()
-    # calculate visibility score for each pose
-    for i, c2w in enumerate(optimized_camera_to_world):
-        score = compute_visibility_score(seed_points_0[boolean_mask], c2w, K[i], W, H)
-        visibility_scores = torch.cat((visibility_scores, torch.tensor([score])), dim=0)
-    
-    # Step 4: Select top k scored poses
-    _, best_poses_indices = torch.topk(visibility_scores, k_poses)
-    best_poses = camera[best_poses_indices]
-    
     ################debug################
     # image_file_ = [image_file_names[int(i)] for i in best_poses_indices]
     # print(image_file_)
@@ -56,7 +31,91 @@ def object_optimal_k_camera_poses(seed_points_0, class_agnostic_3d_mask, camera:
     # save_img(sparse_map, "sparse_map.png")
     
     ################debug################
-    return best_poses#Cameras torch.Size([2])
+    
+# opengl to opencv transformation matrix
+OPENGL_TO_OPENCV = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
+
+# #give k optimal camera poses from pose data
+# @torch.no_grad()
+# def object_optimal_k_camera_poses(seed_points_0, class_agnostic_3d_mask, camera: Cameras,k_poses = 2):#,image_file_names = None):# after training ]
+#     optimized_camera_to_world = camera.camera_to_worlds.cuda()
+#     # multiply by opengl to opencv transformation matrix
+#     optimized_camera_to_world = torch.matmul(
+#         optimized_camera_to_world, 
+#         torch.tensor(OPENGL_TO_OPENCV, device=optimized_camera_to_world.device, dtype=optimized_camera_to_world.dtype)
+#         )
+    
+#     K = camera.get_intrinsics_matrices().cuda()
+#     W, H = int(camera.width[0].item()), int(camera.height[0].item())
+    
+#     visibility_scores = torch.tensor([])
+#     boolean_mask = torch.from_numpy(class_agnostic_3d_mask).bool().cuda()
+#     # calculate visibility score for each pose
+#     for i, c2w in enumerate(optimized_camera_to_world):
+#         score = compute_visibility_score(seed_points_0[boolean_mask], c2w, K[i], W, H)
+#         visibility_scores = torch.cat((visibility_scores, torch.tensor([score])), dim=0)
+    
+#     # Step 4: Select top k scored poses
+#     _, best_poses_indices = torch.topk(visibility_scores, k_poses)
+#     best_poses = camera[best_poses_indices]
+
+#     return best_poses#Cameras torch.Size([2])
+import time
+@torch.no_grad()
+def object_optimal_k_camera_poses(seed_points_0, class_agnostic_3d_mask, camera, k_poses=2):
+    """
+    Selects the top k optimal camera poses based on the visibility score of the 3D mask.
+    args:
+        seed_points_0: torch.Tensor, size is (N, 3), point cloud
+        class_agnostic_3d_mask: np.array, size is (N,), for 3D mask
+        camera: Cameras, for camera poses, size is (M, 3)
+        k_poses: int, for top k poses
+    """
+    # calculate time
+    # start = time.time()
+    
+    # Move camera transformations to the GPU
+    optimized_camera_to_world = camera.camera_to_worlds.to('cuda')#torch.Size([M, 4, 4])
+    opengl_to_opencv = torch.tensor(OPENGL_TO_OPENCV, device='cuda', dtype=optimized_camera_to_world.dtype) #shape (4, 4)
+    optimized_camera_to_world = torch.matmul(optimized_camera_to_world, opengl_to_opencv) #shape (M, 4, 4)
+
+    # Move intrinsics to the GPU
+    K = camera.get_intrinsics_matrices().to('cuda')
+    W, H = int(camera.width[0].item()), int(camera.height[0].item())
+
+    # Prepare seed points and boolean mask
+    boolean_mask = torch.from_numpy(class_agnostic_3d_mask).bool().to('cuda') #shape (N,)
+    masked_seed_points = seed_points_0[boolean_mask] #shape (N, 3)
+
+    # Precompute necessary values
+    visibility_scores = torch.zeros(len(optimized_camera_to_world), device='cuda') #shape (N,)
+
+    # Vectorized computation for all camera poses
+    points_cam = masked_seed_points.unsqueeze(0) - optimized_camera_to_world[:, :3, 3].unsqueeze(1) #
+    points_cam = torch.bmm(points_cam, optimized_camera_to_world[:, :3, :3]) 
+
+    # Project to 2D image plane using vectorized operations
+    u = points_cam[:, :, 0] * K[:, 0, 0].unsqueeze(1) / points_cam[:, :, 2] + K[:, 0, 2].unsqueeze(1)
+    v = points_cam[:, :, 1] * K[:, 1, 1].unsqueeze(1) / points_cam[:, :, 2] + K[:, 1, 2].unsqueeze(1)
+
+    # Check valid points within image boundaries and in front of the camera
+    valid_points = (u >= 0) & (u < W) & (v >= 0) & (v < H) & (points_cam[:, :, 2] > 0)
+    
+    # Compute visibility scores for all poses
+    visibility_scores = valid_points.float().mean(dim=1)
+
+    # Select top k scored poses
+    _, best_poses_indices = torch.topk(visibility_scores, k_poses)
+
+    # Ensure indices are on the CPU
+    best_poses_indices = best_poses_indices.cpu()
+
+    best_poses = camera[best_poses_indices]
+    #print time used
+    # print("Time used: ", time.time() - start)
+
+    return best_poses  # Cameras torch.Size([k_poses])
+
 
 def compute_visibility_score(p, camera_pose, K, W, H):
     """
@@ -83,6 +142,35 @@ def compute_visibility_score(p, camera_pose, K, W, H):
     
     visibility_score = valid_points.float().mean().item()
     return visibility_score
+
+
+def project_pix(
+    p: Tensor,
+    fx: float,
+    fy: float,
+    cx: int,
+    cy: int,
+    c2w: Tensor,
+    device: torch.device,
+    return_z_depths: bool = False,
+) -> Tensor:
+    """Projects a world 3D point to uv coordinates using intrinsics/extrinsics
+
+    Returns:
+        uv coords
+    """
+    if c2w is None:
+        c2w = torch.eye((p.shape[0], 4, 4), device=device)  # type: ignore
+    if c2w.device != device:
+        c2w = c2w.to(device)
+
+    points_cam = (p.to(device) - c2w[..., :3, 3]) @ c2w[..., :3, :3]
+    #print(points_cam)
+    u = points_cam[:, 0] * fx / points_cam[:, 2] + cx  # x
+    v = points_cam[:, 1] * fy / points_cam[:, 2] + cy  # y
+    if return_z_depths:
+        return torch.stack([u, v, points_cam[:, 2]], dim=-1)
+    return torch.stack([u, v], dim=-1)
 
 
 def c2w_to_w2c(c2w: torch.Tensor) -> torch.Tensor:
@@ -237,33 +325,6 @@ def get_means3d_backproj(
     return means3d, image_coords
 
 
-def project_pix(
-    p: Tensor,
-    fx: float,
-    fy: float,
-    cx: int,
-    cy: int,
-    c2w: Tensor,
-    device: torch.device,
-    return_z_depths: bool = False,
-) -> Tensor:
-    """Projects a world 3D point to uv coordinates using intrinsics/extrinsics
-
-    Returns:
-        uv coords
-    """
-    if c2w is None:
-        c2w = torch.eye((p.shape[0], 4, 4), device=device)  # type: ignore
-    if c2w.device != device:
-        c2w = c2w.to(device)
-
-    points_cam = (p.to(device) - c2w[..., :3, 3]) @ c2w[..., :3, :3]
-    #print(points_cam)
-    u = points_cam[:, 0] * fx / points_cam[:, 2] + cx  # x
-    v = points_cam[:, 1] * fy / points_cam[:, 2] + cy  # y
-    if return_z_depths:
-        return torch.stack([u, v, points_cam[:, 2]], dim=-1)
-    return torch.stack([u, v], dim=-1)
 
 
 def get_colored_points_from_depth(
