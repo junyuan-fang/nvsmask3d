@@ -41,7 +41,7 @@ class NVSmask3dDataManager(FullImageDatamanager):
         self,
         config: NVSMask3dDataManagerConfig,
         device: Union[torch.device, str] = "gpu",
-        test_mode: Literal["test", "val", "inference", "train"] = "val",
+        test_mode: Literal["test", "val", "inference", "train", "all"] = "val",
         world_size: int = 1,
         local_rank: int = 0,
         **kwargs,  # pylint: disable=unused-argument
@@ -55,3 +55,13 @@ class NVSmask3dDataManager(FullImageDatamanager):
             **kwargs
         )
         metadata = self.train_dataparser_outputs.metadata
+        if test_mode == "all":
+            self.all_dataparser = self.dataparser.get_dataparser_outputs(split="all")
+            self.whole_dataset = self.create_whole_dataset()
+        
+    def create_whole_dataset(self):
+        """Sets up the data loaders for training"""
+        return self.dataset_type(
+            dataparser_outputs=self.all_dataparser,
+            scale_factor=self.config.camera_res_scale_factor,
+        )

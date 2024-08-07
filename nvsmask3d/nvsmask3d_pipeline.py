@@ -50,7 +50,7 @@ class NvsMask3dPipeline(VanillaPipeline):
         self,
         config: NvsMask3dPipelineConfig,
         device: str,
-        test_mode: Literal["test", "val", "inference"] = "val",
+        test_mode: Literal["test", "val", "inference","train"] = "val",
         world_size: int = 1,
         local_rank: int = 0,
         grad_scaler: Optional[GradScaler] = None,
@@ -88,7 +88,7 @@ class NvsMask3dPipeline(VanillaPipeline):
             device=device,
             grad_scaler=grad_scaler,
             seed_points=seed_pts,# add seed points from metadata
-            cameras = self.datamanager.train_dataset.cameras if test_mode == "train" else None,
+            cameras = self.datamanager.train_dataset.cameras if test_mode == "all" else None,
             test_mode = test_mode,
             #image_file_names = self.datamanager.train_dataset.image_filenames #for testing
 

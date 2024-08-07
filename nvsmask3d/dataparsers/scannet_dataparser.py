@@ -45,7 +45,7 @@ class ScanNetDataParserConfig(DataParserConfig):
     """The method to use to center the poses."""
     auto_scale_poses: bool = True
     """Whether to automatically scale the poses to fit in +/- 1 bounding box."""
-    train_split_fraction: float = 1
+    train_split_fraction: float = 0.9
     """The fraction of images to use for training. The remaining images are for eval."""
     depth_unit_scale_factor: float = 1e-3
     """Scales the depth values to meters. Default value is 0.001 for a millimeter to meter conversion."""
@@ -117,6 +117,8 @@ class ScanNet(DataParser):
                 indices = indices[:: self.config.load_every]
         elif split in ["val", "test"]:
             indices = i_eval
+        elif split == "all":    
+            indices = i_all
         else:
             raise ValueError(f"Unknown dataparser split {split}")
 

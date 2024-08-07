@@ -147,7 +147,7 @@ class NVSMask3d:
         config, pipeline, _, step = eval_setup(
             self.load_config,
             eval_num_rays_per_chunk=None,
-            test_mode="train",
+            test_mode="all",
         )
         num_rays_per_chunk = config.viewer.num_rays_per_chunk
         assert self.viewer.num_rays_per_chunk == -1

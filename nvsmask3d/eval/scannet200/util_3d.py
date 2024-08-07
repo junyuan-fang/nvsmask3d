@@ -14,7 +14,7 @@ except:
     print("pip install plyfile")
     sys.exit(-1)
 
-import eval.scannet200.util as util
+import nvsmask3d.eval.scannet200.util as util
 
 
 # matrix: 4x4 np array

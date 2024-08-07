@@ -13,6 +13,7 @@ from nvsmask3d.encoders.image_encoder import (BaseImageEncoder,
                                          BaseImageEncoderConfig)
 from nerfstudio.viewer.viewer_elements import *
 from nvsmask3d.utils.utils import SCANNET200_CLASSES
+from nvsmask3d.eval.scannet200.scannet_constants import VALID_CLASS_IDS_200
 
 
 
@@ -52,7 +53,7 @@ class OpenCLIPNetwork(BaseImageEncoder):
         self.model = model.to("cuda")
         self.clip_n_dims = self.config.clip_n_dims
         self.positives = SCANNET200_CLASSES
-
+        self.label_mapper = torch.tensor(VALID_CLASS_IDS_200).cuda()
 
         ############viewers############
         self.scannet_checkbox= ViewerCheckbox(
@@ -137,10 +138,18 @@ class OpenCLIPNetwork(BaseImageEncoder):
         ]
 
     def encode_image(self, input):
+        """(B,C,H,W) -> (B,512)"""
         processed_input = self.process(input).half()
         return self.model.encode_image(processed_input)
     
-    def classify_image(self, image: torch.Tensor) -> str:
+    def classify_images(self, image: torch.Tensor) -> str:
+        """
+        Args:
+            image (torch.Tensor): (B,C,H,W)
+
+        Returns:
+            str: inference object text
+        """
         embed = self.encode_image(image)
         results = []
         phrases_embeds = self.pos_embeds#torch.cat([self.pos_embeds, self.neg_embeds], dim=0)

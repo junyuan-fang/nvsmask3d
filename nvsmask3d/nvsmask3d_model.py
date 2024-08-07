@@ -103,7 +103,7 @@ class NVSMask3dModel(SplatfactoModel):
         seed_points: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
         metadata: Optional[Dict] = None,
         cameras: Optional[Cameras] = None,
-        test_mode: Literal["test", "val", "inference","train"] = "val",
+        test_mode: Literal["test", "val", "inference", "train", "all"] = "val",
         #image_file_names,#test
         **kwargs,
     ):
@@ -133,14 +133,14 @@ class NVSMask3dModel(SplatfactoModel):
             name="Output",
             default_value="Results will be displayed here",
             disabled=True,  # Make it non-interactive
-            visible=True if self.test_mode == "train" else False,
+            visible=True if self.test_mode == "train" or self.test_mode == "all" else False,
             hint="Output will be displayed here"
         )
         
         self.segment_gaussian_positives = ViewerButton(
             name="Segment Gaussians with Positives", 
             cb_hook=self._segment_gaussians, 
-            visible=True if self.test_mode == "train" else False)
+            visible=True if self.test_mode == "train" or self.test_mode == "all" else False)
 
     def _segment_gaussians(self, element):
         self.output_text.value = "Segmenting Gaussians..."
@@ -162,7 +162,7 @@ class NVSMask3dModel(SplatfactoModel):
         output= torch.stack(outputs)
         #(B,H,W,3)->(B,C,H,W)
         output = output.permute(0,3,1,2)
-        texts = self.image_encoder.classify_image(output)
+        texts = self.image_encoder.classify_images(output)
 
         self.output_text.value = texts#''.join(output)
         return

@@ -29,7 +29,7 @@ from copy import deepcopy
 from uuid import uuid4
 import pdb
 import torch
-
+from nvsmask3d.eval.scannet200.scannet_constants import HEAD_CATS_SCANNET_200, COMMON_CATS_SCANNET_200, TAIL_CATS_SCANNET_200, VALID_CLASS_IDS_200, CLASS_LABELS_200,VALID_CLASS_IDS_200_INST
 try:
     import numpy as np
 except:
@@ -38,11 +38,9 @@ except:
 
 from scipy import stats
 
-# currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
-# parentdir = os.path.dirname(currentdir)
-# sys.path.insert(0,parentdir)
 import nvsmask3d.eval.scannet200.util as util
 import nvsmask3d.eval.scannet200.util_3d as util_3d
+import copy
 
 # parser = argparse.ArgumentParser()
 # parser.add_argument('--gt_path', default='', help='path to directory of gt .txt files')
@@ -53,18 +51,29 @@ import nvsmask3d.eval.scannet200.util_3d as util_3d
 #    opt.output_file = os.path.join(os.getcwd(), 'semantic_instance_evaluation.txt')
 
 
+
 # ---------- Label info ---------- #
 DATASET_NAME = "scannet" # this is the default value, it is overridden if it is another dataset.
-CLASS_LABELS = ['cabinet', 'bed', 'chair', 'sofa', 'table', 'door', 'window', 'bookshelf', 'picture', 'counter', 'desk',
-                'curtain', 'refrigerator', 'shower curtain', 'toilet', 'sink', 'bathtub', 'otherfurniture']
-VALID_CLASS_IDS = np.array([3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 16, 24, 28, 33, 34, 36, 39])
+# CLASS_LABELS = ['cabinet', 'bed', 'chair', 'sofa', 'table', 'door', 'window', 'bookshelf', 'picture', 'counter', 'desk',
+#                 'curtain', 'refrigerator', 'shower curtain', 'toilet', 'sink', 'bathtub', 'otherfurniture']
+# VALID_CLASS_IDS = np.array([3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 16, 24, 28, 33, 34, 36, 39])
+CLASS_LABELS = CLASS_LABELS_200
+VALID_CLASS_IDS = VALID_CLASS_IDS_200
+
 ID_TO_LABEL = {}
 LABEL_TO_ID = {}
+PRED_ID_TO_ID = {}
 for i in range(len(VALID_CLASS_IDS)):
     LABEL_TO_ID[CLASS_LABELS[i]] = VALID_CLASS_IDS[i]
     ID_TO_LABEL[VALID_CLASS_IDS[i]] = CLASS_LABELS[i]
+    
+for i in range(len(VALID_CLASS_IDS_200_INST)):
+    PRED_ID_TO_ID[i] = VALID_CLASS_IDS_200_INST[i]   
+# PRED_ID_TO_ID[-1] = -1
 
-HEAD_CATS_SCANNET_200, COMMON_CATS_SCANNET_200, TAIL_CATS_SCANNET_200 = None, None, None
+PRED_ID_TO_ID[198] = -1
+
+# HEAD_CATS_SCANNET_200, COMMON_CATS_SCANNET_200, TAIL_CATS_SCANNET_200 = None, None, None
 
 # ---------- Evaluation params ---------- #
 # overlaps for evaluation
@@ -90,6 +99,12 @@ def evaluate_matches(matches):
     rc = np.zeros((len(dist_threshes), len(CLASS_LABELS), len(overlaps)), float) # recall
     matched_predictions_category_names = {} #set([])
     gt_category_names = {} #set([])
+    
+    WI = dict(zip([round(ov,2) for ov in overlaps],len(overlaps)*[0.0]))
+    A_OSE = dict(zip([round(ov,2) for ov in overlaps],len(overlaps)*[0.0]))
+    FPo = dict(zip([round(ov,2) for ov in overlaps],len(overlaps)*[0.0]))
+    FPc = dict(zip([round(ov,2) for ov in overlaps],len(overlaps)*[0.0]))
+    TPc = dict(zip([round(ov,2) for ov in overlaps],len(overlaps)*[0.0]))
     
     for di, (min_region_size, distance_thresh, distance_conf) in enumerate(zip(min_region_sizes, dist_threshes, dist_confs)):
         matched_predictions_category_names[di] = {}
@@ -120,8 +135,15 @@ def evaluate_matches(matches):
                 has_pred = False
 
                 for m in matches:
+                    
+                    #group all common and tail under unknown
+                    
+                    
                     pred_instances = matches[m]['pred'][label_name]
                     gt_instances = matches[m]['gt'][label_name]
+                    
+                        
+                    
                     # filter groups in ground truth
                     gt_instances = [gt for gt in gt_instances if
                                     gt['instance_id'] >= 1000 and gt['vert_count'] >= min_region_size and gt[
@@ -140,6 +162,8 @@ def evaluate_matches(matches):
                         found_match = False
                         num_pred = len(gt['matched_pred'])
                         for pred in gt['matched_pred']:
+                                
+                            
                             # greedy assignments
                             if pred_visited[pred['uuid']]:
                                 continue
@@ -175,8 +199,11 @@ def evaluate_matches(matches):
 
                     # collect non-matched predictions as false positive
                     for pred in pred_instances:
+                            
+                            
                         found_gt = False
                         for gt in pred['matched_gt']:
+                            
                             overlap = float(gt['intersection']) / (
                                         gt['vert_count'] + pred['vert_count'] - gt['intersection'])
                             if overlap > overlap_th:
@@ -278,8 +305,10 @@ def evaluate_matches(matches):
                 ap[di, li, oi] = ap_current
                 ar[di, li, oi] = ar_current
                 rc[di, li, oi] = rc_current
-
-
+            try:
+                WI[round(overlap_th,2)] = FPo[round(overlap_th,2)]/(TPc[round(overlap_th,2)]+FPc[round(overlap_th,2)])
+            except:
+                pass
     pcdc_scores = []
     d_inf = 0
     for scene_name in gt_category_names.keys():
@@ -287,10 +316,10 @@ def evaluate_matches(matches):
     pcdc_scores = np.asarray(pcdc_scores)
 
 
-    return ap, ar, rc, pcdc_scores
+    return ap, ar, rc, pcdc_scores, 0.0, 0.0
 
 
-def compute_averages(aps):
+def compute_averages(aps, PRETRAINED_ON_SCANNET200=True):
     d_inf = 0
     o50 = np.where(np.isclose(opt['overlaps'], 0.5))
     o25 = np.where(np.isclose(opt['overlaps'], 0.25))
@@ -307,6 +336,11 @@ def compute_averages(aps):
         head_scores = {title:[] for title in ['ap', 'ap25%', 'ap50%']}
         common_scores = {title:[] for title in ['ap', 'ap25%', 'ap50%']}
         tail_scores = {title:[] for title in ['ap', 'ap25%', 'ap50%']}
+        
+        if not PRETRAINED_ON_SCANNET200:
+            base_score = {title:[] for title in ['ap', 'ap25%', 'ap50%']}
+            novel_score = {title:[] for title in ['ap', 'ap25%', 'ap50%']}
+
         
     for (li, label_name) in enumerate(CLASS_LABELS):
         if label_name not in avg_dict["classes"]:
@@ -329,11 +363,27 @@ def compute_averages(aps):
             else:
                 raise NotImplementedError(label_name)
             
+            if not PRETRAINED_ON_SCANNET200:
+                if label_name not in ["floor", "wall"]:
+                    if (label_name in BASE_CLASSES):
+                        for ap_type in ['ap', 'ap25%', 'ap50%']:
+                            base_score[ap_type].append(avg_dict["classes"][label_name][ap_type])
+                    else:
+                        for ap_type in ['ap', 'ap25%', 'ap50%']:
+                            novel_score[ap_type].append(avg_dict["classes"][label_name][ap_type])
     if DATASET_NAME=='scannet200':
         for score_type in ['ap', 'ap25%', 'ap50%']:
             avg_dict['head_'+score_type] = np.nanmean(head_scores[score_type]) #64, orig 66
             avg_dict['common_'+score_type] = np.nanmean(common_scores[score_type]) #68, orig 68
             avg_dict['tail_'+score_type] = np.nanmean(tail_scores[score_type]) #66, orig 66
+        
+        if not PRETRAINED_ON_SCANNET200:
+            for score_type in ['ap', 'ap25%', 'ap50%']:
+                avg_dict['base_'+score_type] = np.nanmean(base_score[score_type]) 
+                avg_dict['novel_'+score_type] = np.nanmean(novel_score[score_type]) 
+
+            
+        
     
     return avg_dict
 
@@ -455,6 +505,7 @@ def make_pred_info(pred: dict):
     for i in range(len(pred['pred_classes'])):
         info = {}
         info["label_id"] = pred['pred_classes'][i]
+        #info["label_id"] = PRED_ID_TO_ID[pred['pred_classes'][i]]
         info["conf"] = pred['pred_scores'][i]
         info["mask"] = pred['pred_masks'][:, i]
         pred_info[uuid4()] = info  # we later need to identify these objects
@@ -463,6 +514,7 @@ def make_pred_info(pred: dict):
 
 def assign_instances_for_scan(pred: dict, gt_file: str):
     pred_info = make_pred_info(pred)
+    
     try:
         gt_ids = util_3d.load_ids(gt_file)
     except Exception as e:
@@ -472,6 +524,8 @@ def assign_instances_for_scan(pred: dict, gt_file: str):
     gt_instances = util_3d.get_instances(gt_ids, VALID_CLASS_IDS, CLASS_LABELS, ID_TO_LABEL)
     # associate
     gt2pred = deepcopy(gt_instances)
+    
+        
     for label in gt2pred:
         for gt in gt2pred[label]:
             gt['matched_pred'] = []
@@ -483,6 +537,7 @@ def assign_instances_for_scan(pred: dict, gt_file: str):
     bool_void = np.logical_not(np.in1d(gt_ids // 1000, VALID_CLASS_IDS))
     # go thru all prediction masks
     for uuid in pred_info:
+        
         label_id = int(pred_info[uuid]['label_id'])
         conf = pred_info[uuid]['conf']
         if not label_id in ID_TO_LABEL:
@@ -498,7 +553,8 @@ def assign_instances_for_scan(pred: dict, gt_file: str):
         num = np.count_nonzero(pred_mask)
         if num < opt['min_region_sizes'][0]:
             continue  # skip if empty
-
+            
+        
         pred_instance = {}
         pred_instance['uuid'] = uuid
         pred_instance['pred_id'] = num_pred_instances
@@ -506,7 +562,7 @@ def assign_instances_for_scan(pred: dict, gt_file: str):
         pred_instance['vert_count'] = num
         pred_instance['confidence'] = conf
         pred_instance['void_intersection'] = np.count_nonzero(np.logical_and(bool_void, pred_mask))
-
+        
         # matched gt instances
         matched_gt = []
         # go thru all gt instances with matching label
@@ -520,6 +576,7 @@ def assign_instances_for_scan(pred: dict, gt_file: str):
                 pred_copy['intersection'] = intersection
                 matched_gt.append(gt_copy)
                 gt2pred[label_name][gt_num]['matched_pred'].append(pred_copy)
+                
         pred_instance['matched_gt'] = matched_gt
         num_pred_instances += 1
         pred2gt[label_name].append(pred_instance)
@@ -606,7 +663,7 @@ def print_results_pcdc(avgs):
 
 
 
-def print_results_ap_ar_rc_pcdc(avgs, ar_avgs, rc_avgs, pcdc_avgs, print_mode={'ap_avgs':True, 'ar_avgs':False, 'rc_avgs':True, 'pcdc_avgs':True}):
+def print_results_ap_ar_rc_pcdc(avgs, ar_avgs, rc_avgs, pcdc_avgs, WI, A_OSE, print_mode={'ap_avgs':True, 'ar_avgs':False, 'rc_avgs':True, 'pcdc_avgs':True}):
     global DATASET_NAME
     sep = ""
     col1 = ":"
@@ -686,6 +743,20 @@ def print_results_ap_ar_rc_pcdc(avgs, ar_avgs, rc_avgs, pcdc_avgs, print_mode={'
                 line += "{:>15.3f}".format(cat_rc_50o) + sep
                 line += "{:>15.3f}".format(cat_rc_25o) + sep
             print(line)
+        # print(avgs.keys())
+        if 'base_ap' in avgs.keys():
+            for cat_type in ['base', 'novel']:
+                line = "{:<15}".format(cat_type) + sep + col1
+                if print_mode['ap_avgs']:
+                    cat_ap_avg = avgs[cat_type+'_ap']
+                    cat_ap_50o = avgs[cat_type+'_ap50%']
+                    cat_ap_25o = avgs[cat_type+'_ap25%']
+                    line += "{:>15.3f}".format(cat_ap_avg) + sep
+                    line += "{:>15.3f}".format(cat_ap_50o) + sep
+                    line += "{:>15.3f}".format(cat_ap_25o) + sep
+                print(line)
+            
+    
 
     all_ap_avg = avgs["all_ap"]
     all_ap_50o = avgs["all_ap_50%"]
@@ -759,9 +830,53 @@ def write_result_file(avgs, filename):
             ap50 = avgs["classes"][class_name]["ap50%"]
             ap25 = avgs["classes"][class_name]["ap25%"]
             f.write(_SPLITTER.join([str(x) for x in [class_name, class_id, ap, ap50, ap25]]) + '\n')
+def evaluate_single_scene(preds: dict, gt_path: str, scene_name: str):
+    global DATASET_NAME
+    global CLASS_LABELS
+    global VALID_CLASS_IDS
+    global ID_TO_LABEL
+    global LABEL_TO_ID
+    global opt
+    global HEAD_CATS_SCANNET_200
+    global COMMON_CATS_SCANNET_200
+    global TAIL_CATS_SCANNET_200
+    global BASE_CLASSES
+
+    if DATASET_NAME == "scannet200":
+        CLASS_LABELS = SCANNET200_CLASSES  # Assuming SCANNET200_CLASSES is defined elsewhere
+        VALID_CLASS_IDS = SCANNET200_VALID_CLASS_IDS  # Assuming this is defined elsewhere
+
+    print('Evaluating scene:', scene_name)
+    
+    # Load the ground truth file for the specific scene
+    gt_file = os.path.join(gt_path, scene_name + ".txt")
+    if not os.path.isfile(gt_file):
+        raise FileNotFoundError(f'Scan {scene_name} does not match any gt file')
+
+    # Assign ground truth to predictions for the specific scene
+    gt2pred, pred2gt = assign_instances_for_scan(preds[scene_name], gt_file)
+
+    matches = {
+        scene_name: {
+            'gt': gt2pred,
+            'pred': pred2gt
+        }
+    }
+
+    # Compute metrics for this specific scene
+    ap_scores, ar_scores, rc_scores, pcdc_scores, WI, A_OSE = evaluate_matches(matches)
+    avgs = compute_averages(ap_scores)
+    ar_avgs = compute_averages_ar(ar_scores)
+    rc_avgs = compute_averages_rc(rc_scores)
+    pcdc_avgs = compute_averages_pcdc(pcdc_scores)
+
+    # Print results for the single scene
+    print_results_ap_ar_rc_pcdc(avgs, ar_avgs, rc_avgs, pcdc_avgs, WI, A_OSE)
+
+    return avgs, ar_avgs, rc_avgs, pcdc_avgs
 
 
-def evaluate(preds: dict, gt_path: str, output_file: str, dataset: str = "scannet"):
+def evaluate(preds: dict, gt_path: str, output_file: str, dataset: str = "scannet", pretrained_on_scannet200=True):
     #pdb.set_trace()
     global DATASET_NAME
     global CLASS_LABELS
@@ -772,6 +887,7 @@ def evaluate(preds: dict, gt_path: str, output_file: str, dataset: str = "scanne
     global HEAD_CATS_SCANNET_200
     global COMMON_CATS_SCANNET_200
     global TAIL_CATS_SCANNET_200
+    global BASE_CLASSES
 
     if dataset == "scannet200":
         DATASET_NAME = "scannet200"
@@ -821,7 +937,9 @@ def evaluate(preds: dict, gt_path: str, output_file: str, dataset: str = "scanne
                                     488, 540, 562, 570, 572, 581, 609, 748, 776, 1156, 1163, 1164, 1165, 1166, 1167,
                                     1168, 1169, 1170, 1171, 1172, 1173, 1174, 1175, 1176, 1178, 1179, 1180, 1181, 1182,
                                     1183, 1184, 1185, 1186, 1187, 1188, 1189, 1190, 1191))
-
+        
+        BASE_CLASSES = ("wall", "floor", "chair", "table", "door", "couch", "cabinet", "shelf", "desk", "office chair", "bed", "sink", "picture", "window", "toilet", "bookshelf", "curtain", "armchair", "coffee table", "refrigerator", "kitchen cabinet", "counter", "dresser", "ceiling", "bathtub", "end table", "dining table", "shower curtain", "closet", "ottoman", "bench", "sofa chair", "file cabinet", "blinds", "container", "wardrobe", "seat", "column", "shower wall", "kitchen counter", "mini fridge", "shower door", "pillar", "furniture", "storage container", "closet door", "shower floor", "bathroom counter", "closet wall", "bathroom stall door", "bathroom cabinet", "folded chair", "mattress")
+        
         ID_TO_LABEL = {}
         LABEL_TO_ID = {}
         for i in range(len(VALID_CLASS_IDS)):
@@ -864,32 +982,70 @@ def evaluate(preds: dict, gt_path: str, output_file: str, dataset: str = "scanne
                                 "fire alarm", "power strip", "calendar", "poster", "luggage"])
         
     NUM_CLASSES = len(VALID_CLASS_IDS)
-
+    
     print('evaluating', len(preds), 'scans...')
     matches = {}
     for i, (k, v) in enumerate(preds.items()):
+        # gt_file_ = os.path.join(gt_path, k + ".txt")
+        # gt_ids = torch.tensor(util_3d.load_ids(gt_file_))
+        # gt_masks = torch.stack([gt_ids == id for id in gt_ids.unique()]).float()
+        # gt_labels = torch.tensor([id//1000 for id in gt_ids.unique()])
+
+        # def get_iou(masks, masks_1):
+        #     masks = masks.float()
+        #     masks_1 = masks_1.float()
+        #     intersection = torch.einsum('ij,kj -> ik', masks, masks_1)
+        #     num_masks = masks.shape[0]
+        #     masks_batch_size = 5 # scannet 200: 20
+        #     if masks_batch_size < num_masks:
+        #         ratio = num_masks//masks_batch_size
+        #         remaining = num_masks-ratio*masks_batch_size
+        #         start_masks = list(range(0,ratio*masks_batch_size, masks_batch_size))
+        #         if remaining == 0:
+        #             end_masks = list(range(masks_batch_size,(ratio+1)*masks_batch_size,masks_batch_size))
+        #         else:
+        #             end_masks = list(range(masks_batch_size,(ratio+1)*masks_batch_size,masks_batch_size))
+        #             end_masks[-1] = num_masks
+        #     else:
+        #         start_masks = [0]
+        #         end_masks = [num_masks]
+        #     union = torch.cat([((masks[st:ed, None, :]+masks_1[None, :, :]) >= 1).sum(-1) for st,ed in zip(start_masks, end_masks)])
+        #     iou = intersection/union
+            
+        #     return iou
+        
+        # iou = get_iou(torch.from_numpy(v["pred_masks"]).float().cuda().permute(1,0), gt_masks.float().cuda())
+        # assign = torch.argmax(iou, dim = -1)
+        
+        # for mask_id in range(v["pred_masks"].shape[1]):
+        #     v["pred_classes"][mask_id] = int(gt_labels[assign[mask_id]])
+        #     print(v["pred_classes"][mask_id])
+
+        
         gt_file = os.path.join(gt_path, k + ".txt") #"_inst.txt"
+        print(gt_file)
         if not os.path.isfile(gt_file):
             util.print_error('Scan {} does not match any gt file'.format(k), user_fault=True)
 
         matches_key = os.path.abspath(gt_file)
         # assign gt to predictions
         gt2pred, pred2gt = assign_instances_for_scan(v, gt_file)
+
         matches[matches_key] = {}
         matches[matches_key]['gt'] = gt2pred
         matches[matches_key]['pred'] = pred2gt
         sys.stdout.write("\rscans processed: {}".format(i + 1))
         sys.stdout.flush()
     print('')
-    ap_scores, ar_scores, rc_scores, pcdc_scores = evaluate_matches(matches)
-    avgs = compute_averages(ap_scores)
+    ap_scores, ar_scores, rc_scores, pcdc_scores, WI, A_OSE = evaluate_matches(matches)
+    avgs = compute_averages(ap_scores, pretrained_on_scannet200)
     ar_avgs = compute_averages_ar(ar_scores)
     rc_avgs = compute_averages_rc(rc_scores)
     pcdc_avgs = compute_averages_pcdc(pcdc_scores)
 
     # print
     #print_results(avgs)
-    print_results_ap_ar_rc_pcdc(avgs, ar_avgs, rc_avgs, pcdc_avgs)
+    print_results_ap_ar_rc_pcdc(avgs, ar_avgs, rc_avgs, pcdc_avgs, WI, A_OSE)
     # write_result_file(avgs, output_file)
     return avgs, ar_avgs, rc_avgs, pcdc_avgs
 

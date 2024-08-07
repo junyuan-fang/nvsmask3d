@@ -25,6 +25,7 @@ from nerfstudio.plugins.types import MethodSpecification
 from nerfstudio.plugins.registry_dataparser import DataParserSpecification
 from nvsmask3d.dataparsers.scannet_dataparser import ScanNetDataParserConfig
 from nvsmask3d.encoders.open_clip_encoder import OpenCLIPNetworkConfig
+from pathlib import Path
 
 
 NvsMask3d = MethodSpecification(
@@ -34,7 +35,7 @@ NvsMask3d = MethodSpecification(
         steps_per_eval_batch=0,
         steps_per_save=2000,
         steps_per_eval_all_images=1000,
-        max_num_iterations=20000,
+        max_num_iterations=6000,
         mixed_precision=False,
         pipeline=NvsMask3dPipelineConfig(
             datamanager=NVSMask3dDataManagerConfig(
@@ -42,6 +43,8 @@ NvsMask3d = MethodSpecification(
                             load_3D_points=True, 
                             load_every = 1,
                             train_split_fraction=0.9,
+                            data = Path("./nvsmask3d/data/scene0011_00"),
+                            ply_file_path=Path("./nvsmask3d/data/scene0011_00/scene0011_00.ply"),
                             ),
             cache_images_type="uint8",
             ),
