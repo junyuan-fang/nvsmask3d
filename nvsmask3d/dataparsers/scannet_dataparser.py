@@ -52,13 +52,13 @@ class ScanNetDataParserConfig(DataParserConfig):
     load_3D_points: bool = True
     """Whether to load the 3D points from the .ply"""
     point_cloud_color: bool = True
-    """read point cloud colors from .ply files or not """
-    ply_file_path: Path = data / (data.name + ".ply")
+    # """read point cloud colors from .ply files or not """
+    # ply_file_path: Path = data / (data.name + ".ply")
     """path to the .ply file containing the 3D points"""
     load_every: int = 5
     """load every n'th frame from the dense trajectory"""
     load_mask: bool = True
-    mask_path: Path = Path('/home/wangs9/junyuan/openmask3d/output/2024-07-23-11-44-44-scene0000_00_/scene0000_00__masks.pt')  
+    mask_path: Path = Path('/home/wangs9/junyuan/openmask3d/output/2024-08-08-13-27-09-scene0000_00_/scene0011_00_vh_clean_2_masks.pt')  
 
 @dataclass
 class ScanNet(DataParser):
@@ -70,19 +70,20 @@ class ScanNet(DataParser):
         image_dir = self.config.data / "color"
         depth_dir = self.config.data / "depth"
         pose_dir = self.config.data / "pose"
-        self.config.ply_file_path = self.config.data / (self.config.data.name + ".ply")
+        self.config.ply_file_path = self.config.data / (self.config.data.name + "_vh_clean_2.ply")
         #self.config.mask_path = 
         
         img_dir_sorted = list(sorted(image_dir.iterdir(), key=lambda x: int(x.name.split(".")[0])))
         depth_dir_sorted = list(sorted(depth_dir.iterdir(), key=lambda x: int(x.name.split(".")[0])))
-        pose_dir_sorted = list(sorted(pose_dir.iterdir(), key=lambda x: int(x.name.split(".")[0])))
+        #pose_dir_sorted = list(sorted(pose_dir.iterdir(), key=lambda x: int(x.name.split(".")[0])))
+        pose_dir_sorted = list(sorted((f for f in pose_dir.iterdir() if f.name.split(".")[0].isdigit()),key=lambda x: int(x.name.split(".")[0])))
 
         first_img = cv2.imread(str(img_dir_sorted[0].absolute()))  # type: ignore
         h, w, _ = first_img.shape
 
         image_filenames, depth_filenames, intrinsics, poses = [], [], [], []
 
-        K = np.loadtxt(self.config.data / "intrinsic" / "intrinsic_depth.txt")
+        K = np.loadtxt(self.config.data / "intrinsic" / "intrinsic_color.txt")
         for img, depth, pose in zip(img_dir_sorted, depth_dir_sorted, pose_dir_sorted):
             pose = np.loadtxt(pose)
             pose = np.array(pose).reshape(4, 4)

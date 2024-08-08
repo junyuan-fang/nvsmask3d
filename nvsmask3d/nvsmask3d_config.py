@@ -43,8 +43,10 @@ NvsMask3d = MethodSpecification(
                             load_3D_points=True, 
                             load_every = 1,
                             train_split_fraction=0.9,
-                            data = Path("./nvsmask3d/data/scene0011_00"),
-                            ply_file_path=Path("./nvsmask3d/data/scene0011_00/scene0011_00.ply"),
+                            mask_path = Path("/home/wangs9/junyuan/openmask3d/output/2024-08-08-13-27-09-scene0000_00_/scene0011_00_vh_clean_2_masks.pt")
+                                        #Path('/home/wangs9/junyuan/openmask3d/output/2024-08-07-20-48-45-scene0000_00_/scene0011_00_masks.pt'),
+                                        #Path('/home/wangs9/junyuan/openmask3d/output/2024-07-23-11-44-44-scene0000_00_/scene0000_00__masks.pt'),  
+                            #data=Path("/home/wangs9/junyuan/openmask3d/data/scene0000_00_/"),
                             ),
             cache_images_type="uint8",
             ),

@@ -491,7 +491,7 @@ def assign_instances_for_scan(pred: dict, gt_file: str):
         # read the mask
         pred_mask = pred_info[uuid]['mask']
         #print(pred_mask.shape , gt_ids.shape)
-        #print(len(pred_mask) , len(gt_ids))
+        print(len(pred_mask) , len(gt_ids))
         assert (len(pred_mask) == len(gt_ids))
         # convert to binary
         pred_mask = np.not_equal(pred_mask, 0)

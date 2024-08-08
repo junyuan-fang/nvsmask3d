@@ -92,7 +92,7 @@ class ComputeForAP:#pred_masks.shape, pred_scores.shape, pred_classes.shape #((2
     output_path: Path = Path("")
 
     def main(self) -> None:
-        gt_dir = Path("/home/wangs9/junyuan/nerfstudio-nvsmask3d/nvsmask3d/data/ScanNetSample/instance_gt/train")
+        gt_dir = Path("/home/wangs9/junyuan/nerfstudio-nvsmask3d/nvsmask3d/data/scene0011_00/instance_gt/validation")
         config, pipeline, checkpoint_path, _ = eval_setup(
             self.load_config,
             test_mode="all",
@@ -100,7 +100,7 @@ class ComputeForAP:#pred_masks.shape, pred_scores.shape, pred_classes.shape #((2
         global model
         model = pipeline.model
         preds = {}
-        scene_names = ["scene0000_00_"]#hard coded for now
+        scene_names = ["scene0011_00"]#hard coded for now
         with torch.no_grad():
             # for each scene
             for i, scene_name in tqdm(enumerate(scene_names), desc="Evaluating", total=len(scene_names)):
@@ -118,7 +118,7 @@ class ComputeForAP:#pred_masks.shape, pred_scores.shape, pred_classes.shape #((2
                 #     save_img(img, f"tests/output_{i}.png")
                 #     ##########################################
                 class_agnostic_3d_mask = torch.from_numpy(model.points3D_mask).bool().to('cuda')  # shape (N, 166)
-                seed_points_0 = model.seed_points[0].cuda()  # shape (N, 3)
+                seed_points_0 = model.seed_points[0].half().cuda()  # shape (N, 3)
                 # optimal_camera_poses_of_scene = optimal_k_camera_poses_of_scene(seed_points_0=seed_points_0, 
                 #                                                                 class_agnostic_3d_mask=class_agnostic_3d_mask,
                 #                                                                 camera=model.cameras)
@@ -127,14 +127,12 @@ class ComputeForAP:#pred_masks.shape, pred_scores.shape, pred_classes.shape #((2
                 pred_scores = np.ones(pred_classes.shape)
                 pred_masks = model.points3D_mask
                 pred_classes = pred_classes.cpu().numpy()
-                print(pred_masks.shape, pred_scores.shape, pred_classes.shape)
-                preds["scene0000_00"] = {
+                preds["scene0011_00"] = {
                     'pred_masks': pred_masks,
                     'pred_scores': pred_scores,
                     'pred_classes': pred_classes
                 }
                 inst_AP = evaluate(preds, gt_dir, output_file= "output.txt", dataset="scannet200")
-                print(inst_AP)
 
     def pred_classes(self, class_agnostic_3d_mask, seed_points_0, k_poses):
         """
@@ -144,7 +142,7 @@ class ComputeForAP:#pred_masks.shape, pred_scores.shape, pred_classes.shape #((2
         # Move camera transformations to the GPU
         OPENGL_TO_OPENCV = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
         camera = model.cameras 
-        optimized_camera_to_world = camera.camera_to_worlds.to('cuda')  # shape (M, 4, 4)
+        optimized_camera_to_world = camera.camera_to_worlds.half().to('cuda')  # shape (M, 4, 4)
         opengl_to_opencv = torch.tensor(OPENGL_TO_OPENCV, device='cuda', dtype=optimized_camera_to_world.dtype)  # shape (4, 4)
         optimized_camera_to_world = torch.matmul(optimized_camera_to_world, opengl_to_opencv)  # shape (M, 4, 4)
 
