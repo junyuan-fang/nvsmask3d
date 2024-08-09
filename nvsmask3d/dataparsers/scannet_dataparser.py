@@ -1,5 +1,5 @@
 
-"""Data parser for ScanNet dataset"""
+"""Slightly modified version of scannet dataparser adapted from: https://github.com/nerfstudio-project/nerfstudio/blob/main/nerfstudio/data/dataparsers/scannet_dataparser.py"""
 
 import math
 from dataclasses import dataclass, field
@@ -8,6 +8,7 @@ from typing import Literal, Type
 
 import cv2
 import numpy as np
+from nerfstudio.plugins.registry_dataparser import DataParserSpecification
 import torch
 
 from nerfstudio.cameras import camera_utils
@@ -57,7 +58,7 @@ class ScanNetDataParserConfig(DataParserConfig):
     """path to the .ply file containing the 3D points"""
     load_every: int = 5
     """load every n'th frame from the dense trajectory"""
-    load_mask: bool = True
+    load_mask: bool = False
     mask_path: Path = Path('/home/wangs9/junyuan/openmask3d/output/2024-08-08-13-27-09-scene0000_00_/scene0011_00_vh_clean_2_masks.pt')  
 
 @dataclass
@@ -277,3 +278,7 @@ class ScanNet(DataParser):
             "points3D_cls_num": cls_num
         }
         return out
+
+ScanNetDataParserSpecification = DataParserSpecification(
+    config=ScanNetDataParserConfig(load_3D_points=True), description="scannet dataparser"
+)

@@ -30,7 +30,7 @@ from pathlib import Path
 
 NvsMask3d = MethodSpecification(
     config=TrainerConfig(
-        method_name="nvsmask3d",  # TODO: rename to your own model
+        method_name="nvsmask3d",
         steps_per_eval_image=100,
         steps_per_eval_batch=0,
         steps_per_save=2000,
@@ -99,9 +99,3 @@ NvsMask3d = MethodSpecification(
     ),
     description="Nerfstudio method nvsmask3d.",
 )
-
-
-
-ScanNetDataparser = DataParserSpecification(config=ScanNetDataParserConfig(load_3D_points=True))
-
-
