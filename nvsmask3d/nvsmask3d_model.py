@@ -44,35 +44,6 @@ from nerfstudio.models.splatfacto import (
 from nerfstudio.viewer.viewer_elements import *
 from nvsmask3d.utils.camera_utils import object_optimal_k_camera_poses
 
-def random_quat_tensor(N):
-    """
-    Defines a random quaternion tensor of shape (N, 4)
-    """
-    u = torch.rand(N)
-    v = torch.rand(N)
-    w = torch.rand(N)
-    return torch.stack(
-        [
-            torch.sqrt(1 - u) * torch.sin(2 * math.pi * v),
-            torch.sqrt(1 - u) * torch.cos(2 * math.pi * v),
-            torch.sqrt(u) * torch.sin(2 * math.pi * w),
-            torch.sqrt(u) * torch.cos(2 * math.pi * w),
-        ],
-        dim=-1,
-    )
-
-def num_sh_bases(degree: int):
-    if degree == 0:
-        return 1
-    if degree == 1:
-        return 4
-    if degree == 2:
-        return 9
-    if degree == 3:
-        return 16
-    return 25
-
-
 @dataclass
 class NVSMask3dModelConfig(SplatfactoModelConfig):
     """Template Model Configuration.
@@ -90,6 +61,15 @@ class NVSMask3dModelConfig(SplatfactoModelConfig):
     #max_gauss_ratio: float = 1.5
     #refine_every: int = 100 # we don't cull or densify gaussians
     #warmup_length = 500
+    use_scale_regularization: bool = True
+    """If enabled, a scale regularization introduced in PhysGauss (https://xpandora.github.io/PhysGaussian/) is used for reducing huge spikey gaussians."""
+    max_gauss_ratio: float = 5
+    """threshold of ratio of gaussian max to min scale before applying regularization
+    loss from the PhysGaussian paper
+    """
+    camera_optimizer: CameraOptimizerConfig = field(default_factory=lambda: CameraOptimizerConfig(mode="SO3xR3")) # off #SO3xR3 #SE3
+    """Config of the camera optimizer to use"""
+
 
 
 class NVSMask3dModel(SplatfactoModel):
@@ -116,8 +96,12 @@ class NVSMask3dModel(SplatfactoModel):
         super().__init__(seed_points=seed_points, *args,**kwargs)
         self.max_cls_num = max(0,self.points3D_cls_num)
         self.inference = False
-        #viewers
         
+        #if need to lock means
+        if seed_points is not None:
+            self.initial_gaussians_mask = torch.ones(seed_points[0].shape[0], dtype=torch.bool, device=self.device)
+        
+        #viewers
         self.segmant_gaussian = ViewerSlider(
             name="Segment Gaussians by the class agnostic ID",
             min_value=0,
@@ -381,7 +365,68 @@ class NVSMask3dModel(SplatfactoModel):
             return
         else:
             super().refinement_after(optimizers, step)
-    
+            
+    def cull_gaussians(self, extra_cull_mask: Optional[torch.Tensor] = None):
+        """
+        This function deletes gaussians under a certain opacity threshold
+        extra_cull_mask: a mask indicates extra gaussians to cull besides existing culling criterion
+        """
+        if self.config.lock_means and self.seed_points is not None:
+            n_bef = self.num_points
+            # Compute cull mask based on opacity threshold
+            culls = torch.sigmoid(self.opacities) < self.config.cull_alpha_thresh
+
+            # Exclude initial Gaussians from culling
+            culls &= ~self.initial_gaussians_mask
+
+            if extra_cull_mask is not None:
+                culls |= extra_cull_mask
+
+            # Cull large Gaussians if applicable
+            if self.step > self.config.refine_every * self.config.reset_alpha_every:
+                toobigs = torch.exp(self.scales).max(dim=-1).values > self.config.cull_scale_thresh
+                if self.step < self.config.stop_screen_size_at:
+                    toobigs |= (self.max_2Dsize > self.config.cull_screen_size).squeeze()
+                culls |= toobigs
+
+            # Update parameters using masked indices
+            for name, param in self.gauss_params.items():
+                self.gauss_params[name] = torch.nn.Parameter(param[~culls])
+
+            # Update mask
+            self.initial_gaussians_mask = self.initial_gaussians_mask[~culls]
+
+            CONSOLE.log(
+                f"Culled {n_bef - self.num_points} gaussians ({torch.sum(culls).item()} removed, {self.num_points} remaining)"
+            )
+
+            return culls
+        else:
+            super().cull_gaussians(extra_cull_mask)
+            
+    def split_gaussians(self, split_mask, samps):
+        # Split existing logic...
+        out = super().split_gaussians(split_mask, samps)
+
+        # Only update the mask for newly added Gaussians
+        if self.seed_points is not None:
+            num_new = out["means"].size(0)
+            self.initial_gaussians_mask = torch.cat(
+                [self.initial_gaussians_mask, torch.zeros(num_new, dtype=torch.bool, device=self.device)]
+            )
+        return out
+
+    def dup_gaussians(self, dup_mask):
+        # Duplicate existing logic...
+        new_dups = super().dup_gaussians(dup_mask)
+
+        # Only update the mask for newly duplicated Gaussians
+        if self.seed_points is not None:
+            num_new = new_dups["means"].size(0)
+            self.initial_gaussians_mask = torch.cat(
+                [self.initial_gaussians_mask, torch.zeros(num_new, dtype=torch.bool, device=self.device)]
+            )
+        return new_dups
     def binarize_opacities(self):
         with torch.no_grad():
             self.gauss_params['opacities'].data = (self.gauss_params['opacities'] > 0.5).float()

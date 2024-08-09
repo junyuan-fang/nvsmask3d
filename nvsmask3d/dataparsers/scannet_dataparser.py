@@ -265,6 +265,7 @@ class ScanNet(DataParser):
         if points_color:
             #points3D_rgb = torch.from_numpy((np.asarray(pcd.colors) * 255).astype(np.uint8))
             points3D_rgb = torch.from_numpy((np.asarray(pcd.colors)[sampled_indices] * 255).astype(np.uint8))
+            print(torch.min(points3D_rgb), torch.max(points3D_rgb))
             out["points3D_rgb"] = points3D_rgb
 
         return out

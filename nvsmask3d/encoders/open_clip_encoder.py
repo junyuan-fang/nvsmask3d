@@ -60,7 +60,7 @@ class OpenCLIPNetwork(BaseImageEncoder):
             name="Use ScanNet200",
             default_value=True,
             cb_hook=self._scannet_checkbox_update,
-            visible=True if self.testmode == "train" else False
+            visible=True if self.testmode == "train" or self.testmode == "all" else False
         )
         
         self.positive_input = ViewerText(
@@ -69,7 +69,7 @@ class OpenCLIPNetwork(BaseImageEncoder):
             cb_hook=self._set_positives, 
             hint="Seperate classes with ;",
             disabled=True,
-            visible=True if self.testmode == "train" else False)
+            visible=True if self.testmode == "train" or self.testmode == "all" else False)
         
         ##############################
         self.negatives = self.config.negatives

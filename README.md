@@ -20,10 +20,12 @@ ns-train splatfacto scannet-data --data nvsmask3d/data/scene0000_00_
 ns-train nvsmask3d --data nvsmask3d/data/scene_example
 ns-train nvsmask3d --data nvsmask3d/data/scene0000_00_ --vis viewer+wandb
 ns-train nvsmask3d --data nvsmask3d/data/scene0011_00 --vis viewer+wandb
+ns-train splatfacto --vis viewer+wandb colmap --data nvsmask3d/data/scene0011_00/colmap 
 ```
 ## View
 ```
 ns-viewer nvsmask3d --load_config outputs/nvsmask3d_whole_data_0.9_train_ratio/nvsmask3d/2024-08-01_144608/config.yml
+ns-viewer nvsmask3d --load_config outputs/scene0011_00/nvsmask3d/2024-08-07_220010/config.yml
 ```
 
 ## Evaluation 
@@ -31,8 +33,10 @@ ns-viewer nvsmask3d --load_config outputs/nvsmask3d_whole_data_0.9_train_ratio/n
 ns-eval for_ap --load_config outputs/nvsmask3d_whole_data_0.9_train_ratio/nvsmask3d/2024-08-01_144608/config.yml # full
 ns-eval for_ap --load_config outputs/fast/nvsmask3d/2024-08-07_175651/config.yml  #2000
 ns-eval for_ap --load_config outputs/fast/nvsmask3d/2024-08-07_181023/config.yml #6000
-
-
+ns-eval for_ap --load_config outputs/scene0011_00/nvsmask3d/2024-08-07_220010/config.yml
+ns-eval for_ap --load_config outputs/scene0011_00/nvsmask3d/2024-08-08_132932/config.yml   #sparse point cloud initialization
+ns-eval for_ap --load_config outputs/scene0011_00/nvsmask3d/2024-08-08_165724/config.yml #sparse point cloud initialization+densify+culling  20000steps
+ns-eval for_ap --load_config outputs/unnamed/splatfacto/2024-08-08_210343/config.yml #colmap
 ```
 ## Single scene predction path
 ```
