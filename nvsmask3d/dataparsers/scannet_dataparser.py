@@ -58,7 +58,7 @@ class ScanNetDataParserConfig(DataParserConfig):
     """path to the .ply file containing the 3D points"""
     load_every: int = 5
     """load every n'th frame from the dense trajectory"""
-    load_mask: bool = False
+    load_mask: bool = True
     mask_path: Path = Path('/home/wangs9/junyuan/openmask3d/output/2024-08-08-13-27-09-scene0000_00_/scene0011_00_vh_clean_2_masks.pt')  
 
 @dataclass
