@@ -71,7 +71,6 @@ class NVSMask3dModelConfig(SplatfactoModelConfig):
     """Config of the camera optimizer to use"""
 
 
-
 class NVSMask3dModel(SplatfactoModel):
     """Template Model."""
 
@@ -94,7 +93,7 @@ class NVSMask3dModel(SplatfactoModel):
         
         self.test_mode = test_mode
         super().__init__(seed_points=seed_points, *args,**kwargs)
-        self.max_cls_num = max(0,self.points3D_cls_num)
+        self.max_cls_num = max(0,self.points3D_cls_num) if self.points3D_cls_num else 2
         self.inference = False
         
         #if need to lock means
@@ -214,8 +213,8 @@ class NVSMask3dModel(SplatfactoModel):
         colors_crop = torch.cat((features_dc_crop[:, None, :], features_rest_crop), dim=1)
 
         # Apply mask
-        points3D_mask = self.points3D_mask  # Assumes this function returns a mask of appropriate shape
-        if points3D_mask is not None:
+        if self.points3D_mask is not None:
+            points3D_mask = self.points3D_mask  # Assumes this function returns a mask of appropriate shape
             mask_indices = points3D_mask[:, self.cls_index] > 0
             opacities_masked = opacities_crop[mask_indices]
             means_masked = means_crop[mask_indices]
@@ -223,7 +222,6 @@ class NVSMask3dModel(SplatfactoModel):
             features_rest_masked = features_rest_crop[mask_indices]
             scales_masked = scales_crop[mask_indices]
             quats_masked = quats_crop[mask_indices]
-
             colors_masked = torch.cat((features_dc_masked[:, None, :], features_rest_masked), dim=1)
         else:
             opacities_masked = opacities_crop
@@ -232,7 +230,6 @@ class NVSMask3dModel(SplatfactoModel):
             features_rest_masked = features_rest_crop
             scales_masked = scales_crop
             quats_masked = quats_crop
-
             colors_masked = colors_crop
 
         BLOCK_WIDTH = 16  # this controls the tile size of rasterization, 16 is a good default
@@ -337,9 +334,6 @@ class NVSMask3dModel(SplatfactoModel):
             #"depth_mask": depth_mask,  # type: ignore
         }
 
-        
-    ##we don't update means
-    
     def get_gaussian_param_groups(self) -> Dict[str, List[Parameter]]:
         # param_groups = {
         #     name: [param]
@@ -433,7 +427,14 @@ class NVSMask3dModel(SplatfactoModel):
             
     @property
     def points3D_mask(self):
-        return self.metadata["points3D_mask"]
+        if "points3D_mask" in self.metadata:
+            return self.metadata["points3D_mask"]
+        else:
+            return None
+
     @property
     def points3D_cls_num(self):
-        return self.metadata["points3D_cls_num"]
+        if "points3D_cls_num" in self.metadata:
+            return self.metadata["points3D_cls_num"]
+        else:
+            return None

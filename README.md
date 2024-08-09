@@ -13,13 +13,10 @@ tran test split = 1
 test_mode = train
 
 ## Running the new method
-This repository creates a new Nerfstudio method named "method-template". To train with it, run the command:
 ```
-ns-train method-template --data [PATH]
-ns-train splatfacto scannet-data --data nvsmask3d/data/scene0000_00_ 
-ns-train nvsmask3d --data nvsmask3d/data/scene_example
-ns-train nvsmask3d --data nvsmask3d/data/scene0000_00_ --vis viewer+wandb
-ns-train nvsmask3d --data nvsmask3d/data/scene0011_00 --vis viewer+wandb
+ns-train splatfacto scannet-data --data nvsmask3d/data/scene0000_00_  # this is old scannet dataparser
+ns-train nvsmask3d scannet --data nvsmask3d/data/scene_example # this is new scannet dataparser modified in this repo
+ns-train nvsmask3d replica --data nvsmask3d/data/Replica # train on replica data
 ns-train splatfacto --vis viewer+wandb colmap --data nvsmask3d/data/scene0011_00/colmap 
 ```
 ## View
@@ -49,12 +46,10 @@ ns-eval for_ap --load_config outputs/unnamed/splatfacto/2024-08-08_210343/config
     cd /home/wangs9/junyuan/openmask3d/openmask3d/saved/scene0000_00_/visualizations/scene0000_00_; python -m http.server 6008
 2) Open in browser:
     http://0.0.0.0:6008
-
-
-
-
-
-
       File "/home/wangs9/junyuan/nerfstudio-nvsmask3d/nvsmask3d/nvsmask3d_model.py", line 236, in get_outputs
     opacities_masked = opacities_crop[mask_indices]
 IndexError: The shape of the mask [1990518] at index 0 does not match the shape of the indexed tensor [739790, 1] at index 0
+
+# Datasets
+### Replica
+Download dataset with: `python nvsmask3d/data/download_replica.py`

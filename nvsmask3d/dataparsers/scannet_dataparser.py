@@ -1,5 +1,5 @@
 
-"""Data parser for ScanNet dataset"""
+"""Slightly modified version of scannet dataparser adapted from: https://github.com/nerfstudio-project/nerfstudio/blob/main/nerfstudio/data/dataparsers/scannet_dataparser.py"""
 
 import math
 from dataclasses import dataclass, field
@@ -8,6 +8,7 @@ from typing import Literal, Type
 
 import cv2
 import numpy as np
+from nerfstudio.plugins.registry_dataparser import DataParserSpecification
 import torch
 
 from nerfstudio.cameras import camera_utils
@@ -277,3 +278,7 @@ class ScanNet(DataParser):
             "points3D_cls_num": cls_num
         }
         return out
+
+ScanNetDataParserSpecification = DataParserSpecification(
+    config=ScanNetDataParserConfig(load_3D_points=True), description="scannet dataparser"
+)
