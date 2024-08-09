@@ -7,18 +7,19 @@ from dataclasses import dataclass, field
 from typing import Type
 import torch
 import os
+
 # 设置 TORCH_CUDA_ARCH_LIST 环境变量
-os.environ['TORCH_CUDA_ARCH_LIST'] = "7.5;8.0"
+os.environ["TORCH_CUDA_ARCH_LIST"] = "7.5;8.0"
 
 # 启用 TensorFloat32
-torch.set_float32_matmul_precision('high')
+torch.set_float32_matmul_precision("high")
 from typing import Dict, List, Literal, Optional, Tuple, Type, Union
 
 try:
     from gsplat.rendering import rasterization
 except ImportError:
     print("Please install gsplat>=1.0.0")
-    
+
 from torch.nn import Parameter
 from nerfstudio.cameras.camera_optimizers import CameraOptimizer
 from nvsmask3d.encoders.image_encoder import BaseImageEncoder
@@ -28,8 +29,8 @@ import math
 from nerfstudio.utils.rich_utils import CONSOLE
 from nerfstudio.data.scene_box import OrientedBox
 from nerfstudio.cameras.cameras import Cameras
-#from nvsmask3d.utils.camera_utils import Cameras
 
+# from nvsmask3d.utils.camera_utils import Cameras
 
 
 from nerfstudio.cameras.camera_optimizers import CameraOptimizer, CameraOptimizerConfig
@@ -44,6 +45,7 @@ from nerfstudio.models.splatfacto import (
 from nerfstudio.viewer.viewer_elements import *
 from nvsmask3d.utils.camera_utils import object_optimal_k_camera_poses
 
+
 @dataclass
 class NVSMask3dModelConfig(SplatfactoModelConfig):
     """Template Model Configuration.
@@ -52,22 +54,26 @@ class NVSMask3dModelConfig(SplatfactoModelConfig):
     """
 
     _target: Type = field(default_factory=lambda: NVSMask3dModel)
-    
+
     random_init: bool = False
-    camera_optimizer: CameraOptimizerConfig = field(default_factory=lambda: CameraOptimizerConfig(mode="off"))#off #SO3xR3 #SE3
+    camera_optimizer: CameraOptimizerConfig = field(
+        default_factory=lambda: CameraOptimizerConfig(mode="off")
+    )  # off #SO3xR3 #SE3
     """Config of the camera optimizer to use"""
     lock_means: bool = True
-    #use_scale_regularization: bool = true
-    #max_gauss_ratio: float = 1.5
-    #refine_every: int = 100 # we don't cull or densify gaussians
-    #warmup_length = 500
+    # use_scale_regularization: bool = true
+    # max_gauss_ratio: float = 1.5
+    # refine_every: int = 100 # we don't cull or densify gaussians
+    # warmup_length = 500
     use_scale_regularization: bool = True
     """If enabled, a scale regularization introduced in PhysGauss (https://xpandora.github.io/PhysGaussian/) is used for reducing huge spikey gaussians."""
     max_gauss_ratio: float = 5
     """threshold of ratio of gaussian max to min scale before applying regularization
     loss from the PhysGaussian paper
     """
-    camera_optimizer: CameraOptimizerConfig = field(default_factory=lambda: CameraOptimizerConfig(mode="SO3xR3")) # off #SO3xR3 #SE3
+    camera_optimizer: CameraOptimizerConfig = field(
+        default_factory=lambda: CameraOptimizerConfig(mode="SO3xR3")
+    )  # off #SO3xR3 #SE3
     """Config of the camera optimizer to use"""
 
 
@@ -75,7 +81,7 @@ class NVSMask3dModel(SplatfactoModel):
     """Template Model."""
 
     config: NVSMask3dModelConfig
-    
+
     def __init__(
         self,
         *args,
@@ -83,24 +89,26 @@ class NVSMask3dModel(SplatfactoModel):
         metadata: Optional[Dict] = None,
         cameras: Optional[Cameras] = None,
         test_mode: Literal["test", "val", "inference", "train", "all"] = "val",
-        #image_file_names,#test
+        # image_file_names,#test
         **kwargs,
     ):
         self.metadata = metadata
         self.cameras = cameras
         self.cls_index = 0
-        #self.image_file_names = image_file_names#debug
-        
+        # self.image_file_names = image_file_names#debug
+
         self.test_mode = test_mode
-        super().__init__(seed_points=seed_points, *args,**kwargs)
-        self.max_cls_num = max(0,self.points3D_cls_num) if self.points3D_cls_num else 2
+        super().__init__(seed_points=seed_points, *args, **kwargs)
+        self.max_cls_num = max(0, self.points3D_cls_num) if self.points3D_cls_num else 2
         self.inference = False
-        
-        #if need to lock means
+
+        # if need to lock means
         if seed_points is not None:
-            self.initial_gaussians_mask = torch.ones(seed_points[0].shape[0], dtype=torch.bool, device=self.device)
-        
-        #viewers
+            self.initial_gaussians_mask = torch.ones(
+                seed_points[0].shape[0], dtype=torch.bool, device=self.device
+            )
+
+        # viewers
         self.segmant_gaussian = ViewerSlider(
             name="Segment Gaussians by the class agnostic ID",
             min_value=0,
@@ -109,62 +117,71 @@ class NVSMask3dModel(SplatfactoModel):
             default_value=0,
             disabled=False,
             cb_hook=self._update_masked_scene_with_cls,
-            visible=True
+            visible=True,
         )
-        
+
         self.output_text = ViewerText(
             name="Output",
             default_value="Results will be displayed here",
             disabled=True,  # Make it non-interactive
-            visible=True if self.test_mode == "train" or self.test_mode == "all" else False,
-            hint="Output will be displayed here"
+            visible=True
+            if self.test_mode == "train" or self.test_mode == "all"
+            else False,
+            hint="Output will be displayed here",
         )
-        
+
         self.segment_gaussian_positives = ViewerButton(
-            name="Segment Gaussians with Positives", 
-            cb_hook=self._segment_gaussians, 
-            visible=True if self.test_mode == "train" or self.test_mode == "all" else False)
+            name="Segment Gaussians with Positives",
+            cb_hook=self._segment_gaussians,
+            visible=True
+            if self.test_mode == "train" or self.test_mode == "all"
+            else False,
+        )
 
     def _segment_gaussians(self, element):
         self.output_text.value = "Segmenting Gaussians..."
-        #get optimal cameraposes use mask proposal and poses
+        # get optimal cameraposes use mask proposal and poses
         # import time
         # start = time.time()
-        optimal_cameras = object_optimal_k_camera_poses(seed_points_0 = self.seed_points[0].cuda(),class_agnostic_3d_mask=self.points3D_mask[:,self.cls_index], camera=self.cameras, k_poses = 2)#image_file_names= self.image_file_names)#seedpoints, mask -> cuda, numpy
+        optimal_cameras = object_optimal_k_camera_poses(
+            seed_points_0=self.seed_points[0].cuda(),
+            class_agnostic_3d_mask=self.points3D_mask[:, self.cls_index],
+            camera=self.cameras,
+            k_poses=2,
+        )  # image_file_names= self.image_file_names)#seedpoints, mask -> cuda, numpy
         outputs = []
         for i in range(optimal_cameras.camera_to_worlds.shape[0]):
-            single_camera = optimal_cameras[i:i+1]
+            single_camera = optimal_cameras[i : i + 1]
             assert single_camera.shape[0] == 1, "Only one camera at a time"
-            img = self.get_outputs(single_camera)["rgb_mask"]#(H,W,3)
+            img = self.get_outputs(single_camera)["rgb_mask"]  # (H,W,3)
             ###################save rendered image#################
-            from  nvsmask3d.utils.utils import save_img
+            from nvsmask3d.utils.utils import save_img
+
             save_img(img, f"tests/output_{i}.png")
             ######################################################
             outputs.append(img)
-            
-        output= torch.stack(outputs)
-        #(B,H,W,3)->(B,C,H,W)
-        output = output.permute(0,3,1,2)
+
+        output = torch.stack(outputs)
+        # (B,H,W,3)->(B,C,H,W)
+        output = output.permute(0, 3, 1, 2)
         texts = self.image_encoder.classify_images(output)
 
-        self.output_text.value = texts#''.join(output)
+        self.output_text.value = texts  #''.join(output)
         return
-    
+
     def _update_masked_scene_with_cls(self, number: ViewerSlider) -> None:
         if number.value > self.metadata["points3D_cls_num"]:
             number.value = self.metadata["points3D_cls_num"]
-            return   
+            return
         elif number.value < 0:
             number.value = 0
             return
         self.cls_index = number.value
-    
-    
+
     def populate_modules(self):
         super().populate_modules()
         self.image_encoder: BaseImageEncoder = self.kwargs["image_encoder"]
 
-        
     def get_outputs(self, camera: Cameras) -> Dict[str, Union[torch.Tensor, List]]:
         """Takes in a camera and returns a dictionary of outputs.
 
@@ -190,7 +207,9 @@ class NVSMask3dModel(SplatfactoModel):
             crop_ids = self.crop_box.within(self.means).squeeze()
             if crop_ids.sum() == 0:
                 return self.get_empty_outputs(
-                    int(camera.width.item()), int(camera.height.item()), self.background_color
+                    int(camera.width.item()),
+                    int(camera.height.item()),
+                    self.background_color,
                 )
         else:
             crop_ids = None
@@ -210,11 +229,15 @@ class NVSMask3dModel(SplatfactoModel):
             scales_crop = self.scales
             quats_crop = self.quats
 
-        colors_crop = torch.cat((features_dc_crop[:, None, :], features_rest_crop), dim=1)
+        colors_crop = torch.cat(
+            (features_dc_crop[:, None, :], features_rest_crop), dim=1
+        )
 
         # Apply mask
         if self.points3D_mask is not None:
-            points3D_mask = self.points3D_mask  # Assumes this function returns a mask of appropriate shape
+            points3D_mask = (
+                self.points3D_mask
+            )  # Assumes this function returns a mask of appropriate shape
             mask_indices = points3D_mask[:, self.cls_index] > 0
             opacities_masked = opacities_crop[mask_indices]
             means_masked = means_crop[mask_indices]
@@ -222,7 +245,9 @@ class NVSMask3dModel(SplatfactoModel):
             features_rest_masked = features_rest_crop[mask_indices]
             scales_masked = scales_crop[mask_indices]
             quats_masked = quats_crop[mask_indices]
-            colors_masked = torch.cat((features_dc_masked[:, None, :], features_rest_masked), dim=1)
+            colors_masked = torch.cat(
+                (features_dc_masked[:, None, :], features_rest_masked), dim=1
+            )
         else:
             opacities_masked = opacities_crop
             means_masked = means_crop
@@ -232,7 +257,9 @@ class NVSMask3dModel(SplatfactoModel):
             quats_masked = quats_crop
             colors_masked = colors_crop
 
-        BLOCK_WIDTH = 16  # this controls the tile size of rasterization, 16 is a good default
+        BLOCK_WIDTH = (
+            16  # this controls the tile size of rasterization, 16 is a good default
+        )
         camera_scale_fac = self._get_downscale_factor()
         camera.rescale_output_resolution(1 / camera_scale_fac)
         viewmat = get_viewmat(optimized_camera_to_world).to(device=self.device)
@@ -251,10 +278,14 @@ class NVSMask3dModel(SplatfactoModel):
             render_mode = "RGB"
 
         if self.config.sh_degree > 0:
-            sh_degree_to_use = min(self.step // self.config.sh_degree_interval, self.config.sh_degree)
+            sh_degree_to_use = min(
+                self.step // self.config.sh_degree_interval, self.config.sh_degree
+            )
         else:
             colors_crop = torch.sigmoid(colors_crop).squeeze(1)  # [N, 1, 3] -> [N, 3]
-            colors_masked = torch.sigmoid(colors_masked).squeeze(1)  # [N, 1, 3] -> [N, 3]
+            colors_masked = torch.sigmoid(colors_masked).squeeze(
+                1
+            )  # [N, 1, 3] -> [N, 3]
             sh_degree_to_use = None
 
         render, alpha, info = rasterization(
@@ -270,7 +301,7 @@ class NVSMask3dModel(SplatfactoModel):
             tile_size=BLOCK_WIDTH,
             packed=False,
             near_plane=0.01,
-            far_plane=1e10, 
+            far_plane=1e10,
             render_mode=render_mode,
             sh_degree=sh_degree_to_use,
             sparse_grad=False,
@@ -314,13 +345,15 @@ class NVSMask3dModel(SplatfactoModel):
 
         if render_mode == "RGB+ED":
             depth_im = render[:, ..., 3:4]
-            depth_im = torch.where(alpha > 0, depth_im, depth_im.detach().max()).squeeze(0)
+            depth_im = torch.where(
+                alpha > 0, depth_im, depth_im.detach().max()
+            ).squeeze(0)
 
             # depth_mask = render_masked[:, ..., 3:4]
             # depth_mask = torch.where(alpha_masked > 0, depth_mask, depth_mask.detach().max()).squeeze(0)
         else:
             depth_im = None
-            #depth_mask = None
+            # depth_mask = None
 
         if background.shape[0] == 3 and not self.training:
             background = background.expand(H, W, 3)
@@ -331,7 +364,7 @@ class NVSMask3dModel(SplatfactoModel):
             "accumulation": alpha.squeeze(0),  # type: ignore
             "background": background,  # type: ignore
             "rgb_mask": rgb_mask.squeeze(0),  # type: ignore
-            #"depth_mask": depth_mask,  # type: ignore
+            # "depth_mask": depth_mask,  # type: ignore
         }
 
     def get_gaussian_param_groups(self) -> Dict[str, List[Parameter]]:
@@ -343,23 +376,36 @@ class NVSMask3dModel(SplatfactoModel):
         # return param_groups
         if self.config.lock_means:
             return {
-            name: [self.gauss_params[name]]
-            for name in ["scales", "quats", "features_dc", "features_rest", "opacities"]
-        }
+                name: [self.gauss_params[name]]
+                for name in [
+                    "scales",
+                    "quats",
+                    "features_dc",
+                    "features_rest",
+                    "opacities",
+                ]
+            }
         else:
             return {
-            name: [self.gauss_params[name]]
-            for name in ["means", "scales", "quats", "features_dc", "features_rest", "opacities"]
-        }
-    
-    #we don't cull or densify gaussians
-    def refinement_after(self, optimizers: Optimizers, step): 
+                name: [self.gauss_params[name]]
+                for name in [
+                    "means",
+                    "scales",
+                    "quats",
+                    "features_dc",
+                    "features_rest",
+                    "opacities",
+                ]
+            }
+
+    # we don't cull or densify gaussians
+    def refinement_after(self, optimizers: Optimizers, step):
         if self.config.lock_means:
-            #self.binarize_opacities()
+            # self.binarize_opacities()
             return
         else:
             super().refinement_after(optimizers, step)
-            
+
     def cull_gaussians(self, extra_cull_mask: Optional[torch.Tensor] = None):
         """
         This function deletes gaussians under a certain opacity threshold
@@ -378,9 +424,14 @@ class NVSMask3dModel(SplatfactoModel):
 
             # Cull large Gaussians if applicable
             if self.step > self.config.refine_every * self.config.reset_alpha_every:
-                toobigs = torch.exp(self.scales).max(dim=-1).values > self.config.cull_scale_thresh
+                toobigs = (
+                    torch.exp(self.scales).max(dim=-1).values
+                    > self.config.cull_scale_thresh
+                )
                 if self.step < self.config.stop_screen_size_at:
-                    toobigs |= (self.max_2Dsize > self.config.cull_screen_size).squeeze()
+                    toobigs |= (
+                        self.max_2Dsize > self.config.cull_screen_size
+                    ).squeeze()
                 culls |= toobigs
 
             # Update parameters using masked indices
@@ -397,7 +448,7 @@ class NVSMask3dModel(SplatfactoModel):
             return culls
         else:
             super().cull_gaussians(extra_cull_mask)
-            
+
     def split_gaussians(self, split_mask, samps):
         # Split existing logic...
         out = super().split_gaussians(split_mask, samps)
@@ -406,7 +457,10 @@ class NVSMask3dModel(SplatfactoModel):
         if self.seed_points is not None:
             num_new = out["means"].size(0)
             self.initial_gaussians_mask = torch.cat(
-                [self.initial_gaussians_mask, torch.zeros(num_new, dtype=torch.bool, device=self.device)]
+                [
+                    self.initial_gaussians_mask,
+                    torch.zeros(num_new, dtype=torch.bool, device=self.device),
+                ]
             )
         return out
 
@@ -418,13 +472,19 @@ class NVSMask3dModel(SplatfactoModel):
         if self.seed_points is not None:
             num_new = new_dups["means"].size(0)
             self.initial_gaussians_mask = torch.cat(
-                [self.initial_gaussians_mask, torch.zeros(num_new, dtype=torch.bool, device=self.device)]
+                [
+                    self.initial_gaussians_mask,
+                    torch.zeros(num_new, dtype=torch.bool, device=self.device),
+                ]
             )
         return new_dups
+
     def binarize_opacities(self):
         with torch.no_grad():
-            self.gauss_params['opacities'].data = (self.gauss_params['opacities'] > 0.5).float()
-            
+            self.gauss_params["opacities"].data = (
+                self.gauss_params["opacities"] > 0.5
+            ).float()
+
     @property
     def points3D_mask(self):
         if "points3D_mask" in self.metadata:

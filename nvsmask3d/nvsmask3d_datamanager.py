@@ -22,8 +22,7 @@ class NVSMask3dDataManagerConfig(FullImageDatamanagerConfig):
     """
 
     _target: Type = field(default_factory=lambda: NVSmask3dDataManager)
-    
-    
+
     camera_res_scale_factor: float = 1.0
     """Rescale cameras"""
 
@@ -47,18 +46,18 @@ class NVSmask3dDataManager(FullImageDatamanager):
         **kwargs,  # pylint: disable=unused-argument
     ):
         super().__init__(
-            config=config, 
-            device=device, 
-            test_mode=test_mode, 
-            world_size=world_size, 
-            local_rank=local_rank, 
-            **kwargs
+            config=config,
+            device=device,
+            test_mode=test_mode,
+            world_size=world_size,
+            local_rank=local_rank,
+            **kwargs,
         )
         metadata = self.train_dataparser_outputs.metadata
         if test_mode == "all":
             self.all_dataparser = self.dataparser.get_dataparser_outputs(split="all")
             self.whole_dataset = self.create_whole_dataset()
-        
+
     def create_whole_dataset(self):
         """Sets up the data loaders for training"""
         return self.dataset_type(

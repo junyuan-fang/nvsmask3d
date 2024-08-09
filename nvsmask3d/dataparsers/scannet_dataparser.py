@@ -1,4 +1,3 @@
-
 """Slightly modified version of scannet dataparser adapted from: https://github.com/nerfstudio-project/nerfstudio/blob/main/nerfstudio/data/dataparsers/scannet_dataparser.py"""
 
 import math
@@ -13,7 +12,11 @@ import torch
 
 from nerfstudio.cameras import camera_utils
 from nerfstudio.cameras.cameras import Cameras, CameraType
-from nerfstudio.data.dataparsers.base_dataparser import DataParser, DataParserConfig, DataparserOutputs
+from nerfstudio.data.dataparsers.base_dataparser import (
+    DataParser,
+    DataParserConfig,
+    DataparserOutputs,
+)
 from nerfstudio.data.scene_box import SceneBox
 
 
@@ -59,25 +62,39 @@ class ScanNetDataParserConfig(DataParserConfig):
     load_every: int = 5
     """load every n'th frame from the dense trajectory"""
     load_mask: bool = True
-    mask_path: Path = Path('/home/wangs9/junyuan/openmask3d/output/2024-08-08-13-27-09-scene0000_00_/scene0011_00_vh_clean_2_masks.pt')  
+    mask_path: Path = Path(
+        "/home/wangs9/junyuan/openmask3d/output/2024-08-08-13-27-09-scene0000_00_/scene0011_00_vh_clean_2_masks.pt"
+    )
+
 
 @dataclass
 class ScanNet(DataParser):
     """ScanNet DatasetParser"""
 
     config: ScanNetDataParserConfig
-    
+
     def _generate_dataparser_outputs(self, split="train"):
         image_dir = self.config.data / "color"
         depth_dir = self.config.data / "depth"
         pose_dir = self.config.data / "pose"
-        self.config.ply_file_path = self.config.data / (self.config.data.name + "_vh_clean_2.ply")
-        #self.config.mask_path = 
-        
-        img_dir_sorted = list(sorted(image_dir.iterdir(), key=lambda x: int(x.name.split(".")[0])))
-        depth_dir_sorted = list(sorted(depth_dir.iterdir(), key=lambda x: int(x.name.split(".")[0])))
-        #pose_dir_sorted = list(sorted(pose_dir.iterdir(), key=lambda x: int(x.name.split(".")[0])))
-        pose_dir_sorted = list(sorted((f for f in pose_dir.iterdir() if f.name.split(".")[0].isdigit()),key=lambda x: int(x.name.split(".")[0])))
+        self.config.ply_file_path = self.config.data / (
+            self.config.data.name + "_vh_clean_2.ply"
+        )
+        # self.config.mask_path =
+
+        img_dir_sorted = list(
+            sorted(image_dir.iterdir(), key=lambda x: int(x.name.split(".")[0]))
+        )
+        depth_dir_sorted = list(
+            sorted(depth_dir.iterdir(), key=lambda x: int(x.name.split(".")[0]))
+        )
+        # pose_dir_sorted = list(sorted(pose_dir.iterdir(), key=lambda x: int(x.name.split(".")[0])))
+        pose_dir_sorted = list(
+            sorted(
+                (f for f in pose_dir.iterdir() if f.name.split(".")[0].isdigit()),
+                key=lambda x: int(x.name.split(".")[0]),
+            )
+        )
 
         first_img = cv2.imread(str(img_dir_sorted[0].absolute()))  # type: ignore
         h, w, _ = first_img.shape
@@ -90,14 +107,14 @@ class ScanNet(DataParser):
             pose = np.array(pose).reshape(4, 4)
             pose[:3, 1] *= -1
             pose[:3, 2] *= -1
-            #pose[0:3, 1:3] *= -1
-            #pose = pose[np.array([1, 0, 2, 3]), :]
-            #pose[2, :] *= -1
+            # pose[0:3, 1:3] *= -1
+            # pose = pose[np.array([1, 0, 2, 3]), :]
+            # pose[2, :] *= -1
             pose = torch.from_numpy(pose).float()
             # We cannot accept files directly, as some of the poses are invalid
             if np.isinf(pose).any():
                 continue
-            
+
             poses.append(pose)
             intrinsics.append(K)
             image_filenames.append(img)
@@ -119,7 +136,7 @@ class ScanNet(DataParser):
                 indices = indices[:: self.config.load_every]
         elif split in ["val", "test"]:
             indices = i_eval
-        elif split == "all":    
+        elif split == "all":
             indices = i_all
         else:
             raise ValueError(f"Unknown dataparser split {split}")
@@ -143,7 +160,9 @@ class ScanNet(DataParser):
 
         # Choose image_filenames and poses based on split, but after auto orient and scaling the poses.
         image_filenames = [image_filenames[i] for i in indices]
-        depth_filenames = [depth_filenames[i] for i in indices] if len(depth_filenames) > 0 else []
+        depth_filenames = (
+            [depth_filenames[i] for i in indices] if len(depth_filenames) > 0 else []
+        )
         intrinsics = intrinsics[indices.tolist()]
         poses = poses[indices.tolist()]
 
@@ -152,7 +171,11 @@ class ScanNet(DataParser):
         aabb_scale = self.config.scene_scale
         scene_box = SceneBox(
             aabb=torch.tensor(
-                [[-aabb_scale, -aabb_scale, -aabb_scale], [aabb_scale, aabb_scale, aabb_scale]], dtype=torch.float32
+                [
+                    [-aabb_scale, -aabb_scale, -aabb_scale],
+                    [aabb_scale, aabb_scale, aabb_scale],
+                ],
+                dtype=torch.float32,
             )
         )
 
@@ -166,7 +189,7 @@ class ScanNet(DataParser):
             camera_to_worlds=poses[:, :3, :4],
             camera_type=CameraType.PERSPECTIVE,
         )
-        
+
         metadata = {
             "depth_filenames": depth_filenames if len(depth_filenames) > 0 else None,
             "depth_unit_scale_factor": self.config.depth_unit_scale_factor,
@@ -175,14 +198,16 @@ class ScanNet(DataParser):
         if self.config.load_3D_points:
             point_color = self.config.point_cloud_color
             ply_file_path = self.config.ply_file_path
-            point_cloud_data = self._load_3D_points(ply_file_path, transform_matrix, scale_factor, point_color)
+            point_cloud_data = self._load_3D_points(
+                ply_file_path, transform_matrix, scale_factor, point_color
+            )
             if point_cloud_data is not None:
                 metadata.update(point_cloud_data)
-                
+
         if self.config.load_mask:
-            #mask_path = self.config.mask_path
+            # mask_path = self.config.mask_path
             mask_data = self._load_mask(self.config.mask_path)
-            if mask_data is not None :
+            if mask_data is not None:
                 metadata.update(mask_data)
         ### test######################################################
         # from nvsmask3d.utils.camera_utils import project_pix
@@ -198,7 +223,7 @@ class ScanNet(DataParser):
         # colors = colors.to(device)
         # uv_coords = project_pix(p, fx, fy, cx, cy, c2w, device, return_z_depths=True) # returns uv -> (pix_x,pix_y,z_depth)
         # sparse_map = torch.zeros((h, w, 3), dtype=torch.float32, device=device)
-        # valid_points = (uv_coords[..., 0] >= 0) & (uv_coords[..., 0] < w) & (uv_coords[..., 1] >= 0) & (uv_coords[..., 1] < h ) &  (uv_coords[..., 2] > 0)       
+        # valid_points = (uv_coords[..., 0] >= 0) & (uv_coords[..., 0] < w) & (uv_coords[..., 1] >= 0) & (uv_coords[..., 1] < h ) &  (uv_coords[..., 2] > 0)
         # sparse_map[[uv_coords[valid_points,1].long(), uv_coords[valid_points,0].long()]] = colors[valid_points][None,:].float()
 
         # print("Projected UV coordinates's shape:", uv_coords.shape)#Projected UV coordinates's shape: torch.Size([237360, 3])
@@ -218,8 +243,15 @@ class ScanNet(DataParser):
             metadata=metadata,
         )
         return dataparser_outputs
-    
-    def _load_3D_points(self, ply_file_path: Path, transform_matrix: torch.Tensor,  scale_factor: float, points_color: bool, sample_rate = 1) -> dict:
+
+    def _load_3D_points(
+        self,
+        ply_file_path: Path,
+        transform_matrix: torch.Tensor,
+        scale_factor: float,
+        points_color: bool,
+        sample_rate=1,
+    ) -> dict:
         """Loads point clouds positions and colors from .ply
 
         Args:
@@ -242,11 +274,13 @@ class ScanNet(DataParser):
             return None
 
         num_points = len(pcd.points)
-        sampled_indices = np.random.choice(num_points, int(num_points * sample_rate), replace=False)
+        sampled_indices = np.random.choice(
+            num_points, int(num_points * sample_rate), replace=False
+        )
 
         points3D = torch.from_numpy(np.asarray(pcd.points, dtype=np.float32))
-        #points3D = torch.from_numpy(np.asarray(pcd.points)[sampled_indices].astype(np.float32))
-        
+        # points3D = torch.from_numpy(np.asarray(pcd.points)[sampled_indices].astype(np.float32))
+
         points3D = (
             torch.cat(
                 (
@@ -262,23 +296,25 @@ class ScanNet(DataParser):
             "points3D_xyz": points3D,
             "points3D_num": points3D.shape[0],
         }
-        
+
         if points_color:
-            #points3D_rgb = torch.from_numpy((np.asarray(pcd.colors) * 255).astype(np.uint8))
-            points3D_rgb = torch.from_numpy((np.asarray(pcd.colors)[sampled_indices] * 255).astype(np.uint8))
+            # points3D_rgb = torch.from_numpy((np.asarray(pcd.colors) * 255).astype(np.uint8))
+            points3D_rgb = torch.from_numpy(
+                (np.asarray(pcd.colors)[sampled_indices] * 255).astype(np.uint8)
+            )
             print(torch.min(points3D_rgb), torch.max(points3D_rgb))
             out["points3D_rgb"] = points3D_rgb
 
         return out
+
     def _load_mask(self, mask_path: Path):
-        masks = torch.load(mask_path)#torch.Size([points_num, class_num])
+        masks = torch.load(mask_path)  # torch.Size([points_num, class_num])
         cls_num = masks.shape[1]
-        out = {
-            "points3D_mask": masks,
-            "points3D_cls_num": cls_num
-        }
+        out = {"points3D_mask": masks, "points3D_cls_num": cls_num}
         return out
 
+
 ScanNetDataParserSpecification = DataParserSpecification(
-    config=ScanNetDataParserConfig(load_3D_points=True), description="scannet dataparser"
+    config=ScanNetDataParserConfig(load_3D_points=True),
+    description="scannet dataparser",
 )

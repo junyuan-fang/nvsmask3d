@@ -196,11 +196,7 @@ class ReplicaDataparser(DataParser):
         )
 
         metadata.update(
-            {
-                "depth_filenames": [
-                    Path(depth_filenames[idx]) for idx in indices
-                ]
-            }
+            {"depth_filenames": [Path(depth_filenames[idx]) for idx in indices]}
         )
         metadata.update({"load_depths": self.config.load_depths})
 

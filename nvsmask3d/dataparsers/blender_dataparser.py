@@ -26,7 +26,11 @@ import open3d as o3d
 import torch
 
 from nerfstudio.cameras.cameras import Cameras, CameraType
-from nerfstudio.data.dataparsers.base_dataparser import DataParser, DataParserConfig, DataparserOutputs
+from nerfstudio.data.dataparsers.base_dataparser import (
+    DataParser,
+    DataParserConfig,
+    DataparserOutputs,
+)
 from nerfstudio.data.scene_box import SceneBox
 from nerfstudio.utils.colors import get_color
 from nerfstudio.utils.io import load_from_json
@@ -89,7 +93,11 @@ class Blender(DataParser):
 
         # in x,y,z order
         camera_to_world[..., 3] *= self.scale_factor
-        scene_box = SceneBox(aabb=torch.tensor([[-1.5, -1.5, -1.5], [1.5, 1.5, 1.5]], dtype=torch.float32))
+        scene_box = SceneBox(
+            aabb=torch.tensor(
+                [[-1.5, -1.5, -1.5], [1.5, 1.5, 1.5]], dtype=torch.float32
+            )
+        )
 
         cameras = Cameras(
             camera_to_worlds=camera_to_world,
@@ -102,7 +110,9 @@ class Blender(DataParser):
 
         metadata = {}
         if self.config.ply_path is not None:
-            metadata.update(self._load_3D_points(self.config.data / self.config.ply_path))
+            metadata.update(
+                self._load_3D_points(self.config.data / self.config.ply_path)
+            )
 
         dataparser_outputs = DataparserOutputs(
             image_filenames=image_filenames,
@@ -118,7 +128,9 @@ class Blender(DataParser):
     def _load_3D_points(self, ply_file_path: Path):
         pcd = o3d.io.read_point_cloud(str(ply_file_path))
 
-        points3D = torch.from_numpy(np.asarray(pcd.points, dtype=np.float32) * self.config.scale_factor)
+        points3D = torch.from_numpy(
+            np.asarray(pcd.points, dtype=np.float32) * self.config.scale_factor
+        )
         points3D_rgb = torch.from_numpy((np.asarray(pcd.colors) * 255).astype(np.uint8))
 
         out = {

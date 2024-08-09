@@ -55,7 +55,9 @@ class RunViewer:
 
     load_config: Path
     """Path to config YAML file."""
-    viewer: ViewerConfigWithoutNumRays = field(default_factory=ViewerConfigWithoutNumRays)
+    viewer: ViewerConfigWithoutNumRays = field(
+        default_factory=ViewerConfigWithoutNumRays
+    )
     """Viewer configuration"""
     vis: Literal["viewer", "viewer_legacy"] = "viewer"
     """Type of viewer"""
@@ -79,8 +81,6 @@ class RunViewer:
         """
         Mock method because we pass this instance to viewer_state.update_scene
         """
-        
-
 
 
 def _start_viewer(config: TrainerConfig, pipeline: Pipeline, step: int):
@@ -118,7 +118,11 @@ def _start_viewer(config: TrainerConfig, pipeline: Pipeline, step: int):
 
     # We don't need logging, but writer.GLOBAL_BUFFER needs to be populated
     config.logging.local_writer.enable = False
-    writer.setup_local_writer(config.logging, max_iter=config.max_num_iterations, banner_messages=banner_messages)
+    writer.setup_local_writer(
+        config.logging,
+        max_iter=config.max_num_iterations,
+        banner_messages=banner_messages,
+    )
 
     assert viewer_state and pipeline.datamanager.train_dataset
     viewer_state.init_scene(
@@ -132,12 +136,15 @@ def _start_viewer(config: TrainerConfig, pipeline: Pipeline, step: int):
     while True:
         time.sleep(0.01)
 
+
 @dataclass
 class NVSMask3d:
-    
+
     load_config: Path
     """Path to config YAML file."""
-    viewer: ViewerConfigWithoutNumRays = field(default_factory=ViewerConfigWithoutNumRays)
+    viewer: ViewerConfigWithoutNumRays = field(
+        default_factory=ViewerConfigWithoutNumRays
+    )
     """Viewer configuration"""
     vis: Literal["viewer", "viewer_legacy"] = "viewer"
     """Type of viewer"""
@@ -156,7 +163,6 @@ class NVSMask3d:
         config.viewer.num_rays_per_chunk = num_rays_per_chunk
 
         _start_viewer(config, pipeline, step)
-    
 
 
 Commands = tyro.conf.FlagConversionOff[
@@ -166,10 +172,12 @@ Commands = tyro.conf.FlagConversionOff[
     ]
 ]
 
+
 def entrypoint():
     """Entrypoint for use with pyproject scripts."""
     tyro.extras.set_accent_color("bright_yellow")
     tyro.cli(Commands).main()
+
 
 if __name__ == "__main__":
     entrypoint()
