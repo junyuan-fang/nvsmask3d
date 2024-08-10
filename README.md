@@ -20,7 +20,9 @@ ns-train nvsmask3d replica --data nvsmask3d/data/Replica # train on replica data
 ns-train nvsmask3d --vis viewer replica --data nvsmask3d/data/Replica --sequence room0
 ns-train splatfacto --vis viewer+wandb colmap --data nvsmask3d/data/scene0011_00/colmap 
 ns-train nvsmask3d replica --data nvsmask3d/data/Replica --sequence room0
-ns-train nvsmask3d replica_nvsmask3d --data nvsmask3d/data/replica --sequence room0
+
+
+ns-train nvsmask3d --vis viewer replica_nvsmask3d --data nvsmask3d/data/replica --sequence room0 #sometimes wandb error, so use this
 ```
 ## View
 ```
@@ -28,6 +30,7 @@ ns-viewer nvsmask3d --load_config outputs/nvsmask3d_whole_data_0.9_train_ratio/n
 ns-viewer nvsmask3d --load_config outputs/scene0011_00/nvsmask3d/2024-08-07_220010/config.yml
 
 ns-viewer nvsmask3d --load_config outputs/unnamed/nvsmask3d/2024-08-09_214116/config.yml # replica without pointmask
+ns-viewer nvsmask3d --load_config outputs/unnamed/nvsmask3d/2024-08-10_121201/config.yml # replica able to segment
 ```
 
 ## Evaluation 

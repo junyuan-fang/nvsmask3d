@@ -89,7 +89,7 @@ class NVSMask3dModel(SplatfactoModel):
         seed_points: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
         metadata: Optional[Dict] = None,
         cameras: Optional[Cameras] = None,
-        test_mode: Literal["test", "val", "inference", "train", "all"] = "val",
+        test_mode: Literal["test", "val", "inference", "train", "all_replica", "all_scannet"] = "val",
         # image_file_names,#test
         **kwargs,
     ):
@@ -126,7 +126,7 @@ class NVSMask3dModel(SplatfactoModel):
             default_value="Results will be displayed here",
             disabled=True,  # Make it non-interactive
             visible=(
-                True if self.test_mode == "train" or self.test_mode == "all" else False
+                True if self.test_mode == "train" or "all" in self.test_mode else False
             ),
             hint="Output will be displayed here",
         )
@@ -135,7 +135,7 @@ class NVSMask3dModel(SplatfactoModel):
             name="Segment Gaussians with Positives",
             cb_hook=self._segment_gaussians,
             visible=(
-                True if self.test_mode == "train" or self.test_mode == "all" else False
+                True if self.test_mode == "train" or "all" in self.test_mode else False
             ),
         )
 
@@ -146,7 +146,7 @@ class NVSMask3dModel(SplatfactoModel):
         # start = time.time()
         optimal_cameras = object_optimal_k_camera_poses(
             seed_points_0=self.seed_points[0].cuda(),
-            class_agnostic_3d_mask=self.points3D_mask[:, self.cls_index],
+            boolean_mask=self.points3D_mask[:, self.cls_index],
             camera=self.cameras,
             k_poses=2,
         )  # image_file_names= self.image_file_names)#seedpoints, mask -> cuda, numpy
@@ -487,7 +487,7 @@ class NVSMask3dModel(SplatfactoModel):
 
     @property
     def points3D_mask(self):
-        points3D_mask = self.metadata.get("points3D_mask")
+        points3D_mask = self.metadata.get("points3D_mask").bool()
         return points3D_mask
 
     @property

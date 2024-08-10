@@ -16,6 +16,8 @@ from nvsmask3d.encoders.image_encoder import BaseImageEncoder, BaseImageEncoderC
 from nerfstudio.viewer.viewer_elements import *
 from nvsmask3d.utils.utils import SCANNET200_CLASSES
 from nvsmask3d.eval.scannet200.scannet_constants import VALID_CLASS_IDS_200
+from nvsmask3d.eval.replica.eval_semantic_instance import VALID_CLASS_IDS as VALID_CLASS_IDS_REPLICA
+from nvsmask3d.eval.replica.eval_semantic_instance import CLASS_LABELS as REPLICA_CLASSES
 
 
 @dataclass
@@ -31,7 +33,7 @@ class OpenCLIPNetwork(BaseImageEncoder):
     def __init__(
         self,
         config: OpenCLIPNetworkConfig,
-        test_mode: Literal["test", "val", "inference", "train", "all"] = "val",
+        test_mode: Literal["test", "val", "inference", "train", "all_replica", "all_scannet"] = "val",
     ):
         super().__init__()
         self.config = config
@@ -54,16 +56,25 @@ class OpenCLIPNetwork(BaseImageEncoder):
         self.tokenizer = open_clip.get_tokenizer(self.config.clip_model_type)
         self.model = model.to("cuda")
         self.clip_n_dims = self.config.clip_n_dims
-        self.positives = SCANNET200_CLASSES
-        self.label_mapper = torch.tensor(VALID_CLASS_IDS_200).cuda()
+        self.positives = SCANNET200_CLASSES if "scannet" in self.testmode else REPLICA_CLASSES
+        self.label_mapper = torch.tensor(VALID_CLASS_IDS_200).cuda() if "scannet" in self.testmode else torch.tensor(VALID_CLASS_IDS_REPLICA).cuda()
         print("the test mode is", test_mode)
         ############viewers############
         self.scannet_checkbox = ViewerCheckbox(
             name="Use ScanNet200",
-            default_value=True,
+            default_value=False,
             cb_hook=self._scannet_checkbox_update,
             visible=(
-                True if self.testmode == "train" or self.testmode == "all" else False
+                True if self.testmode == "train" or "all" in self.testmode else False
+            ),
+        )
+        
+        self.replica_checkbox = ViewerCheckbox(
+            name="Use Replica",
+            default_value=True,
+            cb_hook=self._replica_checkbox_update,
+            visible=(
+                True if self.testmode == "train" or "all" in self.testmode else False
             ),
         )
 
@@ -74,7 +85,7 @@ class OpenCLIPNetwork(BaseImageEncoder):
             hint="Seperate classes with ;",
             disabled=True,
             visible=(
-                True if self.testmode == "train" or self.testmode == "all" else False
+                True if self.testmode == "train" or "all" in self.testmode else False
             ),
         )
 
@@ -122,6 +133,18 @@ class OpenCLIPNetwork(BaseImageEncoder):
         if element.value:
             self.positives = SCANNET200_CLASSES
             self.positive_input.disable = False
+            self.replica_checkbox.value = False
+            self.updata_text_embedding()
+        else:
+            self.positive_input.disable = True
+            self.positives = ""
+            
+    def _replica_checkbox_update(self, element):
+        self.positive_input.set_disabled(element.value)
+        if element.value:
+            self.positives = REPLICA_CLASSES
+            self.positive_input.disable = False
+            self.scannet_checkbox.value = False
             self.updata_text_embedding()
         else:
             self.positive_input.disable = True

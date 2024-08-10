@@ -111,14 +111,19 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
     load_config: Path
     # Name of the output file.
     output_path: Path = Path("")
+    
+    #inference
+    inference_dataset: Literal["scannet200","replica"] = "replica"
 
     def main(self) -> None:
         gt_dir = Path(
             "/home/wangs9/junyuan/nerfstudio-nvsmask3d/nvsmask3d/data/scene0011_00/instance_gt/validation"
         )
+        if self.inference_dataset == "replica":
+            test_mode =  "all replica"
         config, pipeline, checkpoint_path, _ = eval_setup(
             self.load_config,
-            test_mode="all",
+            test_mode=test_mode,
         )
         global model
         model = pipeline.model
