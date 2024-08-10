@@ -174,7 +174,7 @@ def evaluate_matches(matches):
                     cur_score = np.ones(len(gt_instances)) * (-float("inf"))
                     cur_match = np.zeros(len(gt_instances), dtype=bool)
                     # collect matches
-                    for (gti, gt) in enumerate(gt_instances):
+                    for gti, gt in enumerate(gt_instances):
                         gt_category_names[m].add(ID_TO_LABEL[gt["label_id"]])
                         found_match = False
                         num_pred = len(gt["matched_pred"])
@@ -382,7 +382,7 @@ def compute_averages(aps, PRETRAINED_ON_SCANNET200=True):
             base_score = {title: [] for title in ["ap", "ap25%", "ap50%"]}
             novel_score = {title: [] for title in ["ap", "ap25%", "ap50%"]}
 
-    for (li, label_name) in enumerate(CLASS_LABELS):
+    for li, label_name in enumerate(CLASS_LABELS):
         if label_name not in avg_dict["classes"]:
             avg_dict["classes"][label_name] = {}
         # avg_dict["classes"][label_name]["ap"]       = np.average(aps[ d_inf,li,  :])
@@ -461,7 +461,7 @@ def compute_averages_ar(ars):
         tail_scores = {title: [] for title in ["ar", "ar25%", "ar50%"]}
 
     # pdb.set_trace()
-    for (li, label_name) in enumerate(CLASS_LABELS):
+    for li, label_name in enumerate(CLASS_LABELS):
         if label_name not in avg_dict["classes"]:
             avg_dict["classes"][label_name] = {}
         # avg_dict["classes"][label_name]["ar"]       = np.average(ars[ d_inf,li,  :])
@@ -523,7 +523,7 @@ def compute_averages_rc(rcs):
         tail_scores = {title: [] for title in ["rc", "rc25%", "rc50%"]}
 
     # pdb.set_trace()
-    for (li, label_name) in enumerate(CLASS_LABELS):
+    for li, label_name in enumerate(CLASS_LABELS):
         if label_name not in avg_dict["classes"]:
             avg_dict["classes"][label_name] = {}
 
@@ -653,7 +653,7 @@ def assign_instances_for_scan(pred: dict, gt_file: str):
         # matched gt instances
         matched_gt = []
         # go thru all gt instances with matching label
-        for (gt_num, gt_inst) in enumerate(gt2pred[label_name]):
+        for gt_num, gt_inst in enumerate(gt2pred[label_name]):
             intersection = np.count_nonzero(
                 np.logical_and(gt_ids == gt_inst["instance_id"], pred_mask)
             )
@@ -689,7 +689,7 @@ def print_results(avgs):
     print(line)
     print("#" * lineLen)
 
-    for (li, label_name) in enumerate(CLASS_LABELS):
+    for li, label_name in enumerate(CLASS_LABELS):
         ap_avg = avgs["classes"][label_name]["ap"]
         ap_50o = avgs["classes"][label_name]["ap50%"]
         ap_25o = avgs["classes"][label_name]["ap25%"]
@@ -788,7 +788,7 @@ def print_results_ap_ar_rc_pcdc(
     print(line)
     print("#" * lineLen)
 
-    for (li, label_name) in enumerate(CLASS_LABELS):
+    for li, label_name in enumerate(CLASS_LABELS):
         line = "{:<15}".format(label_name) + sep + col1
         if print_mode["ap_avgs"]:
             ap_avg = avgs["classes"][label_name]["ap"]

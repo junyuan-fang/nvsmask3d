@@ -94,9 +94,9 @@ class NvsMask3dPipeline(VanillaPipeline):
             device=device,
             grad_scaler=grad_scaler,
             seed_points=seed_pts,  # add seed points from metadata
-            cameras=self.datamanager.train_dataset.cameras
-            if test_mode == "all"
-            else None,
+            cameras=(
+                self.datamanager.train_dataset.cameras if test_mode == "all" else None
+            ),
             test_mode=test_mode,
             # image_file_names = self.datamanager.train_dataset.image_filenames #for testing
         )

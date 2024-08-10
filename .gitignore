@@ -4,6 +4,7 @@ data/
 nerfstudio/
 semantic-gaussians/
 *json
+OpenYOLO3D*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

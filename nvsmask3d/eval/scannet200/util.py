@@ -13,6 +13,7 @@ except:
     print("pip install imageio")
     sys.exit(-1)
 
+
 # print an error message and quit
 def print_error(message, user_fault=False):
     sys.stderr.write("ERROR: " + str(message) + "\n")

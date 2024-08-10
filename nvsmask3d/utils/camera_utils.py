@@ -61,6 +61,7 @@ OPENGL_TO_OPENCV = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 
 #     _, best_poses_indices = torch.topk(visibility_scores, k_poses)
 #     best_poses = camera[best_poses_indices]
 
+
 #     return best_poses#Cameras torch.Size([2])
 @torch.no_grad()
 def optimal_k_camera_poses_of_scene(

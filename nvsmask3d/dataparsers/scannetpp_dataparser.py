@@ -430,32 +430,43 @@ class ScanNetpp(ColmapDataParser):
             if split == "train":
                 metadata.update(
                     {
-                        "mono_depth_filenames": self.mono_depth_filenames
-                        if len(self.mono_depth_filenames) == len(image_filenames)
-                        else [Path(self.mono_depth_filenames[idx]) for idx in indices]
-                        if len(self.mono_depth_filenames) > 0
-                        else None
+                        "mono_depth_filenames": (
+                            self.mono_depth_filenames
+                            if len(self.mono_depth_filenames) == len(image_filenames)
+                            else (
+                                [
+                                    Path(self.mono_depth_filenames[idx])
+                                    for idx in indices
+                                ]
+                                if len(self.mono_depth_filenames) > 0
+                                else None
+                            )
+                        )
                     }
                 )
             else:
                 # dummy data
                 metadata.update(
                     {
-                        "mono_depth_filenames": [
-                            Path(idx)
-                            for idx in self.mono_depth_filenames[: len(image_filenames)]
-                        ]
-                        if len(self.mono_depth_filenames) > 0
-                        else None
+                        "mono_depth_filenames": (
+                            [
+                                Path(idx)
+                                for idx in self.mono_depth_filenames[
+                                    : len(image_filenames)
+                                ]
+                            ]
+                            if len(self.mono_depth_filenames) > 0
+                            else None
+                        )
                     }
                 )
 
         if self.config.depth_mode in ["sensor", "all"]:
             metadata.update(
                 {
-                    "sensor_depth_filenames": depth_filenames
-                    if len(depth_filenames) > 0
-                    else None
+                    "sensor_depth_filenames": (
+                        depth_filenames if len(depth_filenames) > 0 else None
+                    )
                 }
             )
 

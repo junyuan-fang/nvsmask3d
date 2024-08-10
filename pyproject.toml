@@ -18,6 +18,7 @@ nvsmask3d = 'nvsmask3d.nvsmask3d_config:NvsMask3d'
 [project.entry-points.'nerfstudio.dataparser_configs']
 scannet = 'nvsmask3d:ScanNetDataParserSpecification'
 replica = 'nvsmask3d:ReplicaDataParserSpecification'
+replica_nvsmask3d = 'nvsmask3d:ReplicaNvsmask3DParserSpecification'
 
 [project.scripts]
 # export viewer scripts

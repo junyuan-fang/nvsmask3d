@@ -3,6 +3,7 @@ Template Model File
 
 Currently this subclasses the splacfacto model. Consider subclassing from the base Model.
 """
+
 from dataclasses import dataclass, field
 from typing import Type
 import torch
@@ -124,18 +125,18 @@ class NVSMask3dModel(SplatfactoModel):
             name="Output",
             default_value="Results will be displayed here",
             disabled=True,  # Make it non-interactive
-            visible=True
-            if self.test_mode == "train" or self.test_mode == "all"
-            else False,
+            visible=(
+                True if self.test_mode == "train" or self.test_mode == "all" else False
+            ),
             hint="Output will be displayed here",
         )
 
         self.segment_gaussian_positives = ViewerButton(
             name="Segment Gaussians with Positives",
             cb_hook=self._segment_gaussians,
-            visible=True
-            if self.test_mode == "train" or self.test_mode == "all"
-            else False,
+            visible=(
+                True if self.test_mode == "train" or self.test_mode == "all" else False
+            ),
         )
 
     def _segment_gaussians(self, element):
@@ -234,11 +235,10 @@ class NVSMask3dModel(SplatfactoModel):
         )
 
         # Apply mask
-        if self.points3D_mask is not None:
-            points3D_mask = (
-                self.points3D_mask
-            )  # Assumes this function returns a mask of appropriate shape
-            mask_indices = points3D_mask[:, self.cls_index] > 0
+        if (
+            self.points3D_mask is not None
+        ):  # Assumes this function returns a mask of appropriate shape
+            mask_indices = self.points3D_mask[:, self.cls_index] > 0
             opacities_masked = opacities_crop[mask_indices]
             means_masked = means_crop[mask_indices]
             features_dc_masked = features_dc_crop[mask_indices]
@@ -487,10 +487,8 @@ class NVSMask3dModel(SplatfactoModel):
 
     @property
     def points3D_mask(self):
-        if "points3D_mask" in self.metadata:
-            return self.metadata["points3D_mask"]
-        else:
-            return None
+        points3D_mask = self.metadata.get("points3D_mask")
+        return points3D_mask
 
     @property
     def points3D_cls_num(self):

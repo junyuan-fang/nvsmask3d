@@ -52,6 +52,8 @@ class ReplicaDataParserConfig(DataParserConfig):
     """Whether input depth maps are Euclidean distances (or z-distances)."""
     load_depths: bool = True
     """Whether to load depth maps"""
+    load_masks: bool = True
+    """Whether to load masks in (N,cls_num) format"""
     initialisation_type: Literal["mesh", "rgbd"] = "rgbd"
     """Which method to generate initial point clouds from"""
     scale_factor: float = 1.0
@@ -195,6 +197,14 @@ class ReplicaDataparser(DataParser):
             )
         )
 
+        if self.config.load_masks:
+            mask_path = (
+                self.config.data / "replica_masks" / (self.config.sequence + ".pt")
+            )
+            mask_data = self._load_mask(mask_path)
+            if mask_data is not None:
+                metadata.update(mask_data)
+
         metadata.update(
             {"depth_filenames": [Path(depth_filenames[idx]) for idx in indices]}
         )
@@ -309,6 +319,14 @@ class ReplicaDataparser(DataParser):
         points3D *= scale_factor
         points3D_rgb = torch.from_numpy((np.asarray(pcd.colors) * 255).astype(np.uint8))
         out = {"points3D_xyz": points3D, "points3D_rgb": points3D_rgb}
+        return out
+
+    def _load_mask(self, mask_path: Path):
+        # mask[0] torch.Size([points_num, class_num]) mask
+        # mask[1] torch.Size([36]) confidence of the mask
+        masks = torch.load(mask_path)
+        cls_num = masks[0].shape[1]
+        out = {"points3D_mask": masks[0], "points3D_cls_num": cls_num}
         return out
 
     def _write_json(

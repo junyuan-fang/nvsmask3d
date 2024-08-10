@@ -31,7 +31,7 @@ class OpenCLIPNetwork(BaseImageEncoder):
     def __init__(
         self,
         config: OpenCLIPNetworkConfig,
-        test_mode: Literal["test", "val", "inference", "train"] = "val",
+        test_mode: Literal["test", "val", "inference", "train", "all"] = "val",
     ):
         super().__init__()
         self.config = config
@@ -56,15 +56,15 @@ class OpenCLIPNetwork(BaseImageEncoder):
         self.clip_n_dims = self.config.clip_n_dims
         self.positives = SCANNET200_CLASSES
         self.label_mapper = torch.tensor(VALID_CLASS_IDS_200).cuda()
-
+        print("the test mode is", test_mode)
         ############viewers############
         self.scannet_checkbox = ViewerCheckbox(
             name="Use ScanNet200",
             default_value=True,
             cb_hook=self._scannet_checkbox_update,
-            visible=True
-            if self.testmode == "train" or self.testmode == "all"
-            else False,
+            visible=(
+                True if self.testmode == "train" or self.testmode == "all" else False
+            ),
         )
 
         self.positive_input = ViewerText(
@@ -73,9 +73,9 @@ class OpenCLIPNetwork(BaseImageEncoder):
             cb_hook=self._set_positives,
             hint="Seperate classes with ;",
             disabled=True,
-            visible=True
-            if self.testmode == "train" or self.testmode == "all"
-            else False,
+            visible=(
+                True if self.testmode == "train" or self.testmode == "all" else False
+            ),
         )
 
         ##############################

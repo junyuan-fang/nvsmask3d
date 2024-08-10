@@ -17,12 +17,17 @@ test_mode = train
 ns-train splatfacto scannet-data --data nvsmask3d/data/scene0000_00_  # this is old scannet dataparser
 ns-train nvsmask3d scannet --data nvsmask3d/data/scene_example # this is new scannet dataparser modified in this repo
 ns-train nvsmask3d replica --data nvsmask3d/data/Replica # train on replica data
+ns-train nvsmask3d --vis viewer replica --data nvsmask3d/data/Replica --sequence room0
 ns-train splatfacto --vis viewer+wandb colmap --data nvsmask3d/data/scene0011_00/colmap 
+ns-train nvsmask3d replica --data nvsmask3d/data/Replica --sequence room0
+ns-train nvsmask3d replica_nvsmask3d --data nvsmask3d/data/replica --sequence room0
 ```
 ## View
 ```
 ns-viewer nvsmask3d --load_config outputs/nvsmask3d_whole_data_0.9_train_ratio/nvsmask3d/2024-08-01_144608/config.yml
 ns-viewer nvsmask3d --load_config outputs/scene0011_00/nvsmask3d/2024-08-07_220010/config.yml
+
+ns-viewer nvsmask3d --load_config outputs/unnamed/nvsmask3d/2024-08-09_214116/config.yml # replica without pointmask
 ```
 
 ## Evaluation 
