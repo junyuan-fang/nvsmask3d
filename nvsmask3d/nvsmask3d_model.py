@@ -61,7 +61,7 @@ class NVSMask3dModelConfig(SplatfactoModelConfig):
         default_factory=lambda: CameraOptimizerConfig(mode="off")
     )  # off #SO3xR3 #SE3
     """Config of the camera optimizer to use"""
-    lock_means: bool = True
+    add_means: bool = True
     # use_scale_regularization: bool = true
     # max_gauss_ratio: float = 1.5
     # refine_every: int = 100 # we don't cull or densify gaussians
@@ -103,11 +103,12 @@ class NVSMask3dModel(SplatfactoModel):
         self.max_cls_num = max(0, self.points3D_cls_num) if self.points3D_cls_num else 2
         self.inference = False
 
-        # if need to lock means
-        if seed_points is not None:
-            self.initial_gaussians_mask = torch.ones(
-                seed_points[0].shape[0], dtype=torch.bool, device=self.device
-            )
+        self.split_indices = {}
+        self.initial_gaussians_mask = torch.ones(
+            seed_points[0].shape[0], dtype=torch.bool, device=self.device
+        ) if seed_points else None
+        # Initialize cache
+        self._mask_cache = {}
 
         # viewers
         self.segmant_gaussian = ViewerSlider(
@@ -238,7 +239,7 @@ class NVSMask3dModel(SplatfactoModel):
         if (
             self.points3D_mask is not None
         ):  # Assumes this function returns a mask of appropriate shape
-            mask_indices = self.points3D_mask[:, self.cls_index] > 0
+            mask_indices = self.points3D_mask[:, self.cls_index]#self.get_densified_mask_indices(self.cls_index) if self.config.add_means else self.points3D_mask[:, self.cls_index]
             opacities_masked = opacities_crop[mask_indices]
             means_masked = means_crop[mask_indices]
             features_dc_masked = features_dc_crop[mask_indices]
@@ -374,7 +375,7 @@ class NVSMask3dModel(SplatfactoModel):
         #     if name != "means"
         # }
         # return param_groups
-        if self.config.lock_means:
+        if not self.config.add_means:
             return {
                 name: [self.gauss_params[name]]
                 for name in [
@@ -400,72 +401,218 @@ class NVSMask3dModel(SplatfactoModel):
 
     # we don't cull or densify gaussians
     def refinement_after(self, optimizers: Optimizers, step):
-        if self.config.lock_means:
+        if not self.config.add_means:
             # self.binarize_opacities()
             return
         else:
-            super().refinement_after(optimizers, step)
+            assert step == self.step
+            if self.step <= self.config.warmup_length:
+                return
+            with torch.no_grad():
+                # Offset all the opacity reset logic by refine_every so that we don't
+                # save checkpoints right when the opacity is reset (saves every 2k)
+                # then cull
+                # only split/cull if we've seen every image since opacity reset
+                reset_interval = self.config.reset_alpha_every * self.config.refine_every
+                do_densification = (
+                    self.step < self.config.stop_split_at
+                    and self.step % reset_interval > self.num_train_data + self.config.refine_every
+                )
+                if do_densification:
+                    # then we densify
+                    assert self.xys_grad_norm is not None and self.vis_counts is not None and self.max_2Dsize is not None
+                    avg_grad_norm = (self.xys_grad_norm / self.vis_counts) * 0.5 * max(self.last_size[0], self.last_size[1])
+                    high_grads = (avg_grad_norm > self.config.densify_grad_thresh).squeeze()
+                    splits = (self.scales.exp().max(dim=-1).values > self.config.densify_size_thresh).squeeze()
+                    if self.step < self.config.stop_screen_size_at:
+                        splits |= (self.max_2Dsize > self.config.split_screen_size).squeeze()
+                    splits &= high_grads
+                    nsamps = self.config.n_split_samples
+                    split_params = self.split_gaussians(splits, nsamps)
+                    self.update_split_indices(splits, nsamps)##############
+                    
+                    dups = (self.scales.exp().max(dim=-1).values <= self.config.densify_size_thresh).squeeze()
+                    dups &= high_grads
+                    dup_params = self.dup_gaussians(dups)
+                    import pdb; pdb.set_trace()
+                    self.update_duplication_indices(dups)##############
+                    for name, param in self.gauss_params.items():
+                        self.gauss_params[name] = torch.nn.Parameter(
+                            torch.cat([param.detach(), split_params[name], dup_params[name]], dim=0)
+                        )
+                    # append zeros to the max_2Dsize tensor
+                    self.max_2Dsize = torch.cat(
+                        [
+                            self.max_2Dsize,
+                            torch.zeros_like(split_params["scales"][:, 0]),
+                            torch.zeros_like(dup_params["scales"][:, 0]),
+                        ],
+                        dim=0,
+                    )
+
+                    split_idcs = torch.where(splits)[0]
+                    self.dup_in_all_optim(optimizers, split_idcs, nsamps)
+
+                    dup_idcs = torch.where(dups)[0]
+                    self.dup_in_all_optim(optimizers, dup_idcs, 1)
+
+                    # After a guassian is split into two new gaussians, the original one should also be pruned.
+                    splits_mask = torch.cat(
+                        (
+                            splits,
+                            torch.zeros(
+                                nsamps * splits.sum() + dups.sum(),
+                                device=self.device,
+                                dtype=torch.bool,
+                            ),
+                        )
+                    )
+
+                    deleted_mask = self.cull_gaussians(splits_mask)
+                elif self.step >= self.config.stop_split_at and self.config.continue_cull_post_densification:
+                    deleted_mask = self.cull_gaussians()
+                else:
+                    # if we donot allow culling post refinement, no more gaussians will be pruned.
+                    deleted_mask = None
+
+                if deleted_mask is not None:
+                    self.remove_from_all_optim(optimizers, deleted_mask)
+
+                if self.step < self.config.stop_split_at and self.step % reset_interval == self.config.refine_every:
+                    # Reset value is set to be twice of the cull_alpha_thresh
+                    reset_value = self.config.cull_alpha_thresh * 2.0
+                    self.opacities.data = torch.clamp(
+                        self.opacities.data,
+                        max=torch.logit(torch.tensor(reset_value, device=self.device)).item(),
+                    )
+                    # reset the exp of optimizer
+                    optim = optimizers.optimizers["opacities"]
+                    param = optim.param_groups[0]["params"][0]
+                    param_state = optim.state[param]
+                    param_state["exp_avg"] = torch.zeros_like(param_state["exp_avg"])
+                    param_state["exp_avg_sq"] = torch.zeros_like(param_state["exp_avg_sq"])
+
+                self.xys_grad_norm = None
+                self.vis_counts = None
+                self.max_2Dsize = None
+
+    def update_split_indices(self, splits, nsamps):
+        """Update split indices for new gaussians."""
+        original_indices = torch.where(splits)[0]
+        start_index = self.means.size(0)
+        for i, original_index in enumerate(original_indices):
+            original_index = original_index.item()
+            new_indices = torch.arange(
+                start_index + i * nsamps, start_index + (i + 1) * nsamps, device=self.device
+            )
+            if original_index in self.split_indices:
+                self.split_indices[original_index] = torch.cat(
+                    (self.split_indices[original_index], new_indices)
+                )
+            else:
+                self.split_indices[original_index] = new_indices
+        self.dup_index_start = start_index + (i + 1) * nsamps 
+
+    def update_duplication_indices(self, dups):
+        """Update duplication indices for new gaussians."""
+        original_indices = torch.where(dups)[0]
+        start_index = self.dup_index_start#self.means.size(0)
+        
+        import pdb; pdb.set_trace()
+        
+        new_indices = torch.arange(start_index, start_index + len(original_indices), device=self.device)
+        for i, original_index in enumerate(original_indices):
+            original_index = original_index.item()
+            new_index = new_indices[i].unsqueeze(0)
+            if original_index in self.split_indices:
+                self.split_indices[original_index] = torch.cat(
+                    (self.split_indices[original_index], new_index)
+                )
+            else:
+                self.split_indices[original_index] = new_index
+
 
     def cull_gaussians(self, extra_cull_mask: Optional[torch.Tensor] = None):
         """
         This function deletes gaussians under a certain opacity threshold
         extra_cull_mask: a mask indicates extra gaussians to cull besides existing culling criterion
         """
-        if self.config.lock_means and self.seed_points is not None:
+        if self.config.add_means and self.seed_points is not None:
             n_bef = self.num_points
             # Compute cull mask based on opacity threshold
-            culls = torch.sigmoid(self.opacities) < self.config.cull_alpha_thresh
-
-            # Exclude initial Gaussians from culling
-            culls &= ~self.initial_gaussians_mask
-
+            culls = (torch.sigmoid(self.opacities) < self.config.cull_alpha_thresh).squeeze()
+            below_alpha_count = torch.sum(culls).item()
+            toobigs_count = 0
             if extra_cull_mask is not None:
-                culls |= extra_cull_mask
-
-            # Cull large Gaussians if applicable
+                culls = culls | extra_cull_mask
+            
+            if self.config.add_means:
+                # Exclude initial Gaussians from culling
+                culls &= ~self.initial_gaussians_mask
             if self.step > self.config.refine_every * self.config.reset_alpha_every:
-                toobigs = (
-                    torch.exp(self.scales).max(dim=-1).values
-                    > self.config.cull_scale_thresh
-                )
+                # cull huge ones
+                toobigs = (torch.exp(self.scales).max(dim=-1).values > self.config.cull_scale_thresh).squeeze()
                 if self.step < self.config.stop_screen_size_at:
-                    toobigs |= (
-                        self.max_2Dsize > self.config.cull_screen_size
-                    ).squeeze()
-                culls |= toobigs
-
-            # Update parameters using masked indices
+                    # cull big screen space
+                    if self.max_2Dsize is not None:
+                        toobigs = toobigs | (self.max_2Dsize > self.config.cull_screen_size).squeeze()
+                culls = culls | toobigs
+                toobigs_count = torch.sum(toobigs).item()
             for name, param in self.gauss_params.items():
                 self.gauss_params[name] = torch.nn.Parameter(param[~culls])
-
-            # Update mask
-            self.initial_gaussians_mask = self.initial_gaussians_mask[~culls]
+                
+            if self.config.add_means:
+                # Remove culled indices from split tracking
+                for culled_index in torch.where(culls)[0]:
+                    culled_index = culled_index.item() 
+                    if culled_index in self.split_indices:
+                        del self.split_indices[culled_index]
+            
+                # Update mask
+                self.initial_gaussians_mask = self.initial_gaussians_mask[~culls].to(self.device)
 
             CONSOLE.log(
-                f"Culled {n_bef - self.num_points} gaussians ({torch.sum(culls).item()} removed, {self.num_points} remaining)"
+                f"Culled {n_bef - self.num_points} gaussians "
+                f"({below_alpha_count} below alpha thresh, {toobigs_count} too bigs, {self.num_points} remaining)"
             )
 
             return culls
         else:
             super().cull_gaussians(extra_cull_mask)
 
-    def split_gaussians(self, split_mask, samps):
+    def split_gaussians(self, split_mask, samps):# for gaussians to big
         # Split existing logic...
+        #original_indices = torch.where(split_mask)[0]#.cpu().numpy()
         out = super().split_gaussians(split_mask, samps)
-
-        # Only update the mask for newly added Gaussians
+        # Only update the mask for newly added Gaussians, we don't want to delete initial means
         if self.seed_points is not None:
             num_new = out["means"].size(0)
             self.initial_gaussians_mask = torch.cat(
                 [
-                    self.initial_gaussians_mask,
-                    torch.zeros(num_new, dtype=torch.bool, device=self.device),
+                    self.initial_gaussians_mask.to(self.device),
+                    torch.zeros((num_new), dtype=torch.bool, device=self.device),
                 ]
             )
+            
+            # # Track split indices
+            # start_index = self.means.size(0)
+            # for i, original_index in enumerate(original_indices):
+            #     original_index = original_index.item()
+            #     new_indices = torch.arange(
+            #         start_index + i * samps, start_index + (i + 1) * samps, device=self.device
+            #     )
+            #     if original_index in self.split_indices:
+            #         self.split_indices[original_index] = torch.cat(
+            #             (self.split_indices[original_index], new_indices)
+            #         )
+            #     else:
+            #         self.split_indices[original_index] = new_indices
+
         return out
 
-    def dup_gaussians(self, dup_mask):
+    def dup_gaussians(self, dup_mask):# for gaussians to small
         # Duplicate existing logic...
+        #original_indices = torch.where(dup_mask)[0]#.cpu().numpy()
         new_dups = super().dup_gaussians(dup_mask)
 
         # Only update the mask for newly duplicated Gaussians
@@ -474,9 +621,24 @@ class NVSMask3dModel(SplatfactoModel):
             self.initial_gaussians_mask = torch.cat(
                 [
                     self.initial_gaussians_mask,
-                    torch.zeros(num_new, dtype=torch.bool, device=self.device),
+                    torch.zeros((num_new), dtype=torch.bool, device=self.device),
                 ]
             )
+            
+            # # Track duplicated indices
+            # start_index = self.means.size(0)
+            # new_indices = torch.arange(start_index, start_index + len(original_indices), device=self.device)
+            # for i, original_index in enumerate(original_indices):
+            #     import pdb; pdb.set_trace()
+            #     original_index = original_index.item()
+            #     new_index = new_indices[i].unsqueeze(0)
+            #     if original_index in self.split_indices:
+            #         self.split_indices[original_index] = torch.cat(
+            #             (self.split_indices[original_index], new_index)
+            #         )
+            #     else:
+            #         self.split_indices[original_index] = new_index
+
         return new_dups
 
     def binarize_opacities(self):
@@ -484,10 +646,50 @@ class NVSMask3dModel(SplatfactoModel):
             self.gauss_params["opacities"].data = (
                 self.gauss_params["opacities"] > 0.5
             ).float()
+            
+    def get_split_indices_batch(self, indices: List[int]) -> Dict[int, Optional[List[int]]]:
+        """Retrieve split indices for a batch of original indices."""
+        return {index: self.split_indices.get(index, None) for index in indices}
+    
+    def get_densified_mask_indices(self, cls_index) -> torch.Tensor:
+        """Densify masks using the input masks."""
+        # if cls_index in self._mask_cache and self._mask_cache[cls_index].shape[0] == self.means.shape[0]:
+        #     return self._mask_cache[cls_index]
+        
+        # Get the original mask indices
+        mask_indices = torch.nonzero(self.points3D_mask[:, cls_index], as_tuple=False).squeeze()
+
+        # Initialize an updated mask as a tensor of zeros, aligning with self.means
+        updated_mask = torch.zeros(self.means.shape[0], dtype=torch.bool, device=self.device)
+        
+        # Efficiently set the specified indices to True using scatter_
+        updated_mask.scatter_(0, mask_indices, True)
+
+        # Convert the dictionary keys to a tensor for split indices
+        split_indices_keys = torch.tensor(list(self.split_indices.keys()), device=self.device)
+
+        # Determine which mask indices intersect with split_indices keys
+        is_intersected = torch.isin(mask_indices, split_indices_keys)
+        intersected_keys = mask_indices[is_intersected]
+
+        # Update the mask by setting True for all additional indices from split operations
+        if intersected_keys.numel() > 0:
+            # Concatenate additional indices from the split_indices tensor dictionary
+            
+            additional_indices = torch.cat([self.split_indices[idx.item()] for idx in intersected_keys])
+            
+            # Set the mask to True at these additional indices using scatter_
+            updated_mask.scatter_(0, additional_indices, True)
+
+        # Cache the result for the current cls_index
+        #self._mask_cache[cls_index] = updated_mask
+
+        return updated_mask
+        
 
     @property
     def points3D_mask(self):
-        points3D_mask = self.metadata.get("points3D_mask").bool()
+        points3D_mask = self.metadata.get("points3D_mask").bool().to(self.device)
         return points3D_mask
 
     @property

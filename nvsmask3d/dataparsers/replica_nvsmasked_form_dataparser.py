@@ -54,7 +54,7 @@ class ReplicaNvsmask3DParserConfig(DataParserConfig):
     """The method to use to center the poses."""
     auto_scale_poses: bool = True
     """Whether to automatically scale the poses to fit in +/- 1 bounding box."""
-    train_split_fraction: float = 0.9
+    train_split_fraction: float = 1
     """The fraction of images to use for training. The remaining images are for eval."""
     depth_unit_scale_factor: float = 1e-3
     """Scales the depth values to meters. Default value is 0.001 for a millimeter to meter conversion."""
@@ -64,7 +64,7 @@ class ReplicaNvsmask3DParserConfig(DataParserConfig):
     # """read point cloud colors from .ply files or not """
     # ply_file_path: Path = data / (data.name + ".ply")
     """path to the .ply file containing the 3D points"""
-    load_every: int = 5
+    load_every: int = 1
     """load every n'th frame from the dense trajectory"""
     load_masks: bool = True
     mask_path: Path = Path(
@@ -308,7 +308,6 @@ class ReplicaNvsmask3D(DataParser):
             points3D_rgb = torch.from_numpy(
                 (np.asarray(pcd.colors)[sampled_indices] * 255).astype(np.uint8)
             )
-            print(torch.min(points3D_rgb), torch.max(points3D_rgb))
             out["points3D_rgb"] = points3D_rgb
 
         return out

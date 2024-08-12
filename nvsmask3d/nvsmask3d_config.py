@@ -53,7 +53,7 @@ NvsMask3d = MethodSpecification(
                 cache_images_type="uint8",
             ),
             model=NVSMask3dModelConfig(
-                lock_means=True,
+                add_means=False,
                 # warmup_length = 7500
             ),
             network=OpenCLIPNetworkConfig(

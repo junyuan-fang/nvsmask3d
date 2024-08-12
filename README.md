@@ -31,6 +31,10 @@ ns-viewer nvsmask3d --load_config outputs/scene0011_00/nvsmask3d/2024-08-07_2200
 
 ns-viewer nvsmask3d --load_config outputs/unnamed/nvsmask3d/2024-08-09_214116/config.yml # replica without pointmask
 ns-viewer nvsmask3d --load_config outputs/unnamed/nvsmask3d/2024-08-10_121201/config.yml # replica able to segment
+
+
+ns-viewer nvsmask3d --load_config outputs/unnamed/nvsmask3d/2024-08-11_172308/config.yml
+
 ```
 
 ## Evaluation 
@@ -42,6 +46,11 @@ ns-eval for_ap --load_config outputs/scene0011_00/nvsmask3d/2024-08-07_220010/co
 ns-eval for_ap --load_config outputs/scene0011_00/nvsmask3d/2024-08-08_132932/config.yml   #sparse point cloud initialization
 ns-eval for_ap --load_config outputs/scene0011_00/nvsmask3d/2024-08-08_165724/config.yml #sparse point cloud initialization+densify+culling  20000steps
 ns-eval for_ap --load_config outputs/unnamed/splatfacto/2024-08-08_210343/config.yml #colmap
+outputs/unnamed/nvsmask3d/2024-08-11_172308/config.yml
+```
+## NVS quality eval
+```
+ns-eval psnr --load_config outputs/unnamed/nvsmask3d/2024-08-11_124613/config.yml
 ```
 ## Single scene predction path
 ```
