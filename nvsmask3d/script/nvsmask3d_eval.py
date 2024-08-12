@@ -34,11 +34,10 @@ from nerfstudio.models.splatfacto import SplatfactoModel
 from tqdm import tqdm
 from typing_extensions import Annotated
 import numpy as np
-from nvsmask3d.eval.scannet200.eval_semantic_instance import evaluate
-
+from nvsmask3d.eval.scannet200.eval_semantic_instance import evaluate as evaluate_scannet200
+from nvsmask3d.eval.replica.eval_semantic_instance import evaluate as evaluate_replica
 
 import tyro
-
 from nerfstudio.utils.eval_utils import eval_setup
 from nerfstudio.utils.rich_utils import CONSOLE
 
@@ -108,7 +107,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
     """Load a checkpoint, compute some pred_scores and pred_classes for latter AP computation."""
 
     # Path to config YAML file.
-    load_config: Path
+    load_config: Path = Path("nvsmask3d/data/replica")
     # Name of the output file.
     output_path: Path = Path("")
     
@@ -116,25 +115,34 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
     inference_dataset: Literal["scannet200","replica"] = "replica"
 
     def main(self) -> None:
-        gt_dir = Path(
-            "/home/wangs9/junyuan/nerfstudio-nvsmask3d/nvsmask3d/data/scene0011_00/instance_gt/validation"
-        )
+        gt_dir = self.load_config / "ground_truth"
         if self.inference_dataset == "replica":
+            scene_names = ["office0", "office1", "office2", "office3", "office4", "room0", "room1", "room2"]
             test_mode =  "all replica"
-        config, pipeline, checkpoint_path, _ = eval_setup(
-            self.load_config,
-            test_mode=test_mode,
-        )
-        global model
-        model = pipeline.model
+            
+            load_configs = ["outputs/office0/nvsmask3d/2024-08-12_215616/config.yml",
+                            "outputs/office1/nvsmask3d/2024-08-12_170536/config.yml",
+                            "outputs/office2/nvsmask3d/2024-08-12_173744/config.yml",
+                            "outputs/office3/nvsmask3d/2024-08-12_173744/config.yml",
+                            "outputs/office4/nvsmask3d/2024-08-12_180405/config.yml",
+                            "outputs/room0/nvsmask3d/2024-08-12_180418/config.yml",
+                            "outputs/room1/nvsmask3d/2024-08-12_182825/config.yml",
+                            "outputs/room2/nvsmask3d/2024-08-12_182844/config.yml"]
+            
+
         preds = {}
-        scene_names = ["scene0011_00"]  # hard coded for now
+        #scene_names = ["scene0011_00"]  # hard coded for now
         with torch.no_grad():
             # for each scene
             for i, scene_name in tqdm(
                 enumerate(scene_names), desc="Evaluating", total=len(scene_names)
-            ):
-                scene_id = scene_name[5:]
+            ):  
+                config, pipeline, checkpoint_path, _ = eval_setup(
+                                                            Path(load_configs[i]),
+                                                            test_mode=test_mode,
+                                                        )
+                model = pipeline.model
+                #scene_id = scene_name[5:]
                 # optimal_cameras = object_optimal_k_camera_poses(seed_points_0 = model.seed_points[i].cuda(),
                 #                               class_agnostic_3d_mask=model.points3D_mask[:,model.cls_index],
                 #                               camera=model.cameras,
@@ -147,35 +155,37 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 #     from  nvsmask3d.utils.utils import save_img
                 #     save_img(img, f"tests/output_{i}.png")
                 #     ##########################################
-                class_agnostic_3d_mask = (
-                    torch.from_numpy(model.points3D_mask).bool().to("cuda")
-                )  # shape (N, 166)
                 seed_points_0 = model.seed_points[0].half().cuda()  # shape (N, 3)
                 # optimal_camera_poses_of_scene = optimal_k_camera_poses_of_scene(seed_points_0=seed_points_0,
                 #                                                                 class_agnostic_3d_mask=class_agnostic_3d_mask,
                 #                                                                 camera=model.cameras)
 
                 pred_classes = self.pred_classes(
+                    model = model,
                     class_agnostic_3d_mask=model.points3D_mask,
                     seed_points_0=seed_points_0,
                     k_poses=2,
                 )
                 pred_scores = np.ones(pred_classes.shape)
-                pred_masks = model.points3D_mask
+                pred_masks = model.points3D_mask.cpu().numpy()# move to cpu
                 pred_classes = pred_classes.cpu().numpy()
-                preds["scene0011_00"] = {
-                    "pred_masks": pred_masks,
+                preds[scene_name] = {
+                    "pred_masks": pred_masks, 
                     "pred_scores": pred_scores,
                     "pred_classes": pred_classes,
-                }
-                inst_AP = evaluate(
-                    preds, gt_dir, output_file="output.txt", dataset="scannet200"
-                )
+                }       
+            if self.inference_dataset == "replica":
+                inst_AP = evaluate_replica(
+                    preds, gt_dir, output_file="output.txt", dataset="replica"
+            )
 
-    def pred_classes(self, class_agnostic_3d_mask, seed_points_0, k_poses):
+    def pred_classes(self, model, class_agnostic_3d_mask, seed_points_0, k_poses):
         """
         Args:
-
+        model (NVSMask3DModel): The model to use for inference
+        class_agnostic_3d_mask (torch.Tensor): The class-agnostic 3D mask (N, num_cls)
+        seed_points_0 (torch.Tensor): The seed points (N,3)
+        k_poses (int): The number of poses to render
         """
         # Move camera transformations to the GPU
         OPENGL_TO_OPENCV = np.array(
@@ -212,7 +222,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 K=K,
                 W=W,
                 H=H,
-                class_agnostic_3d_mask=class_agnostic_3d_mask[:, i],  # select i_th mask
+                boolean_mask=class_agnostic_3d_mask[:, i],  # select i_th mask
                 camera=model.cameras,
             )
 
@@ -223,7 +233,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 assert single_camera.shape[0] == 1, "Only one camera at a time"
                 # set instance
                 model.cls_index = i
-                img = model.get_outputs(single_camera)["rgb_mask"]
+                img = model.get_outputs(single_camera)["rgb"]#["rgb_mask"]
                 ###################save rendered image#################
                 # from  nvsmask3d.utils.utils import save_img
                 # save_img(img, f"tests/output_{i}{j}.png")
@@ -241,8 +251,8 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
             # Find the text index with the maximum aggregated score
             max_ind = torch.argmax(aggregated_scores).item()  #
 
-            max_ind_remapped = model.image_encoder.label_mapper[max_ind]
-            pred_classes[i] = max_ind_remapped
+            #max_ind_remapped = model.image_encoder.label_mapper[max_ind], replica no need remapping
+            pred_classes[i] = max_ind  #max_ind_remapped
         return pred_classes
 
 

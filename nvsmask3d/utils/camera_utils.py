@@ -154,7 +154,7 @@ def optimal_k_camera_poses_of_scene(
 @torch.no_grad()
 def object_optimal_k_camera_poses(
     seed_points_0, boolean_mask, camera, k_poses=2
-):  # tested with no problem
+):  # tested with no problem, faster than the previous one
     """
     Selects the top k optimal camera poses based on the visibility score of the 3D mask.
     args:
@@ -235,15 +235,15 @@ def object_optimal_k_camera_poses_clear(
     K,
     W,
     H,
-    class_agnostic_3d_mask,
+    boolean_mask,
     camera,
     k_poses=2,
 ):  # tested with no problem
 
     # Prepare seed points and boolean mask
-    boolean_mask = (
-        torch.from_numpy(class_agnostic_3d_mask).bool().to("cuda")
-    )  # shape (N,)
+    # boolean_mask = (
+    #     torch.from_numpy(class_agnostic_3d_mask).bool().to("cuda")
+    # )  # shape (N,)
     masked_seed_points = seed_points_0[boolean_mask]  # shape (N, 3)
 
     # Precompute necessary values

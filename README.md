@@ -47,6 +47,9 @@ ns-eval for_ap --load_config outputs/scene0011_00/nvsmask3d/2024-08-08_132932/co
 ns-eval for_ap --load_config outputs/scene0011_00/nvsmask3d/2024-08-08_165724/config.yml #sparse point cloud initialization+densify+culling  20000steps
 ns-eval for_ap --load_config outputs/unnamed/splatfacto/2024-08-08_210343/config.yml #colmap
 outputs/unnamed/nvsmask3d/2024-08-11_172308/config.yml
+
+## for replica validation
+ns-eval for_ap --load_config nvsmask3d/data/replica
 ```
 ## NVS quality eval
 ```

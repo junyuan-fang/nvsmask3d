@@ -155,7 +155,7 @@ class NVSMask3dModel(SplatfactoModel):
         for i in range(optimal_cameras.camera_to_worlds.shape[0]):
             single_camera = optimal_cameras[i : i + 1]
             assert single_camera.shape[0] == 1, "Only one camera at a time"
-            img = self.get_outputs(single_camera)["rgb_mask"]  # (H,W,3)
+            img = self.get_outputs(single_camera)["rgb_mask"]#["rgb_mask"]  # (H,W,3)
             ###################save rendered image#################
             from nvsmask3d.utils.utils import save_img
 
