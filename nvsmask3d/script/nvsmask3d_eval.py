@@ -233,7 +233,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 assert single_camera.shape[0] == 1, "Only one camera at a time"
                 # set instance
                 model.cls_index = i
-                img = model.get_outputs(single_camera)["rgb"]#["rgb_mask"]
+                img = model.get_outputs(single_camera)["rgb_mask"]#["rgb"]#
                 ###################save rendered image#################
                 # from  nvsmask3d.utils.utils import save_img
                 # save_img(img, f"tests/output_{i}{j}.png")

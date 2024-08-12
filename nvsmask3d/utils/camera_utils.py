@@ -238,19 +238,28 @@ def object_optimal_k_camera_poses_clear(
     boolean_mask,
     camera,
     k_poses=2,
-):  # tested with no problem
+):  
+    """ Tested with no problem
 
-    # Prepare seed points and boolean mask
-    # boolean_mask = (
-    #     torch.from_numpy(class_agnostic_3d_mask).bool().to("cuda")
-    # )  # shape (N,)
+    Args:
+        seed_points_0 (torch.Tensor): (N,3) on cuda
+        optimized_camera_to_world (torch.Tensor)  : (M,3,4) on cuda
+        K (torch.Tensor): (M,3,3) on cuda
+        W (int): default is 640
+        H (int): default is 360
+        boolean_mask (torch.Tensor): (N,) on cuda
+        camera (torch.Tensor): (M,) on cuda  
+        k_poses (int, optional):  Defaults to 2.
+
+    Returns:
+        best_poses, boolean_mask: torch.Tensor, torch.Tensor
+    """
     masked_seed_points = seed_points_0[boolean_mask]  # shape (N, 3)
 
     # Precompute necessary values
     visibility_scores = torch.zeros(
         len(optimized_camera_to_world), device="cuda"
     )  # shape (N,)
-
     # Vectorized computation for all camera poses
     points_cam = masked_seed_points.unsqueeze(0) - optimized_camera_to_world[
         :, :3, 3
@@ -267,19 +276,15 @@ def object_optimal_k_camera_poses_clear(
     v = points_cam[:, :, 1] * K[:, 1, 1].unsqueeze(1) / points_cam[:, :, 2] + K[
         :, 1, 2
     ].unsqueeze(1)
-
     # Check valid points within image boundaries and in front of the camera
     valid_points = (u >= 0) & (u < W) & (v >= 0) & (v < H) & (points_cam[:, :, 2] > 0)
-
     # Compute visibility scores for all poses
     visibility_scores = valid_points.float().mean(dim=1)
 
     # Select top k scored poses
     _, best_poses_indices = torch.topk(visibility_scores, k_poses)
-
     # Ensure indices are on the CPU
     best_poses_indices = best_poses_indices.cpu()
-
     best_poses = camera[best_poses_indices]
     # print time used
     # print("Time used: ", time.time() - start)

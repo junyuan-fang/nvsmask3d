@@ -1,5 +1,6 @@
 tests/
 outputs/
+output.txt
 data/
 nerfstudio/
 semantic-gaussians/
