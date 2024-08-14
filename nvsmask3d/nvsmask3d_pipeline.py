@@ -100,6 +100,7 @@ class NvsMask3dPipeline(VanillaPipeline):
                 self.datamanager.train_dataset.cameras if "all" in test_mode else None
             ),
             test_mode=test_mode,
+            image_file_names=self.datamanager.train_dataset.image_filenames,
             # image_file_names = self.datamanager.train_dataset.image_filenames #for testing
         )
         self.model.to(device)

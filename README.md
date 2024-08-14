@@ -34,6 +34,8 @@ ns-viewer nvsmask3d --load_config outputs/unnamed/nvsmask3d/2024-08-10_121201/co
 
 
 ns-viewer nvsmask3d --load_config outputs/unnamed/nvsmask3d/2024-08-11_172308/config.yml
+ns-viewer nvsmask3d --load_config outputs/office1/nvsmask3d/2024-08-12_170536/config.yml # office 1
+
 
 ```
 
@@ -46,6 +48,8 @@ ns-eval for_ap --load_config outputs/scene0011_00/nvsmask3d/2024-08-07_220010/co
 ns-eval for_ap --load_config outputs/scene0011_00/nvsmask3d/2024-08-08_132932/config.yml   #sparse point cloud initialization
 ns-eval for_ap --load_config outputs/scene0011_00/nvsmask3d/2024-08-08_165724/config.yml #sparse point cloud initialization+densify+culling  20000steps
 ns-eval for_ap --load_config outputs/unnamed/splatfacto/2024-08-08_210343/config.yml #colmap
+
+ns-eval for_ap --load_config nvsmask3d/data/replica
 ```
 ### for replica validation
 ```

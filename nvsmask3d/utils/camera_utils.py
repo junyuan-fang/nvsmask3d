@@ -182,9 +182,6 @@ def object_optimal_k_camera_poses(
     W, H = int(camera.width[0].item()), int(camera.height[0].item())
 
     # Prepare seed points and boolean mask
-    # boolean_mask = (
-    #     torch.from_numpy(class_agnostic_3d_mask).bool().to("cuda")
-    # )  # shape (N,)
     masked_seed_points = seed_points_0[boolean_mask]  # shape (N, 3)
 
     # Precompute necessary values
@@ -193,24 +190,14 @@ def object_optimal_k_camera_poses(
     )  # shape (N,)
 
     # Vectorized computation for all camera poses
-    points_cam = masked_seed_points.unsqueeze(0) - optimized_camera_to_world[
-        :, :3, 3
-    ].unsqueeze(
-        1
-    )  # boardcast from (1,N,3) (M,1,3)to (M, N, 3)
-    points_cam = torch.bmm(
-        points_cam, optimized_camera_to_world[:, :3, :3]
-    )  # matrix multiplication from (M, N, 3) (M, 3, 3) to (M, N, 3)
+    points_cam = masked_seed_points.unsqueeze(0) - optimized_camera_to_world[:, :3, 3].unsqueeze(1)  # boardcast from (1,N,3) (M,1,3)to (M, N, 3)
+    points_cam = torch.bmm(points_cam, optimized_camera_to_world[:, :3, :3])  # matrix multiplication from (M, N, 3) (M, 3, 3) to (M, N, 3)
     # Project to 2D image plane using vectorized operations
-    u = points_cam[:, :, 0] * K[:, 0, 0].unsqueeze(1) / points_cam[:, :, 2] + K[
-        :, 0, 2
-    ].unsqueeze(1)
-    v = points_cam[:, :, 1] * K[:, 1, 1].unsqueeze(1) / points_cam[:, :, 2] + K[
-        :, 1, 2
-    ].unsqueeze(1)
+    u = points_cam[:, :, 0] * K[:, 0, 0].unsqueeze(1) / points_cam[:, :, 2] + K[:, 0, 2].unsqueeze(1)
+    v = points_cam[:, :, 1] * K[:, 1, 1].unsqueeze(1) / points_cam[:, :, 2] + K[:, 1, 2].unsqueeze(1)
 
     # Check valid points within image boundaries and in front of the camera
-    valid_points = (u >= 0) & (u < W) & (v >= 0) & (v < H) & (points_cam[:, :, 2] > 0)
+    valid_points = (u >= 0) & (u < W) & (v >= 0) & (v < H) & (points_cam[:, :, 2] > 0) #shape  (M, N)
 
     # Compute visibility scores for all poses
     visibility_scores = valid_points.float().mean(dim=1)
@@ -227,6 +214,172 @@ def object_optimal_k_camera_poses(
 
     return best_poses  # Cameras torch.Size([k_poses])
 
+@torch.no_grad()
+def object_optimal_k_camera_poses_bounding_box(
+    seed_points_0, boolean_mask, camera, k_poses=2
+):
+    """
+    Selects the top k optimal camera poses based on the visibility score of the 3D mask.
+    The visibility score is calculated as the product of the number of visible points
+    and the bounding box area of the projected points.
+    
+    Args:
+        seed_points_0: torch.Tensor, size is (N, 3), point cloud
+        boolean_mask: torch.Tensor, size is (N,), for 3D mask
+        camera: Cameras, for camera poses, size is (M, 3)
+        k_poses: int, for top k poses
+    returns:
+        best_poses: torch.Tensor, size is (k_poses, camera), top k poses
+        final_bounding_boxes: torch.Tensor, size is (k_poses, 4), bounding boxes
+    """
+    # Move camera transformations to the GPU
+    optimized_camera_to_world = camera.camera_to_worlds.to("cuda")
+    opengl_to_opencv = torch.tensor(
+        OPENGL_TO_OPENCV, device="cuda", dtype=optimized_camera_to_world.dtype
+    )
+    optimized_camera_to_world = torch.matmul(
+        optimized_camera_to_world, opengl_to_opencv
+    )
+
+    # Move intrinsics to the GPU
+    K = camera.get_intrinsics_matrices().to("cuda")
+    W, H = int(camera.width[0].item()), int(camera.height[0].item())
+
+    # Prepare seed points and boolean mask
+    masked_seed_points = seed_points_0[boolean_mask]
+
+    # Vectorized computation for all camera poses
+    points_cam = masked_seed_points.unsqueeze(0) - optimized_camera_to_world[:, :3, 3].unsqueeze(1)#shape (M, N, 3)
+    points_cam = torch.bmm(points_cam, optimized_camera_to_world[:, :3, :3])#shape (M, N, 3)
+    
+    # Project to 2D image plane using vectorized operations
+    u = points_cam[:, :, 0] * K[:, 0, 0].unsqueeze(1) / points_cam[:, :, 2] + K[:, 0, 2].unsqueeze(1) # x #shape (M, N)
+    v = points_cam[:, :, 1] * K[:, 1, 1].unsqueeze(1) / points_cam[:, :, 2] + K[:, 1, 2].unsqueeze(1) # y
+
+    # Check valid points within image boundaries and in front of the camera
+    valid_points = (u >= 0) & (u < W) & (v >= 0) & (v < H) & (points_cam[:, :, 2] > 0) #shape (M, N)
+    if valid_points.any().item()!=True:
+        print("No valid points found")
+        return torch.tensor([]), torch.tensor([])
+
+     # Calculate min and max for u and v
+    min_u, _ = u.masked_fill(~valid_points, float('inf')).min(dim=1)  # shape (M,)
+    max_u, _ = u.masked_fill(~valid_points, float('-inf')).max(dim=1)
+    min_v, _ = v.masked_fill(~valid_points, float('inf')).min(dim=1)
+    max_v, _ = v.masked_fill(~valid_points, float('-inf')).max(dim=1)
+    
+    # Handle -inf and inf by finding the largest/smallest valid coordinates
+    # Calculate maximum valid u and v if all u and v are invalid
+    max_u = torch.where(max_u == float('-inf'), u[valid_points].max(), max_u)
+    max_v = torch.where(max_v == float('-inf'), v[valid_points].max(), max_v)
+
+    # Calculate minimum valid u and v if all u and v are invalid
+    min_u = torch.where(min_u == float('inf'), u[valid_points].min(), min_u)
+    min_v = torch.where(min_v == float('inf'), v[valid_points].min(), min_v)
+
+    # Calculate bounding box area
+    
+    bounding_box_area = (max_u - min_u) * (max_v - min_v)
+    # bounding_box_area = torch.nan_to_num(bounding_box_area, nan=0)
+    # bounding_box_area[bounding_box_area == float('inf')] = 0
+    # Set area to zero where no points are valid
+    #bounding_box_area[bounding_box_area == float('inf') or bounding_box_area==float('inf')]=0
+
+    # Compute visibility scores for all poses
+    num_visible_points = valid_points.float().sum(dim=1)
+    visibility_scores = num_visible_points * bounding_box_area #* torch.nan_to_num(bounding_box_area, nan=0.0)
+    #visibility_scores = num_visible_points #* bounding_box_area
+
+    # Select top k scored poses
+    _, best_poses_indices = torch.topk(visibility_scores, k_poses)
+
+    # Ensure indices are on the CPU
+    best_poses_indices = best_poses_indices.cpu()
+
+    #best_poses = camera[best_poses_indices]
+
+    # Prepare final bounding boxes for visualization
+    final_bounding_boxes = torch.stack((min_u[best_poses_indices], min_v[best_poses_indices],
+                                        max_u[best_poses_indices], max_v[best_poses_indices]), dim=1)#(k_poses, 4)
+
+    return best_poses_indices, final_bounding_boxes  # Returns both the best camera poses and their bounding boxes
+
+@torch.no_grad()
+def object_optimal_k_camera_poses_bounding_box_clear(
+    seed_points_0,
+    optimized_camera_to_world,
+    K,
+    W,
+    H,
+    boolean_mask,
+    k_poses=2,
+):
+    """
+    Selects the top k optimal camera poses based on the visibility score of the 3D mask.
+    The visibility score is calculated as the product of the number of visible points
+    and the bounding box area of the projected points.
+
+    Args:
+        seed_points_0 (torch.Tensor): (N,3) on cuda
+        optimized_camera_to_world (torch.Tensor): (M,3,4) on cuda
+        K (torch.Tensor): (M,3,3) on cuda
+        W (int): default is 640
+        H (int): default is 360
+        boolean_mask (torch.Tensor): (N,) on cuda
+        k_poses (int, optional): Defaults to 2.
+
+    Returns:
+        best_poses, final_bounding_boxes: torch.Tensor, torch.Tensor
+    """
+    masked_seed_points = seed_points_0[boolean_mask]  # shape (N, 3)
+    # Vectorized computation for all camera poses
+    points_cam = masked_seed_points.unsqueeze(0) - optimized_camera_to_world[:, :3, 3].unsqueeze(1)  # shape (M, N, 3)
+    points_cam = torch.bmm(points_cam, optimized_camera_to_world[:, :3, :3])  # shape (M, N, 3)
+
+    # Project to 2D image plane using vectorized operations
+    u = points_cam[:, :, 0] * K[:, 0, 0].unsqueeze(1) / points_cam[:, :, 2] + K[:, 0, 2].unsqueeze(1)  # x #shape (M, N)
+    v = points_cam[:, :, 1] * K[:, 1, 1].unsqueeze(1) / points_cam[:, :, 2] + K[:, 1, 2].unsqueeze(1)  # y
+
+    # Check valid points within image boundaries and in front of the camera
+    valid_points = (u >= 0) & (u < W) & (v >= 0) & (v < H) & (points_cam[:, :, 2] > 0)  # shape (M, N)
+    
+    if valid_points.any().item()!=True:
+        print("No valid points found")
+        return torch.tensor([]), torch.tensor([])
+
+    # Calculate min and max for u and v
+    min_u, _ = u.masked_fill(~valid_points, float('inf')).min(dim=1)  # shape (M,)
+    max_u, _ = u.masked_fill(~valid_points, float('-inf')).max(dim=1)
+    min_v, _ = v.masked_fill(~valid_points, float('inf')).min(dim=1)
+    max_v, _ = v.masked_fill(~valid_points, float('-inf')).max(dim=1)
+    
+    #check the shape of the min_u, max_u, min_v, max_v  
+    # print(u[valid_points].max())
+    # Handle -inf and inf by finding the largest/smallest valid coordinates
+    max_u = torch.where(max_u == float('-inf'), u[valid_points].max(), max_u)
+    max_v = torch.where(max_v == float('-inf'), v[valid_points].max(), max_v)
+    min_u = torch.where(min_u == float('inf'), u[valid_points].min(), min_u)
+    min_v = torch.where(min_v == float('inf'), v[valid_points].min(), min_v)
+
+    # Calculate bounding box area
+    bounding_box_area = (max_u - min_u) * (max_v - min_v)
+
+    # Compute visibility scores for all poses
+    num_visible_points = valid_points.float().sum(dim=1)
+    visibility_scores = num_visible_points * bounding_box_area
+
+    # Select top k scored poses
+    _, best_poses_indices = torch.topk(visibility_scores, k_poses)
+
+    # Ensure indices are on the CPU
+    best_poses_indices = best_poses_indices.cpu()
+    #best_poses = camera[best_poses_indices]
+
+    # Prepare final bounding boxes for visualization
+    final_bounding_boxes = torch.stack((min_u[best_poses_indices], min_v[best_poses_indices],
+                                        max_u[best_poses_indices], max_v[best_poses_indices]), dim=1)  # (k_poses, 4)
+
+    return best_poses_indices, final_bounding_boxes  # Returns both the best camera poses and their bounding boxes
 
 @torch.no_grad()
 def object_optimal_k_camera_poses_clear(

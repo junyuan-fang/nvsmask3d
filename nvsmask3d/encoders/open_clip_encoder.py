@@ -185,16 +185,23 @@ class OpenCLIPNetwork(BaseImageEncoder):
         """(B,C,H,W) -> (B,512)"""
         processed_input = self.process(input).half()
         return self.model.encode_image(processed_input)
-
-    def classify_images(self, image: torch.Tensor) -> str:
+    
+    def encode_batch_list_image(self, input):
+        """list shape B, which has element (C,H,W) -> (B,512)"""
+        processed_images = [self.process(img) for img in input]
+        batch_tensor = torch.stack(processed_images).half()  # Shape (B, C, H, W)
+        return self.model.encode_image(batch_tensor)
+    
+    def classify_images(self, images: torch.Tensor) -> str:
         """
         Args:
-            image (torch.Tensor): (B,C,H,W)
+            a list of image (torch.Tensor): (C,W,H) in a list  # (B,C,H,W)
 
         Returns:
             str: inference object text
         """
-        embed = self.encode_image(image)
+        embeddings = [self.encode_image(img.unsqueeze(0)) for img in images]
+        embed = torch.cat(embeddings)
         results = []
         phrases_embeds = (
             self.pos_embeds

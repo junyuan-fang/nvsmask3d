@@ -8,7 +8,8 @@ from dataclasses import dataclass, field
 from typing import Type
 import torch
 import os
-
+from PIL import Image
+import torchvision.transforms as transforms
 # 设置 TORCH_CUDA_ARCH_LIST 环境变量
 os.environ["TORCH_CUDA_ARCH_LIST"] = "7.5;8.0"
 
@@ -44,7 +45,7 @@ from nerfstudio.models.splatfacto import (
     get_viewmat,
 )
 from nerfstudio.viewer.viewer_elements import *
-from nvsmask3d.utils.camera_utils import object_optimal_k_camera_poses
+from nvsmask3d.utils.camera_utils import object_optimal_k_camera_poses, object_optimal_k_camera_poses_bounding_box
 
 
 @dataclass
@@ -90,13 +91,13 @@ class NVSMask3dModel(SplatfactoModel):
         metadata: Optional[Dict] = None,
         cameras: Optional[Cameras] = None,
         test_mode: Literal["test", "val", "inference", "train", "all_replica", "all_scannet"] = "val",
-        # image_file_names,#test
+        image_file_names,#test
         **kwargs,
     ):
         self.metadata = metadata
         self.cameras = cameras
         self.cls_index = 0
-        # self.image_file_names = image_file_names#debug
+        self.image_file_names = image_file_names#debug
 
         self.test_mode = test_mode
         super().__init__(seed_points=seed_points, *args, **kwargs)
@@ -145,28 +146,54 @@ class NVSMask3dModel(SplatfactoModel):
         # get optimal cameraposes use mask proposal and poses
         # import time
         # start = time.time()
-        optimal_cameras = object_optimal_k_camera_poses(
+        optimal_camera_indices, bounding_boxes = object_optimal_k_camera_poses_bounding_box(#object_optimal_k_camera_poses(
             seed_points_0=self.seed_points[0].cuda(),
             boolean_mask=self.points3D_mask[:, self.cls_index],
             camera=self.cameras,
             k_poses=2,
         )  # image_file_names= self.image_file_names)#seedpoints, mask -> cuda, numpy
         outputs = []
-        for i in range(optimal_cameras.camera_to_worlds.shape[0]):
-            single_camera = optimal_cameras[i : i + 1]
+        j = 0
+        print("optimal_camera_indices", optimal_camera_indices)
+        for i in optimal_camera_indices:
+            i = i.item()
+            single_camera = self.cameras[i : i + 1]
             assert single_camera.shape[0] == 1, "Only one camera at a time"
             img = self.get_outputs(single_camera)["rgb_mask"]#["rgb_mask"]  # (H,W,3)
+            #instead, use the original image
+            with Image.open(self.image_file_names[i]) as img:
+                img = transforms.ToTensor()(img).cuda()#(C,H,W)
+            
+            #crop images with bounding box
+            min_u, min_v, max_u, max_v = bounding_boxes[j]
+            #tensor([[532.8265, 269.7081, 622.9513, 355.6277],
+            #[542.5855, 281.9374, 638.7404, 359.9490]], device='cuda:0')
+            print(min_u, min_v, max_u, max_v)
+            if any(map(lambda x: torch.isinf(x) or x < 0, [min_u, min_v, max_u, max_v])):
+                print(f"Skipping cropping for image {i} due to invalid bounding box")
+                cropped_image = img  # Use the whole image if bbox is invalid
+            else:
+                # Convert to integers for slicing
+                min_u, min_v, max_u, max_v = map(int, [min_u, min_v, max_u, max_v])
+                C, H, W = img.shape
+                # Ensure the indices are within image bounds
+                min_u, min_v = max(0, min_u), max(0, min_v)
+                max_u, max_v = min(W, max_u), min(H, max_v)
+
+                # Crop the image using valid indices
+                cropped_image = img[:, min_v:max_v, min_u:max_u]
             ###################save rendered image#################
             from nvsmask3d.utils.utils import save_img
-
-            save_img(img, f"tests/output_{i}.png")
+            save_img(img.permute(1,2,0), f"tests/output_{j}.png")# function need (H,W,3)
+            save_img(cropped_image.permute(1,2,0), f"tests/cropped_image_{j}.png")
             ######################################################
-            outputs.append(img)
+            outputs.append(cropped_image)
+            j+=1
 
-        output = torch.stack(outputs)
-        # (B,H,W,3)->(B,C,H,W)
-        output = output.permute(0, 3, 1, 2)
-        texts = self.image_encoder.classify_images(output)
+        #output = torch.stack(outputs)
+        # (B,H,W,3)->(B,C,H,W) no more
+        #output = output.permute(0, 3, 1, 2)
+        texts = self.image_encoder.classify_images(outputs)
 
         self.output_text.value = texts  #''.join(output)
         return
