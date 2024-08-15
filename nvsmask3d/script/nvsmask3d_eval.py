@@ -125,14 +125,23 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
             scene_names = ["office0", "office1", "office2", "office3", "office4", "room0", "room1", "room2"]
             test_mode =  "all replica"
             
-            load_configs = ["outputs/office0/nvsmask3d/2024-08-12_215616/config.yml",
-                            "outputs/office1/nvsmask3d/2024-08-12_170536/config.yml",
-                            "outputs/office2/nvsmask3d/2024-08-12_173744/config.yml",
-                            "outputs/office3/nvsmask3d/2024-08-12_173744/config.yml",
-                            "outputs/office4/nvsmask3d/2024-08-12_180405/config.yml",
-                            "outputs/room0/nvsmask3d/2024-08-12_180418/config.yml",
-                            "outputs/room1/nvsmask3d/2024-08-12_182825/config.yml",
-                            "outputs/room2/nvsmask3d/2024-08-12_182844/config.yml"]
+            load_configs = ["outputs/office0/nvsmask3d/2024-08-14_204330/config.yml",
+                            "outputs/office1/nvsmask3d/2024-08-14_204330/config.yml",
+                            "outputs/office2/nvsmask3d/2024-08-14_205100/config.yml",
+                            "outputs/office3/nvsmask3d/2024-08-14_205128/config.yml",
+                            "outputs/office4/nvsmask3d/2024-08-14_210152/config.yml",
+                            "outputs/room0/nvsmask3d/2024-08-14_210501/config.yml",
+                            "outputs/room1/nvsmask3d/2024-08-14_211248/config.yml",
+                            "outputs/room2/nvsmask3d/2024-08-14_211851/config.yml"]
+            
+                            #["outputs/office0/nvsmask3d/2024-08-12_215616/config.yml",
+                            # "outputs/office1/nvsmask3d/2024-08-12_170536/config.yml",
+                            # "outputs/office2/nvsmask3d/2024-08-12_173744/config.yml",
+                            # "outputs/office3/nvsmask3d/2024-08-12_173744/config.yml",
+                            # "outputs/office4/nvsmask3d/2024-08-12_180405/config.yml",
+                            # "outputs/room0/nvsmask3d/2024-08-12_180418/config.yml",
+                            # "outputs/room1/nvsmask3d/2024-08-12_182825/config.yml",
+                            # "outputs/room2/nvsmask3d/2024-08-12_182844/config.yml"]
             
 
         preds = {}
@@ -254,17 +263,12 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     # cropped_nvs_image = nvs_img[min_v:max_v, min_u:max_u].permute(2, 0, 1)
                     # outputs.append(cropped_nvs_image)
                     
-                                ###################save rendered image#################
-                # from  nvsmask3d.utils.utils import save_img
-                # save_img(cropped_image.permute(1,2,0), f"tests/output_{i}{pose_index}.png")
+                ###################save rendered image#################
+                from  nvsmask3d.utils.utils import save_img
+                save_img(cropped_image.permute(1,2,0), f"tests/output_{i}_{pose_index}.png")
                 ######################################################
                 
-
-                
-                
-                
                 #append nvs mask3d outputs
-                
                 
             #outputs = torch.stack(outputs)
             # (B,H,W,3)->(B,C,H,W)
@@ -281,7 +285,6 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
             # Find the text index with the maximum aggregated score
             max_ind = torch.argmax(aggregated_scores).item()  #
             
-
             #max_ind_remapped = model.image_encoder.label_mapper[max_ind], replica no need remapping
             pred_classes[i] = max_ind  #max_ind_remapped
         return pred_classes
