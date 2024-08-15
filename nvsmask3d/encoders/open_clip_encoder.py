@@ -16,15 +16,19 @@ from nvsmask3d.encoders.image_encoder import BaseImageEncoder, BaseImageEncoderC
 from nerfstudio.viewer.viewer_elements import *
 from nvsmask3d.utils.utils import SCANNET200_CLASSES
 from nvsmask3d.eval.scannet200.scannet_constants import VALID_CLASS_IDS_200
-from nvsmask3d.eval.replica.eval_semantic_instance import VALID_CLASS_IDS as VALID_CLASS_IDS_REPLICA
-from nvsmask3d.eval.replica.eval_semantic_instance import CLASS_LABELS as REPLICA_CLASSES
+from nvsmask3d.eval.replica.eval_semantic_instance import (
+    VALID_CLASS_IDS as VALID_CLASS_IDS_REPLICA,
+)
+from nvsmask3d.eval.replica.eval_semantic_instance import (
+    CLASS_LABELS as REPLICA_CLASSES,
+)
 
 
 @dataclass
 class OpenCLIPNetworkConfig(BaseImageEncoderConfig):
     _target: Type = field(default_factory=lambda: OpenCLIPNetwork)
-    clip_model_type: str = "ViT-L-14-336" #"ViT-B-16"
-    clip_model_pretrained: str = "openai" #"laion2b_s34b_b88k"
+    clip_model_type: str = "ViT-L-14-336"  # "ViT-B-16"
+    clip_model_pretrained: str = "openai"  # "laion2b_s34b_b88k"
     clip_n_dims: int = 768  # 对应ViT-L-14-336px的输出维度
     negatives: Tuple[str] = ("object", "things", "stuff", "texture")
 
@@ -33,7 +37,9 @@ class OpenCLIPNetwork(BaseImageEncoder):
     def __init__(
         self,
         config: OpenCLIPNetworkConfig,
-        test_mode: Literal["test", "val", "inference", "train", "all_replica", "all_scannet"] = "val",
+        test_mode: Literal[
+            "test", "val", "inference", "train", "all_replica", "all_scannet"
+        ] = "val",
     ):
         super().__init__()
         self.config = config
@@ -56,8 +62,14 @@ class OpenCLIPNetwork(BaseImageEncoder):
         self.tokenizer = open_clip.get_tokenizer(self.config.clip_model_type)
         self.model = model.to("cuda")
         self.clip_n_dims = self.config.clip_n_dims
-        self.positives = SCANNET200_CLASSES if "scannet" in self.testmode else REPLICA_CLASSES
-        self.label_mapper = torch.tensor(VALID_CLASS_IDS_200).cuda() if "scannet" in self.testmode else torch.tensor(VALID_CLASS_IDS_REPLICA).cuda()
+        self.positives = (
+            SCANNET200_CLASSES if "scannet" in self.testmode else REPLICA_CLASSES
+        )
+        self.label_mapper = (
+            torch.tensor(VALID_CLASS_IDS_200).cuda()
+            if "scannet" in self.testmode
+            else torch.tensor(VALID_CLASS_IDS_REPLICA).cuda()
+        )
         print("the test mode is", test_mode)
         ############viewers############
         self.scannet_checkbox = ViewerCheckbox(
@@ -68,7 +80,7 @@ class OpenCLIPNetwork(BaseImageEncoder):
                 True if self.testmode == "train" or "all" in self.testmode else False
             ),
         )
-        
+
         self.replica_checkbox = ViewerCheckbox(
             name="Use Replica",
             default_value=True,
@@ -102,7 +114,7 @@ class OpenCLIPNetwork(BaseImageEncoder):
             self.neg_embeds = model.encode_text(tok_phrases)
         self.pos_embeds /= self.pos_embeds.norm(dim=-1, keepdim=True)
         self.neg_embeds /= self.neg_embeds.norm(dim=-1, keepdim=True)
-        
+
         assert (
             self.pos_embeds.shape[1] == self.neg_embeds.shape[1]
         ), "Positive and negative embeddings must have the same dimensionality"
@@ -138,7 +150,7 @@ class OpenCLIPNetwork(BaseImageEncoder):
         else:
             self.positive_input.disable = True
             self.positives = ""
-            
+
     def _replica_checkbox_update(self, element):
         self.positive_input.set_disabled(element.value)
         if element.value:
@@ -185,13 +197,13 @@ class OpenCLIPNetwork(BaseImageEncoder):
         """(B,C,H,W) -> (B,512)"""
         processed_input = self.process(input).half()
         return self.model.encode_image(processed_input)
-    
+
     def encode_batch_list_image(self, input):
         """list shape B, which has element (C,H,W) -> (B,512)"""
         processed_images = [self.process(img) for img in input]
         batch_tensor = torch.stack(processed_images).half()  # Shape (B, C, H, W)
         return self.model.encode_image(batch_tensor)
-    
+
     def classify_images(self, images: torch.Tensor) -> str:
         """
         Args:

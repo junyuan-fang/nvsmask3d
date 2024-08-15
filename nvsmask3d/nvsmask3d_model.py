@@ -10,6 +10,7 @@ import torch
 import os
 from PIL import Image
 import torchvision.transforms as transforms
+
 # 设置 TORCH_CUDA_ARCH_LIST 环境变量
 os.environ["TORCH_CUDA_ARCH_LIST"] = "7.5;8.0"
 
@@ -45,7 +46,10 @@ from nerfstudio.models.splatfacto import (
     get_viewmat,
 )
 from nerfstudio.viewer.viewer_elements import *
-from nvsmask3d.utils.camera_utils import object_optimal_k_camera_poses, object_optimal_k_camera_poses_bounding_box
+from nvsmask3d.utils.camera_utils import (
+    object_optimal_k_camera_poses,
+    object_optimal_k_camera_poses_bounding_box,
+)
 
 
 @dataclass
@@ -90,14 +94,16 @@ class NVSMask3dModel(SplatfactoModel):
         seed_points: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
         metadata: Optional[Dict] = None,
         cameras: Optional[Cameras] = None,
-        test_mode: Literal["test", "val", "inference", "train", "all_replica", "all_scannet"] = "val",
-        image_file_names,#test
+        test_mode: Literal[
+            "test", "val", "inference", "train", "all_replica", "all_scannet"
+        ] = "val",
+        image_file_names,  # test
         **kwargs,
     ):
         self.metadata = metadata
         self.cameras = cameras
         self.cls_index = 0
-        self.image_file_names = image_file_names#debug
+        self.image_file_names = image_file_names  # debug
 
         self.test_mode = test_mode
         super().__init__(seed_points=seed_points, *args, **kwargs)
@@ -105,9 +111,11 @@ class NVSMask3dModel(SplatfactoModel):
         self.inference = False
 
         self.split_indices = {}
-        self.initial_gaussians_mask = torch.ones(
-            seed_points[0].shape[0], dtype=torch.bool, device=self.device
-        ) if seed_points else None
+        self.initial_gaussians_mask = (
+            torch.ones(seed_points[0].shape[0], dtype=torch.bool, device=self.device)
+            if seed_points
+            else None
+        )
         # Initialize cache
         self._mask_cache = {}
 
@@ -146,7 +154,10 @@ class NVSMask3dModel(SplatfactoModel):
         # get optimal cameraposes use mask proposal and poses
         # import time
         # start = time.time()
-        optimal_camera_indices, bounding_boxes = object_optimal_k_camera_poses_bounding_box(#object_optimal_k_camera_poses(
+        (
+            optimal_camera_indices,
+            bounding_boxes,
+        ) = object_optimal_k_camera_poses_bounding_box(  # object_optimal_k_camera_poses(
             seed_points_0=self.seed_points[0].cuda(),
             boolean_mask=self.points3D_mask[:, self.cls_index],
             camera=self.cameras,
@@ -159,17 +170,19 @@ class NVSMask3dModel(SplatfactoModel):
             i = i.item()
             single_camera = self.cameras[i : i + 1]
             assert single_camera.shape[0] == 1, "Only one camera at a time"
-            img = self.get_outputs(single_camera)["rgb_mask"]#["rgb_mask"]  # (H,W,3)
-            #instead, use the original image
+            img = self.get_outputs(single_camera)["rgb_mask"]  # ["rgb_mask"]  # (H,W,3)
+            # instead, use the original image
             with Image.open(self.image_file_names[i]) as img:
-                img = transforms.ToTensor()(img).cuda()#(C,H,W)
-            
-            #crop images with bounding box
+                img = transforms.ToTensor()(img).cuda()  # (C,H,W)
+
+            # crop images with bounding box
             min_u, min_v, max_u, max_v = bounding_boxes[j]
-            #tensor([[532.8265, 269.7081, 622.9513, 355.6277],
-            #[542.5855, 281.9374, 638.7404, 359.9490]], device='cuda:0')
+            # tensor([[532.8265, 269.7081, 622.9513, 355.6277],
+            # [542.5855, 281.9374, 638.7404, 359.9490]], device='cuda:0')
             print(min_u, min_v, max_u, max_v)
-            if any(map(lambda x: torch.isinf(x) or x < 0, [min_u, min_v, max_u, max_v])):
+            if any(
+                map(lambda x: torch.isinf(x) or x < 0, [min_u, min_v, max_u, max_v])
+            ):
                 print(f"Skipping cropping for image {i} due to invalid bounding box")
                 cropped_image = img  # Use the whole image if bbox is invalid
             else:
@@ -184,15 +197,18 @@ class NVSMask3dModel(SplatfactoModel):
                 cropped_image = img[:, min_v:max_v, min_u:max_u]
             ###################save rendered image#################
             from nvsmask3d.utils.utils import save_img
-            save_img(img.permute(1,2,0), f"tests/output_{j}.png")# function need (H,W,3)
-            save_img(cropped_image.permute(1,2,0), f"tests/cropped_image_{j}.png")
+
+            save_img(
+                img.permute(1, 2, 0), f"tests/output_{j}.png"
+            )  # function need (H,W,3)
+            save_img(cropped_image.permute(1, 2, 0), f"tests/cropped_image_{j}.png")
             ######################################################
             outputs.append(cropped_image)
-            j+=1
+            j += 1
 
-        #output = torch.stack(outputs)
+        # output = torch.stack(outputs)
         # (B,H,W,3)->(B,C,H,W) no more
-        #output = output.permute(0, 3, 1, 2)
+        # output = output.permute(0, 3, 1, 2)
         texts = self.image_encoder.classify_images(outputs)
 
         self.output_text.value = texts  #''.join(output)
@@ -266,7 +282,9 @@ class NVSMask3dModel(SplatfactoModel):
         if (
             self.points3D_mask is not None
         ):  # Assumes this function returns a mask of appropriate shape
-            mask_indices = self.points3D_mask[:, self.cls_index]#self.get_densified_mask_indices(self.cls_index) if self.config.add_means else self.points3D_mask[:, self.cls_index]
+            mask_indices = self.points3D_mask[
+                :, self.cls_index
+            ]  # self.get_densified_mask_indices(self.cls_index) if self.config.add_means else self.points3D_mask[:, self.cls_index]
             opacities_masked = opacities_crop[mask_indices]
             means_masked = means_crop[mask_indices]
             features_dc_masked = features_dc_crop[mask_indices]
@@ -440,32 +458,58 @@ class NVSMask3dModel(SplatfactoModel):
                 # save checkpoints right when the opacity is reset (saves every 2k)
                 # then cull
                 # only split/cull if we've seen every image since opacity reset
-                reset_interval = self.config.reset_alpha_every * self.config.refine_every
+                reset_interval = (
+                    self.config.reset_alpha_every * self.config.refine_every
+                )
                 do_densification = (
                     self.step < self.config.stop_split_at
-                    and self.step % reset_interval > self.num_train_data + self.config.refine_every
+                    and self.step % reset_interval
+                    > self.num_train_data + self.config.refine_every
                 )
                 if do_densification:
                     # then we densify
-                    assert self.xys_grad_norm is not None and self.vis_counts is not None and self.max_2Dsize is not None
-                    avg_grad_norm = (self.xys_grad_norm / self.vis_counts) * 0.5 * max(self.last_size[0], self.last_size[1])
-                    high_grads = (avg_grad_norm > self.config.densify_grad_thresh).squeeze()
-                    splits = (self.scales.exp().max(dim=-1).values > self.config.densify_size_thresh).squeeze()
+                    assert (
+                        self.xys_grad_norm is not None
+                        and self.vis_counts is not None
+                        and self.max_2Dsize is not None
+                    )
+                    avg_grad_norm = (
+                        (self.xys_grad_norm / self.vis_counts)
+                        * 0.5
+                        * max(self.last_size[0], self.last_size[1])
+                    )
+                    high_grads = (
+                        avg_grad_norm > self.config.densify_grad_thresh
+                    ).squeeze()
+                    splits = (
+                        self.scales.exp().max(dim=-1).values
+                        > self.config.densify_size_thresh
+                    ).squeeze()
                     if self.step < self.config.stop_screen_size_at:
-                        splits |= (self.max_2Dsize > self.config.split_screen_size).squeeze()
+                        splits |= (
+                            self.max_2Dsize > self.config.split_screen_size
+                        ).squeeze()
                     splits &= high_grads
                     nsamps = self.config.n_split_samples
                     split_params = self.split_gaussians(splits, nsamps)
-                    self.update_split_indices(splits, nsamps)##############
-                    
-                    dups = (self.scales.exp().max(dim=-1).values <= self.config.densify_size_thresh).squeeze()
+                    self.update_split_indices(splits, nsamps)  ##############
+
+                    dups = (
+                        self.scales.exp().max(dim=-1).values
+                        <= self.config.densify_size_thresh
+                    ).squeeze()
                     dups &= high_grads
                     dup_params = self.dup_gaussians(dups)
-                    import pdb; pdb.set_trace()
-                    self.update_duplication_indices(dups)##############
+                    import pdb
+
+                    pdb.set_trace()
+                    self.update_duplication_indices(dups)  ##############
                     for name, param in self.gauss_params.items():
                         self.gauss_params[name] = torch.nn.Parameter(
-                            torch.cat([param.detach(), split_params[name], dup_params[name]], dim=0)
+                            torch.cat(
+                                [param.detach(), split_params[name], dup_params[name]],
+                                dim=0,
+                            )
                         )
                     # append zeros to the max_2Dsize tensor
                     self.max_2Dsize = torch.cat(
@@ -496,7 +540,10 @@ class NVSMask3dModel(SplatfactoModel):
                     )
 
                     deleted_mask = self.cull_gaussians(splits_mask)
-                elif self.step >= self.config.stop_split_at and self.config.continue_cull_post_densification:
+                elif (
+                    self.step >= self.config.stop_split_at
+                    and self.config.continue_cull_post_densification
+                ):
                     deleted_mask = self.cull_gaussians()
                 else:
                     # if we donot allow culling post refinement, no more gaussians will be pruned.
@@ -505,19 +552,26 @@ class NVSMask3dModel(SplatfactoModel):
                 if deleted_mask is not None:
                     self.remove_from_all_optim(optimizers, deleted_mask)
 
-                if self.step < self.config.stop_split_at and self.step % reset_interval == self.config.refine_every:
+                if (
+                    self.step < self.config.stop_split_at
+                    and self.step % reset_interval == self.config.refine_every
+                ):
                     # Reset value is set to be twice of the cull_alpha_thresh
                     reset_value = self.config.cull_alpha_thresh * 2.0
                     self.opacities.data = torch.clamp(
                         self.opacities.data,
-                        max=torch.logit(torch.tensor(reset_value, device=self.device)).item(),
+                        max=torch.logit(
+                            torch.tensor(reset_value, device=self.device)
+                        ).item(),
                     )
                     # reset the exp of optimizer
                     optim = optimizers.optimizers["opacities"]
                     param = optim.param_groups[0]["params"][0]
                     param_state = optim.state[param]
                     param_state["exp_avg"] = torch.zeros_like(param_state["exp_avg"])
-                    param_state["exp_avg_sq"] = torch.zeros_like(param_state["exp_avg_sq"])
+                    param_state["exp_avg_sq"] = torch.zeros_like(
+                        param_state["exp_avg_sq"]
+                    )
 
                 self.xys_grad_norm = None
                 self.vis_counts = None
@@ -530,7 +584,9 @@ class NVSMask3dModel(SplatfactoModel):
         for i, original_index in enumerate(original_indices):
             original_index = original_index.item()
             new_indices = torch.arange(
-                start_index + i * nsamps, start_index + (i + 1) * nsamps, device=self.device
+                start_index + i * nsamps,
+                start_index + (i + 1) * nsamps,
+                device=self.device,
             )
             if original_index in self.split_indices:
                 self.split_indices[original_index] = torch.cat(
@@ -538,16 +594,20 @@ class NVSMask3dModel(SplatfactoModel):
                 )
             else:
                 self.split_indices[original_index] = new_indices
-        self.dup_index_start = start_index + (i + 1) * nsamps 
+        self.dup_index_start = start_index + (i + 1) * nsamps
 
     def update_duplication_indices(self, dups):
         """Update duplication indices for new gaussians."""
         original_indices = torch.where(dups)[0]
-        start_index = self.dup_index_start#self.means.size(0)
-        
-        import pdb; pdb.set_trace()
-        
-        new_indices = torch.arange(start_index, start_index + len(original_indices), device=self.device)
+        start_index = self.dup_index_start  # self.means.size(0)
+
+        import pdb
+
+        pdb.set_trace()
+
+        new_indices = torch.arange(
+            start_index, start_index + len(original_indices), device=self.device
+        )
         for i, original_index in enumerate(original_indices):
             original_index = original_index.item()
             new_index = new_indices[i].unsqueeze(0)
@@ -558,7 +618,6 @@ class NVSMask3dModel(SplatfactoModel):
             else:
                 self.split_indices[original_index] = new_index
 
-
     def cull_gaussians(self, extra_cull_mask: Optional[torch.Tensor] = None):
         """
         This function deletes gaussians under a certain opacity threshold
@@ -567,36 +626,46 @@ class NVSMask3dModel(SplatfactoModel):
         if self.config.add_means and self.seed_points is not None:
             n_bef = self.num_points
             # Compute cull mask based on opacity threshold
-            culls = (torch.sigmoid(self.opacities) < self.config.cull_alpha_thresh).squeeze()
+            culls = (
+                torch.sigmoid(self.opacities) < self.config.cull_alpha_thresh
+            ).squeeze()
             below_alpha_count = torch.sum(culls).item()
             toobigs_count = 0
             if extra_cull_mask is not None:
                 culls = culls | extra_cull_mask
-            
+
             if self.config.add_means:
                 # Exclude initial Gaussians from culling
                 culls &= ~self.initial_gaussians_mask
             if self.step > self.config.refine_every * self.config.reset_alpha_every:
                 # cull huge ones
-                toobigs = (torch.exp(self.scales).max(dim=-1).values > self.config.cull_scale_thresh).squeeze()
+                toobigs = (
+                    torch.exp(self.scales).max(dim=-1).values
+                    > self.config.cull_scale_thresh
+                ).squeeze()
                 if self.step < self.config.stop_screen_size_at:
                     # cull big screen space
                     if self.max_2Dsize is not None:
-                        toobigs = toobigs | (self.max_2Dsize > self.config.cull_screen_size).squeeze()
+                        toobigs = (
+                            toobigs
+                            | (self.max_2Dsize > self.config.cull_screen_size).squeeze()
+                        )
                 culls = culls | toobigs
                 toobigs_count = torch.sum(toobigs).item()
             for name, param in self.gauss_params.items():
                 self.gauss_params[name] = torch.nn.Parameter(param[~culls])
-                
+
             if self.config.add_means:
                 # Remove culled indices from split tracking
                 for culled_index in torch.where(culls)[0]:
-                    culled_index = culled_index.item() 
+                    culled_index = culled_index.item()
                     if culled_index in self.split_indices:
                         del self.split_indices[culled_index]
-            
+
                 # Update mask
-                self.initial_gaussians_mask = self.initial_gaussians_mask[~culls].to(self.device)
+                self.initial_gaussians_mask = self.initial_gaussians_mask[~culls].to(
+                    self.device
+                )
 
             CONSOLE.log(
                 f"Culled {n_bef - self.num_points} gaussians "
@@ -607,9 +676,9 @@ class NVSMask3dModel(SplatfactoModel):
         else:
             super().cull_gaussians(extra_cull_mask)
 
-    def split_gaussians(self, split_mask, samps):# for gaussians to big
+    def split_gaussians(self, split_mask, samps):  # for gaussians to big
         # Split existing logic...
-        #original_indices = torch.where(split_mask)[0]#.cpu().numpy()
+        # original_indices = torch.where(split_mask)[0]#.cpu().numpy()
         out = super().split_gaussians(split_mask, samps)
         # Only update the mask for newly added Gaussians, we don't want to delete initial means
         if self.seed_points is not None:
@@ -620,7 +689,7 @@ class NVSMask3dModel(SplatfactoModel):
                     torch.zeros((num_new), dtype=torch.bool, device=self.device),
                 ]
             )
-            
+
             # # Track split indices
             # start_index = self.means.size(0)
             # for i, original_index in enumerate(original_indices):
@@ -637,9 +706,9 @@ class NVSMask3dModel(SplatfactoModel):
 
         return out
 
-    def dup_gaussians(self, dup_mask):# for gaussians to small
+    def dup_gaussians(self, dup_mask):  # for gaussians to small
         # Duplicate existing logic...
-        #original_indices = torch.where(dup_mask)[0]#.cpu().numpy()
+        # original_indices = torch.where(dup_mask)[0]#.cpu().numpy()
         new_dups = super().dup_gaussians(dup_mask)
 
         # Only update the mask for newly duplicated Gaussians
@@ -651,7 +720,7 @@ class NVSMask3dModel(SplatfactoModel):
                     torch.zeros((num_new), dtype=torch.bool, device=self.device),
                 ]
             )
-            
+
             # # Track duplicated indices
             # start_index = self.means.size(0)
             # new_indices = torch.arange(start_index, start_index + len(original_indices), device=self.device)
@@ -673,27 +742,35 @@ class NVSMask3dModel(SplatfactoModel):
             self.gauss_params["opacities"].data = (
                 self.gauss_params["opacities"] > 0.5
             ).float()
-            
-    def get_split_indices_batch(self, indices: List[int]) -> Dict[int, Optional[List[int]]]:
+
+    def get_split_indices_batch(
+        self, indices: List[int]
+    ) -> Dict[int, Optional[List[int]]]:
         """Retrieve split indices for a batch of original indices."""
         return {index: self.split_indices.get(index, None) for index in indices}
-    
+
     def get_densified_mask_indices(self, cls_index) -> torch.Tensor:
         """Densify masks using the input masks."""
         # if cls_index in self._mask_cache and self._mask_cache[cls_index].shape[0] == self.means.shape[0]:
         #     return self._mask_cache[cls_index]
-        
+
         # Get the original mask indices
-        mask_indices = torch.nonzero(self.points3D_mask[:, cls_index], as_tuple=False).squeeze()
+        mask_indices = torch.nonzero(
+            self.points3D_mask[:, cls_index], as_tuple=False
+        ).squeeze()
 
         # Initialize an updated mask as a tensor of zeros, aligning with self.means
-        updated_mask = torch.zeros(self.means.shape[0], dtype=torch.bool, device=self.device)
-        
+        updated_mask = torch.zeros(
+            self.means.shape[0], dtype=torch.bool, device=self.device
+        )
+
         # Efficiently set the specified indices to True using scatter_
         updated_mask.scatter_(0, mask_indices, True)
 
         # Convert the dictionary keys to a tensor for split indices
-        split_indices_keys = torch.tensor(list(self.split_indices.keys()), device=self.device)
+        split_indices_keys = torch.tensor(
+            list(self.split_indices.keys()), device=self.device
+        )
 
         # Determine which mask indices intersect with split_indices keys
         is_intersected = torch.isin(mask_indices, split_indices_keys)
@@ -702,17 +779,18 @@ class NVSMask3dModel(SplatfactoModel):
         # Update the mask by setting True for all additional indices from split operations
         if intersected_keys.numel() > 0:
             # Concatenate additional indices from the split_indices tensor dictionary
-            
-            additional_indices = torch.cat([self.split_indices[idx.item()] for idx in intersected_keys])
-            
+
+            additional_indices = torch.cat(
+                [self.split_indices[idx.item()] for idx in intersected_keys]
+            )
+
             # Set the mask to True at these additional indices using scatter_
             updated_mask.scatter_(0, additional_indices, True)
 
         # Cache the result for the current cls_index
-        #self._mask_cache[cls_index] = updated_mask
+        # self._mask_cache[cls_index] = updated_mask
 
         return updated_mask
-        
 
     @property
     def points3D_mask(self):

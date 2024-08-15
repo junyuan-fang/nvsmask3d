@@ -11,8 +11,12 @@ from nvsmask3d.encoders.image_encoder import BaseImageEncoder, BaseImageEncoderC
 from nerfstudio.viewer.viewer_elements import *
 from nvsmask3d.utils.utils import SCANNET200_CLASSES
 from nvsmask3d.eval.scannet200.scannet_constants import VALID_CLASS_IDS_200
-from nvsmask3d.eval.replica.eval_semantic_instance import VALID_CLASS_IDS as VALID_CLASS_IDS_REPLICA
-from nvsmask3d.eval.replica.eval_semantic_instance import CLASS_LABELS as REPLICA_CLASSES
+from nvsmask3d.eval.replica.eval_semantic_instance import (
+    VALID_CLASS_IDS as VALID_CLASS_IDS_REPLICA,
+)
+from nvsmask3d.eval.replica.eval_semantic_instance import (
+    CLASS_LABELS as REPLICA_CLASSES,
+)
 
 
 @dataclass
@@ -27,7 +31,9 @@ class CLIPNetwork(BaseImageEncoder):
     def __init__(
         self,
         config: CLIPNetworkConfig,
-        test_mode: Literal["test", "val", "inference", "train", "all_replica", "all_scannet"] = "val",
+        test_mode: Literal[
+            "test", "val", "inference", "train", "all_replica", "all_scannet"
+        ] = "val",
     ):
         super().__init__()
         self.config = config
@@ -35,11 +41,19 @@ class CLIPNetwork(BaseImageEncoder):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
         # 加载CLIP模型
-        self.model, self.preprocess = clip.load(self.config.clip_model_type, device=self.device)
+        self.model, self.preprocess = clip.load(
+            self.config.clip_model_type, device=self.device
+        )
         self.tokenizer = clip.tokenize
         self.clip_n_dims = self.config.clip_n_dims
-        self.positives = SCANNET200_CLASSES if "scannet" in self.testmode else REPLICA_CLASSES
-        self.label_mapper = torch.tensor(VALID_CLASS_IDS_200).to(self.device) if "scannet" in self.testmode else torch.tensor(VALID_CLASS_IDS_REPLICA).to(self.device)
+        self.positives = (
+            SCANNET200_CLASSES if "scannet" in self.testmode else REPLICA_CLASSES
+        )
+        self.label_mapper = (
+            torch.tensor(VALID_CLASS_IDS_200).to(self.device)
+            if "scannet" in self.testmode
+            else torch.tensor(VALID_CLASS_IDS_REPLICA).to(self.device)
+        )
         print("The test mode is", test_mode)
 
         # Viewer elements
@@ -51,7 +65,7 @@ class CLIPNetwork(BaseImageEncoder):
                 True if self.testmode == "train" or "all" in self.testmode else False
             ),
         )
-        
+
         self.replica_checkbox = ViewerCheckbox(
             name="Use Replica",
             default_value=True,
@@ -113,7 +127,7 @@ class CLIPNetwork(BaseImageEncoder):
         else:
             self.positive_input.disable = True
             self.positives = ""
-            
+
     def _replica_checkbox_update(self, element):
         self.positive_input.set_disabled(element.value)
         if element.value:
@@ -150,7 +164,7 @@ class CLIPNetwork(BaseImageEncoder):
     #     """(B,C,H,W) -> (B,768)"""
     #     processed_input = torch.stack([self.preprocess(img) for img in input]).to(self.device)
     #     return self.model.encode_image(processed_input)
-    
+
     def encode_batch_list_image(self, input):
         """list shape B, which has element (C,H,W) -> (B,512)"""
         processed_images = [self.process(img) for img in input]

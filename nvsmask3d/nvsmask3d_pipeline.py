@@ -56,7 +56,9 @@ class NvsMask3dPipeline(VanillaPipeline):
         self,
         config: NvsMask3dPipelineConfig,
         device: str,
-        test_mode: Literal["test", "val", "inference", "train", "all_replica", "all_scannet"] = "val",
+        test_mode: Literal[
+            "test", "val", "inference", "train", "all_replica", "all_scannet"
+        ] = "val",
         world_size: int = 1,
         local_rank: int = 0,
         grad_scaler: Optional[GradScaler] = None,
@@ -85,7 +87,7 @@ class NvsMask3dPipeline(VanillaPipeline):
             seed_pts = (pts, pts_rgb)
         self.datamanager.to(device)
         # print(self.datamanager.train_dataset.device)#is cpu, why?
-        
+
         assert self.datamanager.train_dataset is not None, "Missing input dataset"
         self._model = config.model.setup(
             scene_box=self.datamanager.train_dataset.scene_box,

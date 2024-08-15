@@ -58,8 +58,8 @@ NvsMask3d = MethodSpecification(
             ),
             network=OpenCLIPNetworkConfig(
                 clip_model_type="ViT-L-14-336",  # "ViT-B-16"
-                clip_model_pretrained="openai",#"laion2b_s34b_b88k",
-                clip_n_dims=768#512,
+                clip_model_pretrained="openai",  # "laion2b_s34b_b88k",
+                clip_n_dims=768,  # 512,
             ),
             #  You can swap the type of input encoder by specifying different NetworkConfigs, the one below uses OpenAI CLIP, the one above uses OpenCLIP
             # network=CLIPNetworkConfig(
