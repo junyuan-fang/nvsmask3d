@@ -50,6 +50,7 @@ ns-eval for_ap --load_config outputs/scene0011_00/nvsmask3d/2024-08-08_165724/co
 ns-eval for_ap --load_config outputs/unnamed/splatfacto/2024-08-08_210343/config.yml #colmap
 
 ns-eval for_ap --load_config nvsmask3d/data/replica
+
 ```
 ### for replica validation
 ```

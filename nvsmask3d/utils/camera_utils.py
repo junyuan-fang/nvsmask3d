@@ -3,6 +3,8 @@
 import math
 from typing import List, Optional, Tuple
 from nerfstudio.cameras.cameras import Cameras
+from nerfstudio.cameras.camera_utils import get_interpolated_poses
+from scipy.spatial.transform import Rotation as R
 
 # from nerfstudio.models.splatfacto import get_viewmat
 import numpy as np
@@ -63,6 +65,54 @@ OPENGL_TO_OPENCV = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 
 
 
 #     return best_poses#Cameras torch.Size([2])
+
+def get_camera_pose_in_opencv_convention(optimized_camera_to_world) -> torch.Tensor:
+    """
+    Converts a camera pose from OpenGL to OpenCV convention.
+
+    Args:
+        optimized_camera_to_world: Tensor of shape (3, 4) in OpenCV convention
+
+    Returns:
+        optimized_camera_to_world: Tensor of shape (3, 4) in OpenCV convention
+    """
+    opengl_to_opencv = torch.tensor(
+        OPENGL_TO_OPENCV, device="cuda", dtype=optimized_camera_to_world.dtype
+    )  # shape (4, 4)
+    optimized_camera_to_world = torch.matmul(
+        optimized_camera_to_world, opengl_to_opencv
+    )  # shape (M, 3, 4)
+    return optimized_camera_to_world
+
+def get_points_projected_uv_and_depth(
+    masked_seed_points: torch.Tensor, optimized_camera_to_world: torch.Tensor, K: torch.Tensor
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Projects 3D points to 2D pixel coordinates and depth for multiple camera poses.
+
+    Args:
+        masked_seed_points: Tensor of shape (N, 3) representing 3D points.
+        optimized_camera_to_world: Tensor of shape (M, 3, 4) representing camera poses for M cameras.
+        K: Tensor of shape (M, 3, 3) representing camera intrinsics for M cameras.
+
+    Returns:
+        u: Tensor of shape (M, N) representing x-coordinates in the image plane.
+        v: Tensor of shape (M, N) representing y-coordinates in the image plane.
+        depth: Tensor of shape (M, N) representing depth values.
+    """
+    # Transform points to camera coordinates
+    points_cam = masked_seed_points.unsqueeze(0) - optimized_camera_to_world[:, :3, 3].unsqueeze(1)  # (M, N, 3)
+    points_cam = torch.bmm(points_cam, optimized_camera_to_world[:, :3, :3])  # (M, N, 3)
+    
+    # Extract depth
+    depth = points_cam[:, :, 2]  # (M, N)
+
+    # Project to image plane
+    u = (points_cam[:, :, 0] * K[:, 0, 0].unsqueeze(1) / depth) + K[:, 0, 2].unsqueeze(1)  # (M, N)
+    v = (points_cam[:, :, 1] * K[:, 1, 1].unsqueeze(1) / depth) + K[:, 1, 2].unsqueeze(1)  # (M, N)
+
+    return u, v, depth
+
 @torch.no_grad()
 def optimal_k_camera_poses_of_scene(
     seed_points_0, class_agnostic_3d_mask, camera, k_poses=2
@@ -72,19 +122,13 @@ def optimal_k_camera_poses_of_scene(
     Args:
         seed_points_0: torch.Tensor, size is (N, 3), point cloud
         class_agnostic_3d_mask: torch.Tensor, size is (N, 166), for 3D masks
-        camera: Cameras, from this class can get camera poses, which size is (M, 4, 4)
+        camera: Cameras, from this class can get camera poses, which size is (M, 3, 4)
         k_poses: int, for top k poses
     Returns:
         best_poses: torch.Tensor, size is (166,), top k poses (index) for each mask
     """
     # Move camera transformations to the GPU
-    optimized_camera_to_world = camera.camera_to_worlds.to("cuda")  # shape (M, 4, 4)
-    opengl_to_opencv = torch.tensor(
-        OPENGL_TO_OPENCV, device="cuda", dtype=optimized_camera_to_world.dtype
-    )  # shape (4, 4)
-    optimized_camera_to_world = torch.matmul(
-        optimized_camera_to_world, opengl_to_opencv
-    )  # shape (M, 4, 4)
+    optimized_camera_to_world = get_camera_pose_in_opencv_convention(camera.camera_to_worlds.to("cuda"))  # shape (M, 3, 4)
 
     # Move intrinsics to the GPU
     K = camera.get_intrinsics_matrices().to("cuda")  # shape (M, 3, 3)
@@ -167,15 +211,7 @@ def object_optimal_k_camera_poses(
     # start = time.time()
 
     # Move camera transformations to the GPU
-    optimized_camera_to_world = camera.camera_to_worlds.to(
-        "cuda"
-    )  # torch.Size([M, 4, 4])
-    opengl_to_opencv = torch.tensor(
-        OPENGL_TO_OPENCV, device="cuda", dtype=optimized_camera_to_world.dtype
-    )  # shape (4, 4)
-    optimized_camera_to_world = torch.matmul(
-        optimized_camera_to_world, opengl_to_opencv
-    )  # shape (M, 4, 4)
+    optimized_camera_to_world = get_camera_pose_in_opencv_convention(camera.camera_to_worlds.to("cuda"))#shape (N, 3,4) on cuda
 
     # Move intrinsics to the GPU
     K = camera.get_intrinsics_matrices().to("cuda")
@@ -226,128 +262,8 @@ def object_optimal_k_camera_poses(
 
     return best_poses  # Cameras torch.Size([k_poses])
 
-
 @torch.no_grad()
 def object_optimal_k_camera_poses_bounding_box(
-    seed_points_0, boolean_mask, camera, k_poses=2
-):
-    """
-    Selects the top k optimal camera poses based on the visibility score of the 3D mask.
-    The visibility score is calculated as the product of the number of visible points
-    and the bounding box area of the projected points.
-
-    Args:
-        seed_points_0: torch.Tensor, size is (N, 3), point cloud
-        boolean_mask: torch.Tensor, size is (N,), for 3D mask
-        camera: Cameras, for camera poses, size is (M, 3)
-        k_poses: int, for top k poses
-    returns:
-        best_poses: torch.Tensor, size is (k_poses, camera), top k poses
-        final_bounding_boxes: torch.Tensor, size is (k_poses, 4), bounding boxes
-    """
-    # Move camera transformations to the GPU
-    optimized_camera_to_world = camera.camera_to_worlds.to("cuda")
-    opengl_to_opencv = torch.tensor(
-        OPENGL_TO_OPENCV, device="cuda", dtype=optimized_camera_to_world.dtype
-    )
-    optimized_camera_to_world = torch.matmul(
-        optimized_camera_to_world, opengl_to_opencv
-    )
-
-    # Move intrinsics to the GPU
-    K = camera.get_intrinsics_matrices().to("cuda")
-    W, H = int(camera.width[0].item()), int(camera.height[0].item())
-
-    # Prepare seed points and boolean mask
-    masked_seed_points = seed_points_0[boolean_mask]
-
-    # Vectorized computation for all camera poses
-    points_cam = masked_seed_points.unsqueeze(0) - optimized_camera_to_world[
-        :, :3, 3
-    ].unsqueeze(
-        1
-    )  # shape (M, N, 3)
-    points_cam = torch.bmm(
-        points_cam, optimized_camera_to_world[:, :3, :3]
-    )  # shape (M, N, 3)
-
-    # Project to 2D image plane using vectorized operations
-    u = points_cam[:, :, 0] * K[:, 0, 0].unsqueeze(1) / points_cam[:, :, 2] + K[
-        :, 0, 2
-    ].unsqueeze(
-        1
-    )  # x #shape (M, N)
-    v = points_cam[:, :, 1] * K[:, 1, 1].unsqueeze(1) / points_cam[:, :, 2] + K[
-        :, 1, 2
-    ].unsqueeze(
-        1
-    )  # y
-
-    # Check valid points within image boundaries and in front of the camera
-    valid_points = (
-        (u >= 0) & (u < W) & (v >= 0) & (v < H) & (points_cam[:, :, 2] > 0)
-    )  # shape (M, N)
-    if valid_points.any().item() != True:
-        print("No valid points found")
-        return torch.tensor([]), torch.tensor([])
-
-    # Calculate min and max for u and v
-    min_u, _ = u.masked_fill(~valid_points, float("inf")).min(dim=1)  # shape (M,)
-    max_u, _ = u.masked_fill(~valid_points, float("-inf")).max(dim=1)
-    min_v, _ = v.masked_fill(~valid_points, float("inf")).min(dim=1)
-    max_v, _ = v.masked_fill(~valid_points, float("-inf")).max(dim=1)
-
-    # Handle -inf and inf by finding the largest/smallest valid coordinates
-    # Calculate maximum valid u and v if all u and v are invalid
-    max_u = torch.where(max_u == float("-inf"), u[valid_points].max(), max_u)
-    max_v = torch.where(max_v == float("-inf"), v[valid_points].max(), max_v)
-
-    # Calculate minimum valid u and v if all u and v are invalid
-    min_u = torch.where(min_u == float("inf"), u[valid_points].min(), min_u)
-    min_v = torch.where(min_v == float("inf"), v[valid_points].min(), min_v)
-
-    # Calculate bounding box area
-
-    bounding_box_area = (max_u - min_u) * (max_v - min_v)
-    # bounding_box_area = torch.nan_to_num(bounding_box_area, nan=0)
-    # bounding_box_area[bounding_box_area == float('inf')] = 0
-    # Set area to zero where no points are valid
-    # bounding_box_area[bounding_box_area == float('inf') or bounding_box_area==float('inf')]=0
-
-    # Compute visibility scores for all poses
-    num_visible_points = valid_points.float().sum(dim=1)
-    visibility_scores = (
-        num_visible_points * bounding_box_area
-    )  # * torch.nan_to_num(bounding_box_area, nan=0.0)
-    # visibility_scores = num_visible_points #* bounding_box_area
-
-    # Select top k scored poses
-    _, best_poses_indices = torch.topk(visibility_scores, k_poses)
-
-    # Ensure indices are on the CPU
-    best_poses_indices = best_poses_indices.cpu()
-
-    # best_poses = camera[best_poses_indices]
-
-    # Prepare final bounding boxes for visualization
-    final_bounding_boxes = torch.stack(
-        (
-            min_u[best_poses_indices],
-            min_v[best_poses_indices],
-            max_u[best_poses_indices],
-            max_v[best_poses_indices],
-        ),
-        dim=1,
-    )  # (k_poses, 4)
-
-    return (
-        best_poses_indices,
-        final_bounding_boxes,
-    )  # Returns both the best camera poses and their bounding boxes
-
-
-@torch.no_grad()
-def object_optimal_k_camera_poses_bounding_box_clear(
     seed_points_0,
     optimized_camera_to_world,
     K,
@@ -375,31 +291,8 @@ def object_optimal_k_camera_poses_bounding_box_clear(
     """
     masked_seed_points = seed_points_0[boolean_mask]  # shape (N, 3)
     # Vectorized computation for all camera poses
-    points_cam = masked_seed_points.unsqueeze(0) - optimized_camera_to_world[
-        :, :3, 3
-    ].unsqueeze(
-        1
-    )  # shape (M, N, 3)
-    points_cam = torch.bmm(
-        points_cam, optimized_camera_to_world[:, :3, :3]
-    )  # shape (M, N, 3)
-
-    # Project to 2D image plane using vectorized operations
-    u = points_cam[:, :, 0] * K[:, 0, 0].unsqueeze(1) / points_cam[:, :, 2] + K[
-        :, 0, 2
-    ].unsqueeze(
-        1
-    )  # x #shape (M, N)
-    v = points_cam[:, :, 1] * K[:, 1, 1].unsqueeze(1) / points_cam[:, :, 2] + K[
-        :, 1, 2
-    ].unsqueeze(
-        1
-    )  # y
-
-    # Check valid points within image boundaries and in front of the camera
-    valid_points = (
-        (u >= 0) & (u < W) & (v >= 0) & (v < H) & (points_cam[:, :, 2] > 0)
-    )  # shape (M, N)
+    u, v, z = get_points_projected_uv_and_depth(masked_seed_points, optimized_camera_to_world, K)
+    valid_points = (u >= 0) & (u < W) & (v >= 0) & (v < H) & (z > 0)
 
     if valid_points.any().item() != True:
         print("No valid points found")
@@ -448,71 +341,6 @@ def object_optimal_k_camera_poses_bounding_box_clear(
         best_poses_indices,
         final_bounding_boxes,
     )  # Returns both the best camera poses and their bounding boxes
-
-
-@torch.no_grad()
-def object_optimal_k_camera_poses_clear(
-    seed_points_0,
-    optimized_camera_to_world,
-    K,
-    W,
-    H,
-    boolean_mask,
-    camera,
-    k_poses=2,
-):
-    """Tested with no problem
-
-    Args:
-        seed_points_0 (torch.Tensor): (N,3) on cuda
-        optimized_camera_to_world (torch.Tensor)  : (M,3,4) on cuda
-        K (torch.Tensor): (M,3,3) on cuda
-        W (int): default is 640
-        H (int): default is 360
-        boolean_mask (torch.Tensor): (N,) on cuda
-        camera (torch.Tensor): (M,) on cuda
-        k_poses (int, optional):  Defaults to 2.
-
-    Returns:
-        best_poses, boolean_mask: torch.Tensor, torch.Tensor
-    """
-    masked_seed_points = seed_points_0[boolean_mask]  # shape (N, 3)
-
-    # Precompute necessary values
-    visibility_scores = torch.zeros(
-        len(optimized_camera_to_world), device="cuda"
-    )  # shape (N,)
-    # Vectorized computation for all camera poses
-    points_cam = masked_seed_points.unsqueeze(0) - optimized_camera_to_world[
-        :, :3, 3
-    ].unsqueeze(
-        1
-    )  # boardcast from (1,N,3) (M,1,3)to (M, N, 3)
-    points_cam = torch.bmm(
-        points_cam, optimized_camera_to_world[:, :3, :3]
-    )  # matrix multiplication from (M, N, 3) (M, 3, 3) to (M, N, 3)
-    # Project to 2D image plane using vectorized operations
-    u = points_cam[:, :, 0] * K[:, 0, 0].unsqueeze(1) / points_cam[:, :, 2] + K[
-        :, 0, 2
-    ].unsqueeze(1)
-    v = points_cam[:, :, 1] * K[:, 1, 1].unsqueeze(1) / points_cam[:, :, 2] + K[
-        :, 1, 2
-    ].unsqueeze(1)
-    # Check valid points within image boundaries and in front of the camera
-    valid_points = (u >= 0) & (u < W) & (v >= 0) & (v < H) & (points_cam[:, :, 2] > 0)
-    # Compute visibility scores for all poses
-    visibility_scores = valid_points.float().mean(dim=1)
-
-    # Select top k scored poses
-    _, best_poses_indices = torch.topk(visibility_scores, k_poses)
-    # Ensure indices are on the CPU
-    best_poses_indices = best_poses_indices.cpu()
-    best_poses = camera[best_poses_indices]
-    # print time used
-    # print("Time used: ", time.time() - start)
-
-    return best_poses, boolean_mask  # Cameras torch.Size([k_poses])
-
 
 def compute_visibility_score(p, camera_pose, K, W, H):
     """
@@ -596,6 +424,108 @@ def c2w_to_w2c(c2w: torch.Tensor) -> torch.Tensor:
     w2c = torch.inverse(c2w_hom)
 
     return w2c
+
+def interpolate_camera_poses_with_camera_trajectory(camera,  poses, seed_point0, boolean_mask, steps_per_transition=10):
+    """
+    Interpolates camera poses between the given camera poses using the camera trajectory. Including start pose amd end pose adjustment based on  bounding box
+
+    Args:
+        poses (torch.Tensor): (M, 3, 4) c2w
+        seed_point0 (torch.Tensor): (N, 3) point cloud
+        boolean_mask (torch.Tensor): (N,) boolean mask
+        steps_per_transition (int, optional): The number of steps to interpolate between the two cameras. Defaults to 10.
+
+    Returns:
+        interpolated_camera_poses (torch.Tensor): (M, num_poses, 3, 4) interpolated camera-to-world matrices
+    """
+    poses = camera.camera_to_worlds.half().to("cuda")  
+    # shape (M, 3, 4)
+    opengl_to_opencv = torch.tensor(
+        OPENGL_TO_OPENCV, device="cuda", dtype=poses.dtype
+    )  # shape (4, 4)
+    poses = torch.matmul(
+        poses, opengl_to_opencv
+    )  # shape (M, 4, 4)
+
+    # Move intrinsics to the GPU
+    K = camera.get_intrinsics_matrices().to("cuda")  # shape (M, 3, 3)
+    W, H = int(camera.width[0].item()), int(camera.height[0].item())
+    
+    
+    # Get the number of cameras
+    num_cameras = poses.shape[0]
+
+    # Interpolate camera poses
+    interpolated_camera_poses = []
+    for i in range(num_cameras - 1):
+        # Get the start and end camera poses
+        pose_a = poses[i]
+        pose_b = poses[i + 1]
+        # get object projection on the image
+        
+        # fix pose for target object
+        pose_a = compute_new_camera_pose_from_object_uv(pose_a, object_uv, K[i], W, H)
+        pose_b = compute_new_camera_pose_from_object_uv(pose_b, object_uv, K[i], W, H)
+
+        poses_ab = get_interpolated_poses(pose_a, pose_b, steps=steps_per_transition)# SLERP interpolation
+        interpolated_camera_poses += poses_ab
+        
+    interpolated_camera_poses = np.stack(interpolated_camera_poses, axis=0)
+
+    return torch.tensor(interpolated_camera_poses, dtype=torch.float32)
+
+
+def compute_new_camera_pose_from_object_uv(camera_pose: torch.Tensor, object_uv: torch.Tensor, K: torch.Tensor, image_width: int, image_height: int):
+    """
+    计算新的摄像机姿态，使得视图中心对准指定的物体位置。
+    Args:
+    - camera_pose: current 3x4 matrix (torch.Tensor)。
+    - object_uv: object coordinate on uv (torch.Tensor)，shape is (2,)。
+    - K: intrinsics (torch.Tensor)，shape is (3, 3)。
+    - image_width:  (int)。
+    - image_height:  (int)。
+
+    Returns:
+    - new_camera_pose: new 3x4 matrix (torch.Tensor)。
+    """
+    camera_pose_homogeneous = torch.eye(4)  # shape: (4, 4)
+    camera_pose_homogeneous[:3, :4] = camera_pose  # camera_pose shape: (3, 4)
+
+    # 获取当前摄像机旋转矩阵和位置
+    current_rotation = camera_pose_homogeneous[:3, :3]  # shape: (3, 3)
+    current_position = camera_pose_homogeneous[:3, 3]  # shape: (3,)
+
+    # 将像素坐标转换为归一化的 UV 坐标
+    u_normalized = object_uv[0] / image_width  # shape: scalar (float)
+    v_normalized = object_uv[1] / image_height  # shape: scalar (float)
+
+    # 将归一化后的 UV 坐标转换为摄像机坐标系下的 3D 方向向量
+    image_point = torch.tensor([u_normalized * K[0, 2], v_normalized * K[1, 2], 1.0], dtype=torch.float32)  # shape: (3,)
+    direction_cam = torch.linalg.inv(K).mm(image_point)  # shape: (3,) 转换为摄像机坐标系下的方向
+
+    # 方向向量归一化
+    direction_cam = direction_cam / torch.norm(direction_cam)  # shape: (3,)
+
+    # 计算目标方向在世界坐标系下的表示
+    direction_world = current_rotation.mm(direction_cam)  # shape: (3,)
+
+    # 计算新的旋转，使得摄像机的 z 轴（即视线方向）对准目标方向
+    z_axis = torch.tensor([0, 0, -1], dtype=torch.float32)  # shape: (3,)
+    rotation_vector = torch.cross(z_axis, direction_world)  # shape: (3,)
+    angle = torch.arccos(torch.dot(z_axis, direction_world) / (torch.norm(z_axis) * torch.norm(direction_world)))  # shape: scalar (float)
+    target_rotation = R.from_rotvec(rotation_vector.numpy() * angle.item())  # shape: (3, 3) (最终通过as_matrix)
+
+    # 更新摄像机姿态
+    new_rotation_matrix = torch.tensor(target_rotation.as_matrix(), dtype=torch.float32).mm(current_rotation)  # shape: (3, 3)
+
+    # 构造新的摄像机姿态矩阵
+    new_camera_pose_homogeneous = torch.eye(4)  # shape: (4, 4)
+    new_camera_pose_homogeneous[:3, :3] = new_rotation_matrix  # shape: (3, 3)
+    new_camera_pose_homogeneous[:3, 3] = current_position  # shape: (3,)
+
+    # 返回新的 (3, 4) 摄像机姿态
+    return new_camera_pose_homogeneous[:3, :4]
+    
 
 
 # ndc space is x to the right y up. uv space is x to the right, y down.

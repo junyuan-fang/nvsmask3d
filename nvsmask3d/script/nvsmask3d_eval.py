@@ -30,8 +30,7 @@ import torch
 from nvsmask3d.utils.camera_utils import (
     object_optimal_k_camera_poses,
     optimal_k_camera_poses_of_scene,
-    object_optimal_k_camera_poses_clear,
-    object_optimal_k_camera_poses_bounding_box_clear,
+    get_camera_pose_in_opencv_convention,
     object_optimal_k_camera_poses_bounding_box,
 )
 from nerfstudio.models.splatfacto import SplatfactoModel
@@ -202,19 +201,12 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
         k_poses (int): The number of poses to render
         """
         # Move camera transformations to the GPU
-        OPENGL_TO_OPENCV = np.array(
-            [[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]]
-        )
+
         camera = model.cameras
         optimized_camera_to_world = camera.camera_to_worlds.half().to(
             "cuda"
         )  # shape (M, 4, 4)
-        opengl_to_opencv = torch.tensor(
-            OPENGL_TO_OPENCV, device="cuda", dtype=optimized_camera_to_world.dtype
-        )  # shape (4, 4)
-        optimized_camera_to_world = torch.matmul(
-            optimized_camera_to_world, opengl_to_opencv
-        )  # shape (M, 4, 4)
+        optimized_camera_to_world = get_camera_pose_in_opencv_convention(optimized_camera_to_world)
 
         # Move intrinsics to the GPU
         K = camera.get_intrinsics_matrices().to("cuda")  # shape (M, 3, 3)
@@ -238,7 +230,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
             (
                 best_poses_indices,
                 bounding_boxes,
-            ) = object_optimal_k_camera_poses_bounding_box_clear(
+            ) = object_optimal_k_camera_poses_bounding_box(
                 seed_points_0=seed_points_0,
                 optimized_camera_to_world=optimized_camera_to_world,
                 K=K,
@@ -269,7 +261,6 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 ]  # ["rgb_mask"]  # (H,W,3)
                 # nvs_img = model.get_outputs(single_camera)["rgb"]  # (H,W,3)
                 min_u, min_v, max_u, max_v = bounding_boxes[index]
-                # print(min_u, min_v, max_u, max_v)
                 if any(
                     map(lambda x: torch.isinf(x) or x < 0, [min_u, min_v, max_u, max_v])
                 ):
@@ -288,20 +279,20 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
 
                     # Crop the image using valid indices
                     cropped_image = img[:, min_v:max_v, min_u:max_u]
-                    outputs.append(cropped_image)
+                    #outputs.append(cropped_image)
                     cropped_nvs_mask_image = nvs_mask_img[
                         min_v:max_v, min_u:max_u
                     ].permute(2, 0, 1)
                     outputs.append(cropped_nvs_mask_image)
-                    # cropped_nvs_image = nvs_img[min_v:max_v, min_u:max_u].permute(2, 0, 1)
-                    # outputs.append(cropped_nvs_image)
+                    outputs.append(cropped_image)
+
 
                 ###################save rendered image#################
-                from nvsmask3d.utils.utils import save_img
+                # from nvsmask3d.utils.utils import save_img
 
-                save_img(
-                    cropped_image.permute(1, 2, 0), f"tests/output_{i}_{pose_index}.png"
-                )
+                # save_img(
+                #     cropped_image.permute(1, 2, 0), f"tests/output_{i}_{pose_index}.png"
+                # )
                 ######################################################
 
                 # append nvs mask3d outputs

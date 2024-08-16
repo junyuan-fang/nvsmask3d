@@ -203,7 +203,7 @@ class NVSMask3dModel(SplatfactoModel):
             )  # function need (H,W,3)
             save_img(cropped_image.permute(1, 2, 0), f"tests/cropped_image_{j}.png")
             ######################################################
-            outputs.append(cropped_image)
+            outputs.append()#cropped_image)
             j += 1
 
         # output = torch.stack(outputs)
