@@ -2,8 +2,8 @@
 
 import math
 from typing import List, Optional, Tuple
-from nerfstudio.cameras.cameras import Cameras
-from nerfstudio.cameras.camera_utils import get_interpolated_poses
+from nerfstudio.cameras.cameras import Cameras, CameraType
+# from nerfstudio.cameras.camera_utils import get_interpolated_poses
 from scipy.spatial.transform import Rotation as R
 
 # from nerfstudio.models.splatfacto import get_viewmat
@@ -39,33 +39,6 @@ from torch import Tensor
 # opengl to opencv transformation matrix
 OPENGL_TO_OPENCV = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
 
-# #give k optimal camera poses from pose data
-# @torch.no_grad()
-# def object_optimal_k_camera_poses(seed_points_0, class_agnostic_3d_mask, camera: Cameras,k_poses = 2):#,image_file_names = None):# after training ]
-#     optimized_camera_to_world = camera.camera_to_worlds.cuda()
-#     # multiply by opengl to opencv transformation matrix
-#     optimized_camera_to_world = torch.matmul(
-#         optimized_camera_to_world,
-#         torch.tensor(OPENGL_TO_OPENCV, device=optimized_camera_to_world.device, dtype=optimized_camera_to_world.dtype)
-#         )
-
-#     K = camera.get_intrinsics_matrices().cuda()
-#     W, H = int(camera.width[0].item()), int(camera.height[0].item())
-
-#     visibility_scores = torch.tensor([])
-#     boolean_mask = torch.from_numpy(class_agnostic_3d_mask).bool().cuda()
-#     # calculate visibility score for each pose
-#     for i, c2w in enumerate(optimized_camera_to_world):
-#         score = compute_visibility_score(seed_points_0[boolean_mask], c2w, K[i], W, H)
-#         visibility_scores = torch.cat((visibility_scores, torch.tensor([score])), dim=0)
-
-#     # Step 4: Select top k scored poses
-#     _, best_poses_indices = torch.topk(visibility_scores, k_poses)
-#     best_poses = camera[best_poses_indices]
-
-
-#     return best_poses#Cameras torch.Size([2])
-
 def get_camera_pose_in_opencv_convention(optimized_camera_to_world) -> torch.Tensor:
     """
     Converts a camera pose from OpenGL to OpenCV convention.
@@ -83,35 +56,6 @@ def get_camera_pose_in_opencv_convention(optimized_camera_to_world) -> torch.Ten
         optimized_camera_to_world, opengl_to_opencv
     )  # shape (M, 3, 4)
     return optimized_camera_to_world
-
-def get_points_projected_uv_and_depth(
-    masked_seed_points: torch.Tensor, optimized_camera_to_world: torch.Tensor, K: torch.Tensor
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """
-    Projects 3D points to 2D pixel coordinates and depth for multiple camera poses.
-
-    Args:
-        masked_seed_points: Tensor of shape (N, 3) representing 3D points.
-        optimized_camera_to_world: Tensor of shape (M, 3, 4) representing camera poses for M cameras.
-        K: Tensor of shape (M, 3, 3) representing camera intrinsics for M cameras.
-
-    Returns:
-        u: Tensor of shape (M, N) representing x-coordinates in the image plane.
-        v: Tensor of shape (M, N) representing y-coordinates in the image plane.
-        depth: Tensor of shape (M, N) representing depth values.
-    """
-    # Transform points to camera coordinates
-    points_cam = masked_seed_points.unsqueeze(0) - optimized_camera_to_world[:, :3, 3].unsqueeze(1)  # (M, N, 3)
-    points_cam = torch.bmm(points_cam, optimized_camera_to_world[:, :3, :3])  # (M, N, 3)
-    
-    # Extract depth
-    depth = points_cam[:, :, 2]  # (M, N)
-
-    # Project to image plane
-    u = (points_cam[:, :, 0] * K[:, 0, 0].unsqueeze(1) / depth) + K[:, 0, 2].unsqueeze(1)  # (M, N)
-    v = (points_cam[:, :, 1] * K[:, 1, 1].unsqueeze(1) / depth) + K[:, 1, 2].unsqueeze(1)  # (M, N)
-
-    return u, v, depth
 
 @torch.no_grad()
 def optimal_k_camera_poses_of_scene(
@@ -193,7 +137,6 @@ def optimal_k_camera_poses_of_scene(
         best_poses_per_mask.append(best_poses_indices)
 
     return best_poses_per_mask
-
 
 @torch.no_grad()
 def object_optimal_k_camera_poses(
@@ -341,6 +284,29 @@ def object_optimal_k_camera_poses_bounding_box(
         best_poses_indices,
         final_bounding_boxes,
     )  # Returns both the best camera poses and their bounding boxes
+def make_cameras(camera: Cameras, poses):
+    """
+    Create a new Cameras object with the given camera poses.
+
+    Args:
+        camera: Cameras, for camera intrinsics
+        poses: torch.Tensor, size is (M, 3, 4), for interpolated camera poses
+
+    Returns:
+        new_camera: Cameras, with the given camera poses
+    """
+    n = poses.shape[0]  # Number of cameras
+    new_cameras = Cameras(
+            fx=camera.fx.squeeze(-1).repeat(n),
+            fy=camera.fy.squeeze(-1).repeat(n),
+            cx=camera.cx.squeeze(-1).repeat(n),
+            cy=camera.cy.squeeze(-1).repeat(n),
+            height=camera.height,
+            width=camera.width,
+            camera_to_worlds=poses[:, :3, :4],
+            camera_type=CameraType.PERSPECTIVE,
+        )
+    return new_cameras
 
 def compute_visibility_score(p, camera_pose, K, W, H):
     """
@@ -376,7 +342,6 @@ def compute_visibility_score(p, camera_pose, K, W, H):
     visibility_score = valid_points.float().mean().item()
     return visibility_score
 
-
 def project_pix(
     p: Tensor,
     fx: float,
@@ -405,7 +370,6 @@ def project_pix(
         return torch.stack([u, v, points_cam[:, 2]], dim=-1)
     return torch.stack([u, v], dim=-1)
 
-
 def c2w_to_w2c(c2w: torch.Tensor) -> torch.Tensor:
     """
     Converts a 3x4 camera-to-world matrix to a 4x4 world-to-camera matrix.
@@ -425,54 +389,76 @@ def c2w_to_w2c(c2w: torch.Tensor) -> torch.Tensor:
 
     return w2c
 
-def interpolate_camera_poses_with_camera_trajectory(camera,  poses, seed_point0, boolean_mask, steps_per_transition=10):
+def get_points_projected_uv_and_depth(
+    masked_seed_points: torch.Tensor, optimized_camera_to_world: torch.Tensor, K: torch.Tensor
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
-    Interpolates camera poses between the given camera poses using the camera trajectory. Including start pose amd end pose adjustment based on  bounding box
+    Projects 3D points to 2D pixel coordinates and depth for multiple camera poses.
+
+    Args:
+        masked_seed_points: Tensor of shape (N, 3) representing 3D points.
+        optimized_camera_to_world: Tensor of shape (M, 3, 4) representing camera poses for M cameras.
+        K: Tensor of shape (M, 3, 3) representing camera intrinsics for M cameras.
+
+    Returns:
+        u: Tensor of shape (M, N) representing x-coordinates in the image plane.
+        v: Tensor of shape (M, N) representing y-coordinates in the image plane.
+        depth: Tensor of shape (M, N) representing depth values.
+    """
+    # Transform points to camera coordinates
+    points_cam = masked_seed_points.unsqueeze(0) - optimized_camera_to_world[:, :3, 3].unsqueeze(1)  # (M, N, 3)
+    points_cam = torch.bmm(points_cam, optimized_camera_to_world[:, :3, :3])  # (M, N, 3)
+    
+    # Extract depth
+    depth = points_cam[:, :, 2]  # (M, N)
+
+    # Project to image plane
+    u = (points_cam[:, :, 0] * K[:, 0, 0].unsqueeze(1) / depth) + K[:, 0, 2].unsqueeze(1)  # (M, N)
+    v = (points_cam[:, :, 1] * K[:, 1, 1].unsqueeze(1) / depth) + K[:, 1, 2].unsqueeze(1)  # (M, N)
+
+    return u, v, depth
+
+def interpolate_camera_poses_with_camera_trajectory(poses, K, W, H, bounding_boxes,steps_per_transition=10):
+    """
+    Interpolates camera poses between the given camera poses using the camera trajectory. Including start pose amd end pose rotation adjustment based on bounding box.
 
     Args:
         poses (torch.Tensor): (M, 3, 4) c2w
-        seed_point0 (torch.Tensor): (N, 3) point cloud
-        boolean_mask (torch.Tensor): (N,) boolean mask
+        K (torch.Tensor): (M, 3, 3) intrinsics
+        W (int): image width
+        H (int): image height
+        bounding_boxes (torch.Tensor): (M, 4) bounding boxes
         steps_per_transition (int, optional): The number of steps to interpolate between the two cameras. Defaults to 10.
 
     Returns:
         interpolated_camera_poses (torch.Tensor): (M, num_poses, 3, 4) interpolated camera-to-world matrices
     """
-    poses = camera.camera_to_worlds.half().to("cuda")  
-    # shape (M, 3, 4)
-    opengl_to_opencv = torch.tensor(
-        OPENGL_TO_OPENCV, device="cuda", dtype=poses.dtype
-    )  # shape (4, 4)
-    poses = torch.matmul(
-        poses, opengl_to_opencv
-    )  # shape (M, 4, 4)
-
-    # Move intrinsics to the GPU
-    K = camera.get_intrinsics_matrices().to("cuda")  # shape (M, 3, 3)
-    W, H = int(camera.width[0].item()), int(camera.height[0].item())
     
-    
-    # Get the number of cameras
-    num_cameras = poses.shape[0]
+    poses = get_camera_pose_in_opencv_convention(poses)  # shape (M, 3, 4)
+    num_poses = poses.shape[0]
 
     # Interpolate camera poses
     interpolated_camera_poses = []
-    for i in range(num_cameras - 1):
+    for i in range(num_poses - 1):
         # Get the start and end camera poses
         pose_a = poses[i]
         pose_b = poses[i + 1]
-        # get object projection on the image
+        # get bounding box
+        min_u_a, min_v_a, max_u_a, max_v_a = bounding_boxes[i]
+        min_u_b, min_v_b, max_u_b, max_v_b = bounding_boxes[i + 1]
         
-        # fix pose for target object
+        # Adjust the start and end camera poses based on the bounding box
+        object_uv = torch.tensor([(min_u_a + max_u_a) / 2, (min_v_a + max_v_a) / 2], dtype=torch.float32)
         pose_a = compute_new_camera_pose_from_object_uv(pose_a, object_uv, K[i], W, H)
+        object_uv = torch.tensor([(min_u_b + max_u_b) / 2, (min_v_b + max_v_b) / 2], dtype=torch.float32)
         pose_b = compute_new_camera_pose_from_object_uv(pose_b, object_uv, K[i], W, H)
-
         poses_ab = get_interpolated_poses(pose_a, pose_b, steps=steps_per_transition)# SLERP interpolation
-        interpolated_camera_poses += poses_ab
-        
-    interpolated_camera_poses = np.stack(interpolated_camera_poses, axis=0)
+        interpolated_camera_poses.append(poses_ab)
 
-    return torch.tensor(interpolated_camera_poses, dtype=torch.float32)
+    interpolated_camera_poses = torch.cat(interpolated_camera_poses, dim=0)
+
+    # Final shape will be [3*n, 3, 4]
+    return interpolated_camera_poses
 
 
 def compute_new_camera_pose_from_object_uv(camera_pose: torch.Tensor, object_uv: torch.Tensor, K: torch.Tensor, image_width: int, image_height: int):
@@ -488,7 +474,8 @@ def compute_new_camera_pose_from_object_uv(camera_pose: torch.Tensor, object_uv:
     Returns:
     - new_camera_pose: new 3x4 matrix (torch.Tensor)。
     """
-    camera_pose_homogeneous = torch.eye(4)  # shape: (4, 4)
+    device = K.device
+    camera_pose_homogeneous = torch.eye(4, device=device)  # shape: (4, 4)
     camera_pose_homogeneous[:3, :4] = camera_pose  # camera_pose shape: (3, 4)
 
     # 获取当前摄像机旋转矩阵和位置
@@ -500,32 +487,171 @@ def compute_new_camera_pose_from_object_uv(camera_pose: torch.Tensor, object_uv:
     v_normalized = object_uv[1] / image_height  # shape: scalar (float)
 
     # 将归一化后的 UV 坐标转换为摄像机坐标系下的 3D 方向向量
-    image_point = torch.tensor([u_normalized * K[0, 2], v_normalized * K[1, 2], 1.0], dtype=torch.float32)  # shape: (3,)
-    direction_cam = torch.linalg.inv(K).mm(image_point)  # shape: (3,) 转换为摄像机坐标系下的方向
+    image_point = torch.tensor([u_normalized * K[0, 2], v_normalized * K[1, 2], 1.0], dtype=torch.float32, device=device)  # shape: (3,)
+    direction_cam = torch.linalg.inv(K).mm(image_point.unsqueeze(1)).squeeze(1)  # shape: (3,) 转换为摄像机坐标系下的方向
 
     # 方向向量归一化
     direction_cam = direction_cam / torch.norm(direction_cam)  # shape: (3,)
 
     # 计算目标方向在世界坐标系下的表示
-    direction_world = current_rotation.mm(direction_cam)  # shape: (3,)
+    direction_world = current_rotation.mm(direction_cam.unsqueeze(1)).squeeze(1)  # shape: (3,)
 
     # 计算新的旋转，使得摄像机的 z 轴（即视线方向）对准目标方向
-    z_axis = torch.tensor([0, 0, -1], dtype=torch.float32)  # shape: (3,)
+    z_axis = torch.tensor([0, 0, -1], dtype=torch.float32, device=device)  # shape: (3,)
     rotation_vector = torch.cross(z_axis, direction_world)  # shape: (3,)
     angle = torch.arccos(torch.dot(z_axis, direction_world) / (torch.norm(z_axis) * torch.norm(direction_world)))  # shape: scalar (float)
-    target_rotation = R.from_rotvec(rotation_vector.numpy() * angle.item())  # shape: (3, 3) (最终通过as_matrix)
+
+    # 计算旋转矩阵，使用 Rodrigues 公式
+    K_matrix = torch.tensor([
+        [0, -rotation_vector[2], rotation_vector[1]],
+        [rotation_vector[2], 0, -rotation_vector[0]],
+        [-rotation_vector[1], rotation_vector[0], 0]
+    ], device=device)
+
+    target_rotation = torch.eye(3, device=device) + torch.sin(angle) * K_matrix + (1 - torch.cos(angle)) * K_matrix.mm(K_matrix)
 
     # 更新摄像机姿态
-    new_rotation_matrix = torch.tensor(target_rotation.as_matrix(), dtype=torch.float32).mm(current_rotation)  # shape: (3, 3)
+    new_rotation_matrix = target_rotation.mm(current_rotation)  # shape: (3, 3)
 
     # 构造新的摄像机姿态矩阵
-    new_camera_pose_homogeneous = torch.eye(4)  # shape: (4, 4)
+    new_camera_pose_homogeneous = torch.eye(4, device=device)  # shape: (4, 4)
     new_camera_pose_homogeneous[:3, :3] = new_rotation_matrix  # shape: (3, 3)
     new_camera_pose_homogeneous[:3, 3] = current_position  # shape: (3,)
 
     # 返回新的 (3, 4) 摄像机姿态
     return new_camera_pose_homogeneous[:3, :4]
-    
+
+def quaternion_from_matrix(matrix: Tensor, isprecise: bool = False) -> Tensor:
+    """Return quaternion from rotation matrix.
+
+    Args:
+        matrix: rotation matrix to obtain quaternion.
+        isprecise: if True, input matrix is assumed to be precise rotation matrix and a faster algorithm is used.
+    """
+    M = matrix[:3, :3]  # Extract the rotation part
+
+    if isprecise:
+        q = torch.empty((4,), device=matrix.device)
+        t = torch.trace(M)
+        if t > 0.0:
+            q[0] = t
+            q[3] = M[1, 0] - M[0, 1]
+            q[2] = M[0, 2] - M[2, 0]
+            q[1] = M[2, 1] - M[1, 2]
+        else:
+            i, j, k = 1, 2, 3
+            if M[1, 1] > M[0, 0]:
+                i, j, k = 2, 3, 1
+            if M[2, 2] > M[i, i]:
+                i, j, k = 3, 1, 2
+            t = M[i, i] - (M[j, j] + M[k, k])
+            q[i] = t
+            q[j] = M[i, j] + M[j, i]
+            q[k] = M[k, i] + M[i, k]
+            q[3] = M[k, j] - M[j, k]
+        q *= 0.5 / torch.sqrt(t * M[3, 3])
+    else:
+        m00 = M[0, 0]
+        m01 = M[0, 1]
+        m02 = M[0, 2]
+        m10 = M[1, 0]
+        m11 = M[1, 1]
+        m12 = M[1, 2]
+        m20 = M[2, 0]
+        m21 = M[2, 1]
+        m22 = M[2, 2]
+        # symmetric matrix K
+        K = torch.tensor([
+            [m00 - m11 - m22, m01 + m10, m02 + m20, m21 - m12],
+            [m01 + m10, m11 - m00 - m22, m12 + m21, m02 - m20],
+            [m02 + m20, m12 + m21, m22 - m00 - m11, m10 - m01],
+            [m21 - m12, m02 - m20, m10 - m01, m00 + m11 + m22]
+        ], device=matrix.device)
+        K /= 3.0
+        # quaternion is eigenvector of K that corresponds to largest eigenvalue
+        w, V = torch.linalg.eigh(K)
+        q = V[:, torch.argmax(w)]
+    if q[0] < 0.0:
+        q = -q
+    return q
+
+
+def quaternion_slerp(quat0: Tensor, quat1: Tensor, fraction: float, spin: int = 0, shortestpath: bool = True) -> Tensor:
+    """Return spherical linear interpolation between two quaternions.
+
+    Args:
+        quat0: first quaternion.
+        quat1: second quaternion.
+        fraction: how much to interpolate between quat0 vs quat1.
+        spin: how much of an additional spin to place on the interpolation.
+        shortestpath: whether to return the short or long path to rotation.
+    """
+    q0 = quat0 / torch.linalg.norm(quat0)
+    q1 = quat1 / torch.linalg.norm(quat1)
+    d = torch.dot(q0, q1)
+    if shortestpath and d < 0.0:
+        d = -d
+        q1 = -q1
+    angle = torch.acos(d) + spin * math.pi
+    if abs(angle) < 1e-6:
+        return q0
+    isin = 1.0 / torch.sin(angle)  # Ensure angle is a Tensor before using torch.sin
+    return (torch.sin((1.0 - fraction) * angle) * q0 + torch.sin(fraction * angle) * q1) * isin
+
+
+def quaternion_matrix(quaternion: Tensor) -> Tensor:
+    """Return homogeneous rotation matrix from quaternion."""
+    q = quaternion / torch.linalg.norm(quaternion)
+    n = torch.dot(q, q)
+    if n < 1e-6:
+        return torch.eye(4, device=quaternion.device)
+    q *= torch.sqrt(2.0 / n)
+    q = torch.outer(q, q)
+    return torch.tensor([
+        [1.0 - q[2, 2] - q[3, 3], q[1, 2] - q[3, 0], q[1, 3] + q[2, 0], 0.0],
+        [q[1, 2] + q[3, 0], 1.0 - q[1, 1] - q[3, 3], q[2, 3] - q[1, 0], 0.0],
+        [q[1, 3] - q[2, 0], q[2, 3] + q[1, 0], 1.0 - q[1, 1] - q[2, 2], 0.0],
+        [0.0, 0.0, 0.0, 1.0]
+    ], device=quaternion.device)
+
+
+def get_interpolated_poses(pose_a: Tensor, pose_b: Tensor, steps: int = 10) -> List[Tensor]:
+    """Return interpolation of poses with specified number of steps.
+
+    Args:
+        pose_a: first pose.
+        pose_b: second pose.
+        steps: number of steps the interpolated pose path should contain.
+    """
+    quat_a = quaternion_from_matrix(pose_a[:3, :3])
+    quat_b = quaternion_from_matrix(pose_b[:3, :3])
+    ts = torch.linspace(0, 1, steps, device=pose_a.device)
+    quats = [quaternion_slerp(quat_a, quat_b, t.item()) for t in ts]
+    trans = [(1 - t) * pose_a[:3, 3] + t * pose_b[:3, 3] for t in ts]
+
+    poses_ab = []  # 使用列表来存储结果
+    for quat, tran in zip(quats, trans):
+        pose = torch.eye(4, device=pose_a.device)
+        pose[:3, :3] = quaternion_matrix(quat)[:3, :3]
+        pose[:3, 3] = tran
+        poses_ab.append(pose[:3, :])  # 将每个pose添加到列表中
+    # 最后将列表中的张量堆叠成一个Tensor
+    return torch.stack(poses_ab, dim=0)
+
+
+def get_interpolated_k(k_a: Tensor, k_b: Tensor, steps: int = 10) -> List[Tensor]:
+    """Returns interpolated path between two camera intrinsics with specified number of steps.
+
+    Args:
+        k_a: camera matrix 1.
+        k_b: camera matrix 2.
+        steps: number of steps the interpolated pose path should contain.
+
+    Returns:
+        List of interpolated camera intrinsics.
+    """
+    ts = torch.linspace(0, 1, steps, device=k_a.device)
+    return [(1 - t) * k_a + t * k_b for t in ts]
 
 
 # ndc space is x to the right y up. uv space is x to the right, y down.

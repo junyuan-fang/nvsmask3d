@@ -34,7 +34,7 @@ ns-viewer nvsmask3d --load_config outputs/unnamed/nvsmask3d/2024-08-10_121201/co
 
 
 ns-viewer nvsmask3d --load_config outputs/unnamed/nvsmask3d/2024-08-11_172308/config.yml
-ns-viewer nvsmask3d --load_config outputs/office1/nvsmask3d/2024-08-12_170536/config.yml # office 1
+ns-viewer nvsmask3d --load_config outputs/office1/nvsmask3d/2024-08-14_204330/config.yml # office 1
 
 
 ```
