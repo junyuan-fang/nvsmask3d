@@ -38,7 +38,7 @@ from torch import Tensor
 
 # opengl to opencv transformation matrix
 OPENGL_TO_OPENCV = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
-
+OPENCV_TO_OPENGL = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
 def get_camera_pose_in_opencv_convention(optimized_camera_to_world) -> torch.Tensor:
     """
     Converts a camera pose from OpenGL to OpenCV convention.
@@ -54,6 +54,24 @@ def get_camera_pose_in_opencv_convention(optimized_camera_to_world) -> torch.Ten
     )  # shape (4, 4)
     optimized_camera_to_world = torch.matmul(
         optimized_camera_to_world, opengl_to_opencv
+    )  # shape (M, 3, 4)
+    return optimized_camera_to_world
+
+def get_camera_pose_in_opengl_convention(optimized_camera_to_world) -> torch.Tensor:
+    """
+    Converts a camera pose from OpenCV to OpenGL convention.
+
+    Args:
+        optimized_camera_to_world: Tensor of shape (3, 4) in OpenCV convention
+
+    Returns:
+        optimized_camera_to_world: Tensor of shape (3, 4) in OpenGL convention
+    """
+    opencv_to_opengl = torch.tensor(
+        OPENCV_TO_OPENGL, device="cuda", dtype=optimized_camera_to_world.dtype
+    )  # shape (4, 4)
+    optimized_camera_to_world = torch.matmul(
+        optimized_camera_to_world, opencv_to_opengl
     )  # shape (M, 3, 4)
     return optimized_camera_to_world
 
@@ -222,7 +240,7 @@ def object_optimal_k_camera_poses_bounding_box(
 
     Args:
         seed_points_0 (torch.Tensor): (N,3) on cuda
-        optimized_camera_to_world (torch.Tensor): (M,3,4) on cuda
+        optimized_camera_to_world (torch.Tensor): (M,3,4) on cuda need to be in opencv convention
         K (torch.Tensor): (M,3,3) on cuda
         W (int): default is 640
         H (int): default is 360
@@ -296,6 +314,7 @@ def make_cameras(camera: Cameras, poses):
         new_camera: Cameras, with the given camera poses
     """
     n = poses.shape[0]  # Number of cameras
+    #poses = get_camera_pose_in_opengl_convention(poses)  # Convert to OpenGL convention
     new_cameras = Cameras(
             fx=camera.fx.squeeze(-1).repeat(n),
             fy=camera.fy.squeeze(-1).repeat(n),
@@ -460,66 +479,83 @@ def interpolate_camera_poses_with_camera_trajectory(poses, K, W, H, bounding_box
     # Final shape will be [3*n, 3, 4]
     return interpolated_camera_poses
 
+def ideal_K_inverse(K):
+    fx = K[0, 0]
+    fy = K[1, 1]
+    cx = K[0, 2]
+    cy = K[1, 2]
+    
+    K_inv = torch.tensor([
+        [1 / fx, 0, -cx / fx],
+        [0, 1 / fy, -cy / fy],
+        [0, 0, 1]
+    ], device=K.device)
+    
+    return K_inv
 
-def compute_new_camera_pose_from_object_uv(camera_pose: torch.Tensor, object_uv: torch.Tensor, K: torch.Tensor, image_width: int, image_height: int):
+def compute_new_camera_pose_from_object_uv(camera_pose: torch.Tensor, object_uv: torch.Tensor, K: torch.Tensor, image_width: int, image_height: int) -> torch.Tensor:
     """
-    计算新的摄像机姿态，使得视图中心对准指定的物体位置。
+    Get a new camera pose, which is centered on the view direction towards the given object UV position using Rodrigues' rotation formula.
+    
     Args:
-    - camera_pose: current 3x4 matrix (torch.Tensor)。
-    - object_uv: object coordinate on uv (torch.Tensor)，shape is (2,)。
-    - K: intrinsics (torch.Tensor)，shape is (3, 3)。
-    - image_width:  (int)。
-    - image_height:  (int)。
-
+    - camera_pose (torch.Tensor): Current 3x4 camera pose matrix (OpenGL convention).
+    - object_uv (torch.Tensor): Object coordinates on UV plane, shape (2,). Assumes origin is top-left (OpenCV convention).
+    - K (torch.Tensor): Camera intrinsics matrix, shape (3, 3).
+    - image_width (int): Width of the image.
+    - image_height (int): Height of the image.
+    
     Returns:
-    - new_camera_pose: new 3x4 matrix (torch.Tensor)。
+    - torch.Tensor: New 3x4 camera pose matrix.
     """
-    device = K.device
-    camera_pose_homogeneous = torch.eye(4, device=device)  # shape: (4, 4)
-    camera_pose_homogeneous[:3, :4] = camera_pose  # camera_pose shape: (3, 4)
 
-    # 获取当前摄像机旋转矩阵和位置
-    current_rotation = camera_pose_homogeneous[:3, :3]  # shape: (3, 3)
-    current_position = camera_pose_homogeneous[:3, 3]  # shape: (3,)
+    # Ensure all tensors are on the same device
+    device = camera_pose.device
+    object_uv = object_uv.to(device)
+    K = K.to(device)
+    # Convert object_uv to normalized device coordinates (NDC) in OpenGL (-1 to 1 range)
+    ndc_x = 2.0 * (object_uv[0] / image_width) - 1.0
+    ndc_y = 2.0 * (object_uv[1] / image_height) - 1.0
 
-    # 将像素坐标转换为归一化的 UV 坐标
-    u_normalized = object_uv[0] / image_width  # shape: scalar (float)
-    v_normalized = object_uv[1] / image_height  # shape: scalar (float)
+    # Create the 3D direction vector in normalized device coordinates (in homogeneous coordinates)
+    ndc_direction = torch.tensor([ndc_x, ndc_y, 1.0], device=device) #GPT use [ndc_x, -ndc_y, -1.0]， but our's work. So seems no need to change to OpenGL convention here
 
-    # 将归一化后的 UV 坐标转换为摄像机坐标系下的 3D 方向向量
-    image_point = torch.tensor([u_normalized * K[0, 2], v_normalized * K[1, 2], 1.0], dtype=torch.float32, device=device)  # shape: (3,)
-    direction_cam = torch.linalg.inv(K).mm(image_point.unsqueeze(1)).squeeze(1)  # shape: (3,) 转换为摄像机坐标系下的方向
+    # Convert the NDC direction to camera space using the inverse of the intrinsic matrix
+    target_direction = ideal_K_inverse(K) @ ndc_direction
 
-    # 方向向量归一化
-    direction_cam = direction_cam / torch.norm(direction_cam)  # shape: (3,)
+    # Normalize the target direction vector
+    target_direction = target_direction / torch.norm(target_direction)
 
-    # 计算目标方向在世界坐标系下的表示
-    direction_world = current_rotation.mm(direction_cam.unsqueeze(1)).squeeze(1)  # shape: (3,)
+    # Extract the current forward direction (z-axis) from the camera pose
+    current_forward = camera_pose[:, 2]
 
-    # 计算新的旋转，使得摄像机的 z 轴（即视线方向）对准目标方向
-    z_axis = torch.tensor([0, 0, -1], dtype=torch.float32, device=device)  # shape: (3,)
-    rotation_vector = torch.cross(z_axis, direction_world)  # shape: (3,)
-    angle = torch.arccos(torch.dot(z_axis, direction_world) / (torch.norm(z_axis) * torch.norm(direction_world)))  # shape: scalar (float)
+    # Compute the rotation axis (cross product of current and target directions)
+    rotation_axis = torch.cross(current_forward, target_direction)
+    rotation_axis = rotation_axis / torch.norm(rotation_axis)  # Normalize the axis
+    
+    # Compute the rotation angle (dot product gives the cosine of the angle)
+    cos_theta = torch.dot(current_forward, target_direction)
+    rotation_angle = torch.acos(cos_theta)
 
-    # 计算旋转矩阵，使用 Rodrigues 公式
+    # Compute Rodrigues' rotation matrix
     K_matrix = torch.tensor([
-        [0, -rotation_vector[2], rotation_vector[1]],
-        [rotation_vector[2], 0, -rotation_vector[0]],
-        [-rotation_vector[1], rotation_vector[0], 0]
+        [0, -rotation_axis[2], rotation_axis[1]],
+        [rotation_axis[2], 0, -rotation_axis[0]],
+        [-rotation_axis[1], rotation_axis[0], 0]
     ], device=device)
 
-    target_rotation = torch.eye(3, device=device) + torch.sin(angle) * K_matrix + (1 - torch.cos(angle)) * K_matrix.mm(K_matrix)
+    R = torch.eye(3, device=device) + torch.sin(rotation_angle) * K_matrix + (1 - torch.cos(rotation_angle)) * (K_matrix @ K_matrix)
 
-    # 更新摄像机姿态
-    new_rotation_matrix = target_rotation.mm(current_rotation)  # shape: (3, 3)
+    # The new rotation matrix
+    new_rotation_matrix = R @ camera_pose[:, :3]
 
-    # 构造新的摄像机姿态矩阵
-    new_camera_pose_homogeneous = torch.eye(4, device=device)  # shape: (4, 4)
-    new_camera_pose_homogeneous[:3, :3] = new_rotation_matrix  # shape: (3, 3)
-    new_camera_pose_homogeneous[:3, 3] = current_position  # shape: (3,)
+    # The translation remains the same
+    new_translation = camera_pose[:, 3]
 
-    # 返回新的 (3, 4) 摄像机姿态
-    return new_camera_pose_homogeneous[:3, :4]
+    # Construct the new 3x4 camera pose matrix
+    new_camera_pose = torch.cat([new_rotation_matrix, new_translation.unsqueeze(1)], dim=1)
+
+    return new_camera_pose
+
 
 def quaternion_from_matrix(matrix: Tensor, isprecise: bool = False) -> Tensor:
     """Return quaternion from rotation matrix.
