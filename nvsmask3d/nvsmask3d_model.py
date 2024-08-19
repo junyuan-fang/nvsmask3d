@@ -53,6 +53,7 @@ from nvsmask3d.utils.camera_utils import (
     object_optimal_k_camera_poses_bounding_box,
     interpolate_camera_poses_with_camera_trajectory,
     get_interpolated_poses,
+    compute_camera_pose_bounding_boxes
 )
 
 
@@ -150,7 +151,7 @@ class NVSMask3dModel(SplatfactoModel):
         )
         
         self.segment_gaussian_positives_with_nvs = ViewerButton(
-            name="Segment Gaussians with Positives + NVS",
+            name="Segmentation with interpolated poses",
             cb_hook=self._segment_gaussians_with_nvs,
             visible=(
                 True if self.test_mode == "train" or "all" in self.test_mode else False
@@ -163,31 +164,23 @@ class NVSMask3dModel(SplatfactoModel):
         """
         self.output_text.value = "Segmenting Gaussians..."
                 
-        dataset_camera_to_world = self.cameras.camera_to_worlds.to(
-            "cuda"
+        camera_to_world_opengl = self.cameras.camera_to_worlds.to(
+            device=self.device
         )  # shape (M, 4, 4)
-        dataset_camera_to_world = get_camera_pose_in_opencv_convention(dataset_camera_to_world)
+        camera_to_world_opencv = get_camera_pose_in_opencv_convention(camera_to_world_opengl)
 
         # Move intrinsics to the GPU
         K = self.cameras.get_intrinsics_matrices().to(device=self.device)  # shape (M, 3, 3) in default, each K's elements are the same
         W, H = int(self.cameras.width[0].item()), int(self.cameras.height[0].item())
         dataset_camera_indices, bounding_boxes = object_optimal_k_camera_poses_bounding_box(  # object_optimal_k_camera_poses(
             seed_points_0=self.seed_points[0].cuda(),
-            optimized_camera_to_world=dataset_camera_to_world,
+            optimized_camera_to_world=camera_to_world_opencv,
             K=K,
             W=W,
             H=H,
             boolean_mask=self.points3D_mask[:, self.cls_index],
-            k_poses=2,
+            k_poses=5,
         )  # image_file_names= self.image_file_names)#seedpoints, mask -> cuda, numpy
-        
-        #only select 2 optimal cameras for testing
-        dataset_camera_indices = dataset_camera_indices[:2]
-        bounding_boxes = bounding_boxes[:2]
-        
-        #prepare data
-        best_camera_poses = self.cameras.camera_to_worlds[dataset_camera_indices].to(device=self.device)
-
         
         #save image for debug from the dataset
         for i_index,i in enumerate(dataset_camera_indices):
@@ -200,45 +193,33 @@ class NVSMask3dModel(SplatfactoModel):
             save_img(
                 cropped_image.permute(1, 2, 0), f"tests/best_{i_index}.png"
             )
-        #a
-        poses = best_camera_poses#get_camera_pose_in_opencv_convention(best_camera_poses)
-        pose_a = poses[0]
-        min_u_a, min_v_a, max_u_a, max_v_a = bounding_boxes[0]
-        object_uv = torch.tensor([(min_u_a + max_u_a) / 2, (min_v_a + max_v_a) / 2], dtype=torch.float32)
-        adjusted_pose_a = compute_new_camera_pose_from_object_uv(camera_pose = pose_a, object_uv=object_uv, K = K[i], image_width=W, image_height=H)
-        camera_index = dataset_camera_indices[0]
-        camera = make_cameras(self.cameras[camera_index:camera_index+1], adjusted_pose_a.unsqueeze(0))
-        nvs_mask_img = self.get_outputs(camera)["rgb"]
-        from nvsmask3d.utils.utils import save_img
-        save_img(nvs_mask_img, f"tests/nvs_img_{0}.png")
-        
-        #b
-        pose_b = poses[1]
-        min_u_b, min_v_b, max_u_b, max_v_b = bounding_boxes[1]
-        object_uv = torch.tensor([(min_u_b + max_u_b) / 2, (min_v_b + max_v_b) / 2], dtype=torch.float32)
-        adjusted_pose_b = compute_new_camera_pose_from_object_uv(camera_pose = pose_b, object_uv=object_uv, K = K[i], image_width=W, image_height=H)
-        camera_index = dataset_camera_indices[1]
-        camera = make_cameras(self.cameras[camera_index:camera_index+1], adjusted_pose_b.unsqueeze(0))
-        nvs_mask_img = self.get_outputs(camera)["rgb"]
-        from nvsmask3d.utils.utils import save_img
-        save_img(nvs_mask_img, f"tests/nvs_img_{1}.png")
-        
-        #get interpolated cameras
-        # adjusted_cameras = torch.stack([adjusted_pose_a, adjusted_pose_b], dim = 0) # (2, 3, 4)
-        # camera = make_cameras(self.cameras[camera_index:camera_index+1], adjusted_cameras)
-        #interpolated_poses = interpolate_camera_poses_with_camera_trajectory(adjusted_cameras, K, W, H, bounding_boxes, 3)
-        interpolated_poses = get_interpolated_poses(adjusted_pose_a, adjusted_pose_b, steps=3)# SLERP interpolation
-        # interpolated_camera_poses.append(poses_ab)
 
-        # interpolated_camera_poses = torch.cat(interpolated_camera_poses, dim=0)
+        #get interpolated poses
+        interpolated_poses = interpolate_camera_poses_with_camera_trajectory(camera_to_world_opengl[dataset_camera_indices], bounding_boxes, K,W,H, 3)#get_interpolated_poses(adjusted_pose_a, adjusted_pose_b, steps=3)# SLERP interpolation        
+        interpolated_cameras = make_cameras(self.cameras[0:1], interpolated_poses)
+        interpolated_poses_bounding_boxes = compute_camera_pose_bounding_boxes(
+            seed_points_0=self.seed_points[0].cuda(),
+            optimized_camera_to_world=get_camera_pose_in_opencv_convention(interpolated_poses),
+            K=interpolated_cameras.get_intrinsics_matrices().to(device=self.device), 
+            W=W, 
+            H=H,
+            boolean_mask=self.points3D_mask[:, self.cls_index],)
         
         interpolated_cameras = make_cameras(self.cameras[0:1], interpolated_poses)
         
         for i in range(interpolated_cameras.shape[0]):
             camera = interpolated_cameras[i:i+1]
-            nvs_mask_img = self.get_outputs(camera)["rgb"]
+            nvs_mask_img = self.get_outputs(camera)["rgb"]#(H,W,3)
             from nvsmask3d.utils.utils import save_img
             save_img(nvs_mask_img, f"tests/interpolated_nvs_img_{i}.png")
+            
+            #croped nvs image
+            min_u, min_v, max_u, max_v = interpolated_poses_bounding_boxes[i]
+
+            cropped_nvs_mask_image = nvs_mask_img[
+                int(min_v.item()):int(max_v.item()), int(min_u.item()):int(max_u.item())
+            ]
+            save_img(cropped_nvs_mask_image, f"tests/cropped_nvs_mask_image_{i}.png")
         
         import pdb; pdb.set_trace()
             

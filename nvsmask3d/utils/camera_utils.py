@@ -313,6 +313,59 @@ def object_optimal_k_camera_poses_bounding_box(
         best_poses_indices,
         final_bounding_boxes,
     )  # Returns both the best camera poses and their bounding boxes
+    
+@torch.no_grad()
+def compute_camera_pose_bounding_boxes(
+    seed_points_0: torch.Tensor,
+    optimized_camera_to_world: torch.Tensor,
+    K: torch.Tensor,
+    W: int,
+    H: int,
+    boolean_mask: torch.Tensor,
+) -> torch.Tensor:
+    """
+    Computes the bounding box for each camera pose given a 3D mask.
+
+    Args:
+        seed_points_0 (torch.Tensor): (N,3) on cuda, the point cloud.
+        optimized_camera_to_world (torch.Tensor): (M,3,4) on cuda, need to be in opencv convention.
+        K (torch.Tensor): (M,3,3) on cuda, camera intrinsics.
+        W (int): Image width (e.g., 640).
+        H (int): Image height (e.g., 360).
+        boolean_mask (torch.Tensor): (N,) on cuda, the boolean mask for filtering relevant 3D points.
+
+    Returns:
+        bounding_boxes (torch.Tensor): (M, 4) Bounding boxes for each camera pose, in the format [min_u, min_v, max_u, max_v].
+    """
+    masked_seed_points = seed_points_0[boolean_mask]  # shape (N, 3)
+    # Project points to 2D image coordinates for all camera poses
+    u, v, z = get_points_projected_uv_and_depth(masked_seed_points, optimized_camera_to_world, K)
+    
+    # Filter out invalid points (outside of the image boundaries or behind the camera)
+    valid_points = (u >= 0) & (u < W) & (v >= 0) & (v < H) & (z > 0)
+
+    # Handle case where no valid points are found
+    if not valid_points.any():
+        print("No valid points found")
+        return torch.empty((optimized_camera_to_world.shape[0], 4), device="cuda")  # Return empty bounding boxes
+
+    # Calculate min and max u and v for valid points
+    min_u, _ = u.masked_fill(~valid_points, float("inf")).min(dim=1)  # shape (M,)
+    max_u, _ = u.masked_fill(~valid_points, float("-inf")).max(dim=1)
+    min_v, _ = v.masked_fill(~valid_points, float("inf")).min(dim=1)
+    max_v, _ = v.masked_fill(~valid_points, float("-inf")).max(dim=1)
+
+    # Handle cases where all points are invalid for a specific camera
+    max_u = torch.where(max_u == float("-inf"), u[valid_points].max(), max_u)
+    max_v = torch.where(max_v == float("-inf"), v[valid_points].max(), max_v)
+    min_u = torch.where(min_u == float("inf"), u[valid_points].min(), min_u)
+    min_v = torch.where(min_v == float("inf"), v[valid_points].min(), min_v)
+
+    # Stack the bounding boxes in the format [min_u, min_v, max_u, max_v]
+    bounding_boxes = torch.stack([min_u, min_v, max_u, max_v], dim=1)  # shape (M, 4)
+
+    return bounding_boxes    
+
 def make_cameras(camera: Cameras, poses):
     """
     Create a new Cameras object with the given camera poses.
@@ -448,7 +501,7 @@ def get_points_projected_uv_and_depth(
 
     return u, v, depth
 
-def interpolate_camera_poses_with_camera_trajectory(poses, K, W, H, bounding_boxes,steps_per_transition=10):
+def interpolate_camera_poses_with_camera_trajectory(poses, bounding_boxes,  K, W, H, steps_per_transition=10):
     """
     Interpolates camera poses between the given camera poses using the camera trajectory. Including start pose amd end pose rotation adjustment based on bounding box.
 
@@ -484,7 +537,6 @@ def interpolate_camera_poses_with_camera_trajectory(poses, K, W, H, bounding_box
         pose_b = compute_new_camera_pose_from_object_uv(camera_pose = pose_b, object_uv=object_uv_b, K = K[i], image_width=W, image_height=H)
         poses_ab = get_interpolated_poses(pose_a, pose_b, steps=steps_per_transition)# SLERP interpolation
         interpolated_camera_poses.append(poses_ab)
-    poses_ab = get_interpolated_poses(pose_a, pose_b, steps=steps_per_transition)# SLERP interpolation
     interpolated_camera_poses.append(poses_ab)
 
     interpolated_camera_poses = torch.cat(interpolated_camera_poses, dim=0)
