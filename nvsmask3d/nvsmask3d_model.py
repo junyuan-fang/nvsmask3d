@@ -52,6 +52,7 @@ from nvsmask3d.utils.camera_utils import (
     make_cameras,
     object_optimal_k_camera_poses_bounding_box,
     interpolate_camera_poses_with_camera_trajectory,
+    get_interpolated_poses,
 )
 
 
@@ -162,17 +163,17 @@ class NVSMask3dModel(SplatfactoModel):
         """
         self.output_text.value = "Segmenting Gaussians..."
                 
-        optimized_camera_to_world = self.cameras.camera_to_worlds.to(
+        dataset_camera_to_world = self.cameras.camera_to_worlds.to(
             "cuda"
         )  # shape (M, 4, 4)
-        optimized_camera_to_world = get_camera_pose_in_opencv_convention(optimized_camera_to_world)
+        dataset_camera_to_world = get_camera_pose_in_opencv_convention(dataset_camera_to_world)
 
         # Move intrinsics to the GPU
         K = self.cameras.get_intrinsics_matrices().to(device=self.device)  # shape (M, 3, 3) in default, each K's elements are the same
         W, H = int(self.cameras.width[0].item()), int(self.cameras.height[0].item())
-        optimal_camera_indices, bounding_boxes = object_optimal_k_camera_poses_bounding_box(  # object_optimal_k_camera_poses(
+        dataset_camera_indices, bounding_boxes = object_optimal_k_camera_poses_bounding_box(  # object_optimal_k_camera_poses(
             seed_points_0=self.seed_points[0].cuda(),
-            optimized_camera_to_world=optimized_camera_to_world,
+            optimized_camera_to_world=dataset_camera_to_world,
             K=K,
             W=W,
             H=H,
@@ -181,16 +182,15 @@ class NVSMask3dModel(SplatfactoModel):
         )  # image_file_names= self.image_file_names)#seedpoints, mask -> cuda, numpy
         
         #only select 2 optimal cameras for testing
-        optimal_camera_indices = optimal_camera_indices[:2]
+        dataset_camera_indices = dataset_camera_indices[:2]
         bounding_boxes = bounding_boxes[:2]
         
         #prepare data
-        best_camera_poses = self.cameras.camera_to_worlds[optimal_camera_indices].to(device=self.device)
-        interpolated_poses = interpolate_camera_poses_with_camera_trajectory(best_camera_poses, K, W, H, bounding_boxes, 3)
-        interpolated_cameras = make_cameras(self.cameras[0:1], interpolated_poses)
-        outputs = []
+        best_camera_poses = self.cameras.camera_to_worlds[dataset_camera_indices].to(device=self.device)
+
         
-        for i_index,i in enumerate(optimal_camera_indices):
+        #save image for debug from the dataset
+        for i_index,i in enumerate(dataset_camera_indices):
             with Image.open(self.image_file_names[i]) as img:
                 img = transforms.ToTensor()(img).cuda()
                 from nvsmask3d.utils.utils import save_img
@@ -200,17 +200,46 @@ class NVSMask3dModel(SplatfactoModel):
             save_img(
                 cropped_image.permute(1, 2, 0), f"tests/best_{i_index}.png"
             )
-        
+        #a
         poses = best_camera_poses#get_camera_pose_in_opencv_convention(best_camera_poses)
         pose_a = poses[0]
         min_u_a, min_v_a, max_u_a, max_v_a = bounding_boxes[0]
         object_uv = torch.tensor([(min_u_a + max_u_a) / 2, (min_v_a + max_v_a) / 2], dtype=torch.float32)
-        pose_a = compute_new_camera_pose_from_object_uv(camera_pose = pose_a, object_uv=object_uv, K = K[i], image_width=W, image_height=H)
-        camera_index = optimal_camera_indices[0]
-        camera = make_cameras(self.cameras[camera_index:camera_index+1], pose_a.unsqueeze(0))
+        adjusted_pose_a = compute_new_camera_pose_from_object_uv(camera_pose = pose_a, object_uv=object_uv, K = K[i], image_width=W, image_height=H)
+        camera_index = dataset_camera_indices[0]
+        camera = make_cameras(self.cameras[camera_index:camera_index+1], adjusted_pose_a.unsqueeze(0))
         nvs_mask_img = self.get_outputs(camera)["rgb"]
         from nvsmask3d.utils.utils import save_img
-        save_img(nvs_mask_img, f"tests/nvs_mask_img_{0}.png")
+        save_img(nvs_mask_img, f"tests/nvs_img_{0}.png")
+        
+        #b
+        pose_b = poses[1]
+        min_u_b, min_v_b, max_u_b, max_v_b = bounding_boxes[1]
+        object_uv = torch.tensor([(min_u_b + max_u_b) / 2, (min_v_b + max_v_b) / 2], dtype=torch.float32)
+        adjusted_pose_b = compute_new_camera_pose_from_object_uv(camera_pose = pose_b, object_uv=object_uv, K = K[i], image_width=W, image_height=H)
+        camera_index = dataset_camera_indices[1]
+        camera = make_cameras(self.cameras[camera_index:camera_index+1], adjusted_pose_b.unsqueeze(0))
+        nvs_mask_img = self.get_outputs(camera)["rgb"]
+        from nvsmask3d.utils.utils import save_img
+        save_img(nvs_mask_img, f"tests/nvs_img_{1}.png")
+        
+        #get interpolated cameras
+        # adjusted_cameras = torch.stack([adjusted_pose_a, adjusted_pose_b], dim = 0) # (2, 3, 4)
+        # camera = make_cameras(self.cameras[camera_index:camera_index+1], adjusted_cameras)
+        #interpolated_poses = interpolate_camera_poses_with_camera_trajectory(adjusted_cameras, K, W, H, bounding_boxes, 3)
+        interpolated_poses = get_interpolated_poses(adjusted_pose_a, adjusted_pose_b, steps=3)# SLERP interpolation
+        # interpolated_camera_poses.append(poses_ab)
+
+        # interpolated_camera_poses = torch.cat(interpolated_camera_poses, dim=0)
+        
+        interpolated_cameras = make_cameras(self.cameras[0:1], interpolated_poses)
+        
+        for i in range(interpolated_cameras.shape[0]):
+            camera = interpolated_cameras[i:i+1]
+            nvs_mask_img = self.get_outputs(camera)["rgb"]
+            from nvsmask3d.utils.utils import save_img
+            save_img(nvs_mask_img, f"tests/interpolated_nvs_img_{i}.png")
+        
         import pdb; pdb.set_trace()
             
 

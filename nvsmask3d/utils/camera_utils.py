@@ -39,23 +39,34 @@ from torch import Tensor
 # opengl to opencv transformation matrix
 OPENGL_TO_OPENCV = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
 OPENCV_TO_OPENGL = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
-def get_camera_pose_in_opencv_convention(optimized_camera_to_world) -> torch.Tensor:
+def get_camera_pose_in_opencv_convention(optimized_camera_to_world: torch.Tensor) -> torch.Tensor:
     """
-    Converts a camera pose from OpenGL to OpenCV convention.
+    Converts a batch of camera poses from OpenGL to OpenCV convention.
 
     Args:
-        optimized_camera_to_world: Tensor of shape (3, 4) in OpenCV convention
+        optimized_camera_to_world: Tensor of shape (M, 3, 4) or (3, 4) in OpenGL convention.
 
     Returns:
-        optimized_camera_to_world: Tensor of shape (3, 4) in OpenCV convention
+        optimized_camera_to_world: Tensor of shape (M, 3, 4) or (3, 4) in OpenCV convention.
     """
     opengl_to_opencv = torch.tensor(
-        OPENGL_TO_OPENCV, device="cuda", dtype=optimized_camera_to_world.dtype
+        OPENGL_TO_OPENCV, device=optimized_camera_to_world.device, dtype=optimized_camera_to_world.dtype
     )  # shape (4, 4)
-    optimized_camera_to_world = torch.matmul(
-        optimized_camera_to_world, opengl_to_opencv
-    )  # shape (M, 3, 4)
-    return optimized_camera_to_world
+
+    # Expand `opengl_to_opencv` to match batch size if necessary
+    if optimized_camera_to_world.dim() == 3:
+        opengl_to_opencv = opengl_to_opencv.unsqueeze(0).expand(optimized_camera_to_world.shape[0], -1, -1)
+
+    # Add a column to `optimized_camera_to_world` to make it (M, 4, 4) for matrix multiplication
+    optimized_camera_to_world = torch.cat(
+        [optimized_camera_to_world, torch.tensor([0, 0, 0, 1], device=optimized_camera_to_world.device, dtype=optimized_camera_to_world.dtype).view(1, 1, 4).expand(optimized_camera_to_world.shape[0], -1, -1)],
+        dim=1
+    )
+
+    # Perform batch matrix multiplication
+    optimized_camera_to_world = torch.matmul(optimized_camera_to_world, opengl_to_opencv)
+
+    return optimized_camera_to_world[:, :3, :] # Remove the extra row and return to original shape (M, 3, 4)
 
 def get_camera_pose_in_opengl_convention(optimized_camera_to_world) -> torch.Tensor:
     """
@@ -450,10 +461,10 @@ def interpolate_camera_poses_with_camera_trajectory(poses, K, W, H, bounding_box
         steps_per_transition (int, optional): The number of steps to interpolate between the two cameras. Defaults to 10.
 
     Returns:
-        interpolated_camera_poses (torch.Tensor): (M, num_poses, 3, 4) interpolated camera-to-world matrices
+        interpolated_camera_poses (torch.Tensor): (M * step_per_transition, 3, 4) interpolated camera-to-world matrices
     """
     
-    poses = get_camera_pose_in_opencv_convention(poses)  # shape (M, 3, 4)
+    #poses = get_camera_pose_in_opencv_convention(poses)  # shape (M, 3, 4)
     num_poses = poses.shape[0]
 
     # Interpolate camera poses
@@ -467,15 +478,16 @@ def interpolate_camera_poses_with_camera_trajectory(poses, K, W, H, bounding_box
         min_u_b, min_v_b, max_u_b, max_v_b = bounding_boxes[i + 1]
         
         # Adjust the start and end camera poses based on the bounding box
-        object_uv = torch.tensor([(min_u_a + max_u_a) / 2, (min_v_a + max_v_a) / 2], dtype=torch.float32)
-        pose_a = compute_new_camera_pose_from_object_uv(pose_a, object_uv, K[i], W, H)
-        object_uv = torch.tensor([(min_u_b + max_u_b) / 2, (min_v_b + max_v_b) / 2], dtype=torch.float32)
-        pose_b = compute_new_camera_pose_from_object_uv(pose_b, object_uv, K[i], W, H)
+        object_uv_a = torch.tensor([(min_u_a + max_u_a) / 2, (min_v_a + max_v_a) / 2], dtype=torch.float32)
+        pose_a = compute_new_camera_pose_from_object_uv(camera_pose = pose_a, object_uv=object_uv_a, K = K[i], image_width=W, image_height=H)
+        object_uv_b = torch.tensor([(min_u_b + max_u_b) / 2, (min_v_b + max_v_b) / 2], dtype=torch.float32)
+        pose_b = compute_new_camera_pose_from_object_uv(camera_pose = pose_b, object_uv=object_uv_b, K = K[i], image_width=W, image_height=H)
         poses_ab = get_interpolated_poses(pose_a, pose_b, steps=steps_per_transition)# SLERP interpolation
         interpolated_camera_poses.append(poses_ab)
+    poses_ab = get_interpolated_poses(pose_a, pose_b, steps=steps_per_transition)# SLERP interpolation
+    interpolated_camera_poses.append(poses_ab)
 
     interpolated_camera_poses = torch.cat(interpolated_camera_poses, dim=0)
-
     # Final shape will be [3*n, 3, 4]
     return interpolated_camera_poses
 
@@ -495,7 +507,7 @@ def ideal_K_inverse(K):
 
 def compute_new_camera_pose_from_object_uv(camera_pose: torch.Tensor, object_uv: torch.Tensor, K: torch.Tensor, image_width: int, image_height: int) -> torch.Tensor:
     """
-    Get a new camera pose, which is centered on the view direction towards the given object UV position using Rodrigues' rotation formula.
+    Get a new camera pose, which is centered on the view direction towards to the given object UV position using Rodrigues' rotation formula.
     
     Args:
     - camera_pose (torch.Tensor): Current 3x4 camera pose matrix (OpenGL convention).
@@ -557,59 +569,37 @@ def compute_new_camera_pose_from_object_uv(camera_pose: torch.Tensor, object_uv:
     return new_camera_pose
 
 
-def quaternion_from_matrix(matrix: Tensor, isprecise: bool = False) -> Tensor:
-    """Return quaternion from rotation matrix.
+def quaternion_from_matrix(matrix: Tensor) -> Tensor:
+    """Convert a rotation matrix to a quaternion."""
+    M = matrix[:3, :3]
+    trace = M.trace()
 
-    Args:
-        matrix: rotation matrix to obtain quaternion.
-        isprecise: if True, input matrix is assumed to be precise rotation matrix and a faster algorithm is used.
-    """
-    M = matrix[:3, :3]  # Extract the rotation part
-
-    if isprecise:
-        q = torch.empty((4,), device=matrix.device)
-        t = torch.trace(M)
-        if t > 0.0:
-            q[0] = t
-            q[3] = M[1, 0] - M[0, 1]
-            q[2] = M[0, 2] - M[2, 0]
-            q[1] = M[2, 1] - M[1, 2]
-        else:
-            i, j, k = 1, 2, 3
-            if M[1, 1] > M[0, 0]:
-                i, j, k = 2, 3, 1
-            if M[2, 2] > M[i, i]:
-                i, j, k = 3, 1, 2
-            t = M[i, i] - (M[j, j] + M[k, k])
-            q[i] = t
-            q[j] = M[i, j] + M[j, i]
-            q[k] = M[k, i] + M[i, k]
-            q[3] = M[k, j] - M[j, k]
-        q *= 0.5 / torch.sqrt(t * M[3, 3])
+    if trace > 0:
+        s = torch.sqrt(trace + 1.0) * 2
+        qw = 0.25 * s
+        qx = (M[2, 1] - M[1, 2]) / s
+        qy = (M[0, 2] - M[2, 0]) / s
+        qz = (M[1, 0] - M[0, 1]) / s
+    elif M[0, 0] > M[1, 1] and M[0, 0] > M[2, 2]:
+        s = torch.sqrt(1.0 + M[0, 0] - M[1, 1] - M[2, 2]) * 2
+        qw = (M[2, 1] - M[1, 2]) / s
+        qx = 0.25 * s
+        qy = (M[0, 1] + M[1, 0]) / s
+        qz = (M[0, 2] + M[2, 0]) / s
+    elif M[1, 1] > M[2, 2]:
+        s = torch.sqrt(1.0 + M[1, 1] - M[0, 0] - M[2, 2]) * 2
+        qw = (M[0, 2] - M[2, 0]) / s
+        qx = (M[0, 1] + M[1, 0]) / s
+        qy = 0.25 * s
+        qz = (M[1, 2] + M[2, 1]) / s
     else:
-        m00 = M[0, 0]
-        m01 = M[0, 1]
-        m02 = M[0, 2]
-        m10 = M[1, 0]
-        m11 = M[1, 1]
-        m12 = M[1, 2]
-        m20 = M[2, 0]
-        m21 = M[2, 1]
-        m22 = M[2, 2]
-        # symmetric matrix K
-        K = torch.tensor([
-            [m00 - m11 - m22, m01 + m10, m02 + m20, m21 - m12],
-            [m01 + m10, m11 - m00 - m22, m12 + m21, m02 - m20],
-            [m02 + m20, m12 + m21, m22 - m00 - m11, m10 - m01],
-            [m21 - m12, m02 - m20, m10 - m01, m00 + m11 + m22]
-        ], device=matrix.device)
-        K /= 3.0
-        # quaternion is eigenvector of K that corresponds to largest eigenvalue
-        w, V = torch.linalg.eigh(K)
-        q = V[:, torch.argmax(w)]
-    if q[0] < 0.0:
-        q = -q
-    return q
+        s = torch.sqrt(1.0 + M[2, 2] - M[0, 0] - M[1, 1]) * 2
+        qw = (M[1, 0] - M[0, 1]) / s
+        qx = (M[0, 2] + M[2, 0]) / s
+        qy = (M[1, 2] + M[2, 1]) / s
+        qz = 0.25 * s
+
+    return torch.tensor([qw, qx, qy, qz], device=matrix.device)
 
 
 def quaternion_slerp(quat0: Tensor, quat1: Tensor, fraction: float, spin: int = 0, shortestpath: bool = True) -> Tensor:
