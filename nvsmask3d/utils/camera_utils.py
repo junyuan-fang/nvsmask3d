@@ -259,7 +259,8 @@ def object_optimal_k_camera_poses_bounding_box(
         k_poses (int, optional): Defaults to 2.
 
     Returns:
-        best_poses, final_bounding_boxes: torch.Tensor, torch.Tensor
+        best_poses_indices (torch.Tensor): (k_poses,) on cpu
+        final_bounding_boxes (torch.Tensor): (k_poses, 4) on cpu
     """
     masked_seed_points = seed_points_0[boolean_mask]  # shape (N, 3)
     # Vectorized computation for all camera poses
