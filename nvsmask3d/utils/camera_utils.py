@@ -260,7 +260,7 @@ def object_optimal_k_camera_poses_bounding_box(
 
     Returns:
         best_poses_indices (torch.Tensor): (k_poses,) on cpu
-        final_bounding_boxes (torch.Tensor): (k_poses, 4) on cpu
+        final_bounding_boxes (torch.Tensor): (k_poses, 4) on cpu,normalized to [0,1]
     """
     masked_seed_points = seed_points_0[boolean_mask]  # shape (N, 3)
     # Vectorized computation for all camera poses
@@ -365,7 +365,41 @@ def compute_camera_pose_bounding_boxes(
     # Stack the bounding boxes in the format [min_u, min_v, max_u, max_v]
     bounding_boxes = torch.stack([min_u, min_v, max_u, max_v], dim=1)  # shape (M, 4)
 
-    return bounding_boxes    
+    return bounding_boxes  
+
+def rotate_vector_to_vector(v1: Tensor, v2: Tensor):
+    """
+    Returns a rotation matrix that rotates v1 to align with v2.
+    """
+    assert v1.dim() == v2.dim()
+    assert v1.shape[-1] == 3
+    if v1.dim() == 1:
+        v1 = v1[None, ...]
+        v2 = v2[None, ...]
+    N = v1.shape[0]
+
+    u = v1 / torch.norm(v1, dim=-1, keepdim=True)
+    Ru = v2 / torch.norm(v2, dim=-1, keepdim=True)
+    I = torch.eye(3, 3, device=v1.device).unsqueeze(0).repeat(N, 1, 1)
+
+    # the cos angle between the vectors
+    c = torch.bmm(u.view(N, 1, 3), Ru.view(N, 3, 1)).squeeze(-1)
+
+    eps = 1.0e-10
+    # the cross product matrix of a vector to rotate around
+    K = torch.bmm(Ru.unsqueeze(2), u.unsqueeze(1)) - torch.bmm(
+        u.unsqueeze(2), Ru.unsqueeze(1)
+    )
+    # Rodrigues' formula
+    ans = I + K + (K @ K) / (1 + c)[..., None]
+    same_direction_mask = torch.abs(c - 1.0) < eps
+    same_direction_mask = same_direction_mask.squeeze(-1)
+    opposite_direction_mask = torch.abs(c + 1.0) < eps
+    opposite_direction_mask = opposite_direction_mask.squeeze(-1)
+    ans[same_direction_mask] = torch.eye(3, device=v1.device)
+    ans[opposite_direction_mask] = -torch.eye(3, device=v1.device)
+    return ans
+  
 
 def make_cameras(camera: Cameras, poses):
     """
@@ -538,7 +572,6 @@ def interpolate_camera_poses_with_camera_trajectory(poses, bounding_boxes,  K, W
         pose_b = compute_new_camera_pose_from_object_uv(camera_pose = pose_b, object_uv=object_uv_b, K = K[i], image_width=W, image_height=H)
         poses_ab = get_interpolated_poses(pose_a, pose_b, steps=steps_per_transition)# SLERP interpolation
         interpolated_camera_poses.append(poses_ab)
-    interpolated_camera_poses.append(poses_ab)
 
     interpolated_camera_poses = torch.cat(interpolated_camera_poses, dim=0)
     # Final shape will be [3*n, 3, 4]
@@ -563,8 +596,8 @@ def compute_new_camera_pose_from_object_uv(camera_pose: torch.Tensor, object_uv:
     Get a new camera pose, which is centered on the view direction towards to the given object UV position using Rodrigues' rotation formula.
     
     Args:
-    - camera_pose (torch.Tensor): Current 3x4 camera pose matrix (OpenGL convention).
-    - object_uv (torch.Tensor): Object coordinates on UV plane, shape (2,). Assumes origin is top-left (OpenCV convention).
+    - camera_pose (torch.Tensor): Current 3x4 camera pose matrix (OpenCV convention).
+    - object_uv (torch.Tensor): Object coordinates on UV plane, shape(4,) min_u_b, min_v_b, max_u_b, max_v_b Assumes origin is top-left (OpenCV convention).
     - K (torch.Tensor): Camera intrinsics matrix, shape (3, 3).
     - image_width (int): Width of the image.
     - image_height (int): Height of the image.
@@ -577,47 +610,60 @@ def compute_new_camera_pose_from_object_uv(camera_pose: torch.Tensor, object_uv:
     device = camera_pose.device
     object_uv = object_uv.to(device)
     K = K.to(device)
-    # Convert object_uv to normalized device coordinates (NDC) in OpenGL (-1 to 1 range)
-    ndc_x = 2.0 * (object_uv[0] / image_width) - 1.0
-    ndc_y = 2.0 * (object_uv[1] / image_height) - 1.0
 
-    # Create the 3D direction vector in normalized device coordinates (in homogeneous coordinates)
-    ndc_direction = torch.tensor([ndc_x, ndc_y, 1.0], device=device) #GPT use [ndc_x, -ndc_y, -1.0]， but our's work. So seems no need to change to OpenGL convention here
+    # 1. Extract current rotation and translation from the camera pose.
+    R = camera_pose[:, :3]  # 3x3 rotation matrix
+    t = camera_pose[:, 3]  # 3x1 translation vector
 
-    # Convert the NDC direction to camera space using the inverse of the intrinsic matrix
-    target_direction = ideal_K_inverse(K) @ ndc_direction
+    # 2. Compute the center of the object UV region.
+    u_center = (object_uv[0] + object_uv[2]) / 2.0
+    v_center = (object_uv[1] + object_uv[3]) / 2.0
 
-    # Normalize the target direction vector
-    target_direction = target_direction / torch.norm(target_direction)
+    # 3. Convert the UV coordinates to normalized image coordinates.
+    u_norm = (u_center - image_width / 2.0) / (image_width / 2.0)
+    v_norm = (v_center - image_height / 2.0) / (image_height / 2.0)
 
-    # Extract the current forward direction (z-axis) from the camera pose
-    current_forward = camera_pose[:, 2]
 
-    # Compute the rotation axis (cross product of current and target directions)
-    rotation_axis = torch.cross(current_forward, target_direction)
-    rotation_axis = rotation_axis / torch.norm(rotation_axis)  # Normalize the axis
-    
-    # Compute the rotation angle (dot product gives the cosine of the angle)
-    cos_theta = torch.dot(current_forward, target_direction)
-    rotation_angle = torch.acos(cos_theta)
+    # 4. Compute the corresponding 3D direction in camera space.
+    uv_homogeneous = torch.tensor([u_norm, v_norm, 1.0], device=device)  # homogeneous coordinates
+    direction_3d = torch.linalg.inv(K) @ uv_homogeneous
 
-    # Compute Rodrigues' rotation matrix
+    # Normalize the direction vector.
+    direction_3d /= torch.norm(direction_3d)
+
+    # 5. Determine the current camera's view direction (typically along the z-axis).
+    current_view_direction = R[:, 2]  # Z-axis direction in the camera space.
+
+    # 6. Compute the axis and angle needed for the rotation (Rodrigues' rotation formula).
+    axis = torch.cross(current_view_direction, direction_3d)
+    if torch.norm(axis) < 1e-6:
+        # If the axis is close to zero, it means the direction is already aligned.
+        return camera_pose
+
+    axis = axis / torch.norm(axis)  # Normalize the axis.
+
+    # Calculate the angle between the two vectors.
+    angle = torch.acos(torch.clamp(torch.dot(current_view_direction, direction_3d), -1.0, 1.0))
+
+    # If the angle is very small, no need to rotate.
+    if torch.abs(angle) < 1e-6:
+        return camera_pose
+
+    # Construct the skew-symmetric matrix for the axis.
     K_matrix = torch.tensor([
-        [0, -rotation_axis[2], rotation_axis[1]],
-        [rotation_axis[2], 0, -rotation_axis[0]],
-        [-rotation_axis[1], rotation_axis[0], 0]
+        [0, -axis[2], axis[1]],
+        [axis[2], 0, -axis[0]],
+        [-axis[1], axis[0], 0]
     ], device=device)
 
-    R = torch.eye(3, device=device) + torch.sin(rotation_angle) * K_matrix + (1 - torch.cos(rotation_angle)) * (K_matrix @ K_matrix)
+    # Compute the rotation matrix using Rodrigues' rotation formula.
+    R_new = torch.eye(3, device=device) + torch.sin(angle) * K_matrix + (1 - torch.cos(angle)) * (K_matrix @ K_matrix)
 
-    # The new rotation matrix
-    new_rotation_matrix = R @ camera_pose[:, :3]
+    # 7. Update the camera's rotation.
+    R_updated = R_new @ R
 
-    # The translation remains the same
-    new_translation = camera_pose[:, 3]
-
-    # Construct the new 3x4 camera pose matrix
-    new_camera_pose = torch.cat([new_rotation_matrix, new_translation.unsqueeze(1)], dim=1)
+    # 8. Return the new 3x4 camera pose.
+    new_camera_pose = torch.cat((R_updated, t.unsqueeze(1)), dim=1)  # Concatenate rotation and translation.
 
     return new_camera_pose
 
