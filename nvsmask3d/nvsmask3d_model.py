@@ -119,6 +119,10 @@ class NVSMask3dModel(SplatfactoModel):
             if seed_points
             else None
         )
+        if "replica" in self.test_mode:#assumed scannet200 and replica.
+            self.depth_scale = 6553.5
+        else: 
+            self.depth_scale = 1000.0
         # Initialize cache
         self._mask_cache = {}
 
@@ -328,6 +332,8 @@ class NVSMask3dModel(SplatfactoModel):
             W=W,
             H=H,
             boolean_mask=self.points3D_mask[:, self.cls_index],
+            depth_filenames = self.metadata["depth_filenames"],
+            depth_scale = self.depth_scale,
             k_poses=2,
         )  # image_file_names= self.image_file_names)#seedpoints, mask -> cuda, numpy
         outputs = []

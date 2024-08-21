@@ -10,6 +10,8 @@ from scipy.spatial.transform import Rotation as R
 import numpy as np
 import torch
 from torch import Tensor
+from PIL import Image
+
 
 ################debug################
 # image_file_ = [image_file_names[int(i)] for i in best_poses_indices]
@@ -35,7 +37,7 @@ from torch import Tensor
 # save_img(sparse_map, "sparse_map.png")
 
 ################debug################
-
+vis_depth_threshold = 0.4
 # opengl to opencv transformation matrix
 OPENGL_TO_OPENCV = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
 OPENCV_TO_OPENGL = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
@@ -85,6 +87,15 @@ def get_camera_pose_in_opengl_convention(optimized_camera_to_world) -> torch.Ten
         optimized_camera_to_world, opencv_to_opengl
     )  # shape (M, 3, 4)
     return optimized_camera_to_world
+
+def load_depth_maps(depth_maps_paths, depth_scale, device):
+    depth_maps = []
+    for depth_map_path in depth_maps_paths:
+        depth_image = Image.open(depth_map_path)
+        depth_array = np.array(depth_image) / depth_scale
+        depth_maps.append(torch.from_numpy(depth_array).float().to(device))
+    
+    return torch.stack(depth_maps)
 
 @torch.no_grad()
 def optimal_k_camera_poses_of_scene(
@@ -183,7 +194,7 @@ def object_optimal_k_camera_poses(
     # start = time.time()
 
     # Move camera transformations to the GPU
-    optimized_camera_to_world = get_camera_pose_in_opencv_convention(camera.camera_to_worlds.to("cuda"))#shape (N, 3,4) on cuda
+    optimized_camera_to_world = get_camera_pose_in_opencv_convention(camera.camera_to_worlds.to("cuda"))#shape (M, 3,4) on cuda
 
     # Move intrinsics to the GPU
     K = camera.get_intrinsics_matrices().to("cuda")
@@ -209,7 +220,7 @@ def object_optimal_k_camera_poses(
     # Project to 2D image plane using vectorized operations
     u = points_cam[:, :, 0] * K[:, 0, 0].unsqueeze(1) / points_cam[:, :, 2] + K[
         :, 0, 2
-    ].unsqueeze(1)
+    ].unsqueeze(1)#shape (M, N)
     v = points_cam[:, :, 1] * K[:, 1, 1].unsqueeze(1) / points_cam[:, :, 2] + K[
         :, 1, 2
     ].unsqueeze(1)
@@ -242,6 +253,8 @@ def object_optimal_k_camera_poses_bounding_box(
     W,
     H,
     boolean_mask,
+    depth_filenames = None,
+    depth_scale = None,
     k_poses=2,
 ):
     """
@@ -262,11 +275,51 @@ def object_optimal_k_camera_poses_bounding_box(
         best_poses_indices (torch.Tensor): (k_poses,) on cpu
         final_bounding_boxes (torch.Tensor): (k_poses, 4) on cpu,normalized to [0,1]
     """
-    masked_seed_points = seed_points_0[boolean_mask]  # shape (N, 3)
-    # Vectorized computation for all camera poses
-    u, v, z = get_points_projected_uv_and_depth(masked_seed_points, optimized_camera_to_world, K)
-    valid_points = (u >= 0) & (u < W) & (v >= 0) & (v < H) & (z > 0)
 
+    masked_seed_points = seed_points_0[boolean_mask]  # shape (N, 3)
+    # Vectorized computation for all camera poses.For example. 
+    # For example each point in the u is the x coordinate of the point in the image plane. 
+    # v is the y coordinate of the point in the image plane. 
+    # z is the depth of the point in the camera coordinate system.
+    u, v, z = get_points_projected_uv_and_depth(masked_seed_points, optimized_camera_to_world, K)#shape (M, N)
+    valid_points = (u >= 0) & (u < W) & (v >= 0) & (v < H) & (z > 0)
+    if depth_filenames:
+        #load depth image
+        depth_maps = load_depth_maps(depth_filenames, depth_scale, device = seed_points_0.device)
+        #valid_points = torch.abs((depth_maps[u[valid_points].long(), v[valid_points].long()]- depth_maps) <= vis_depth_threshold)
+
+        # Calculate valid point indices
+        u_valid = u[valid_points].long()
+        v_valid = v[valid_points].long()
+
+        # Get depth values at valid points for each depth map
+        depth_at_valid_points = depth_maps[
+            torch.arange(depth_maps.shape[0], device=depth_maps.device).unsqueeze(1),
+            v_valid.unsqueeze(0).expand(depth_maps.shape[0], -1),
+            u_valid.unsqueeze(0).expand(depth_maps.shape[0], -1)
+        ]
+
+        # Flatten depth maps for easy indexing
+        depth_maps_flat = depth_maps.view(depth_maps.shape[0], -1)
+
+        # Calculate pixel indices for valid points
+        pixel_indices = v_valid * W + u_valid
+
+        # Compare depth values
+        valid_points_depth_comparison = torch.abs(
+            depth_at_valid_points - depth_maps_flat[:, pixel_indices]
+        ) <= vis_depth_threshold
+
+        # Clone the valid points mask before updating to avoid in-place modification issues
+        valid_points_cloned = valid_points.clone()
+        valid_points_cloned[valid_points] = valid_points_depth_comparison.all(dim=0)
+
+        valid_points = valid_points_cloned
+
+        # Cleanup
+        del depth_maps, depth_maps_flat, depth_at_valid_points
+        torch.cuda.empty_cache()
+        
     if valid_points.any().item() != True:
         print("No valid points found")
         return torch.tensor([]), torch.tensor([])
@@ -340,7 +393,7 @@ def compute_camera_pose_bounding_boxes(
     """
     masked_seed_points = seed_points_0[boolean_mask]  # shape (N, 3)
     # Project points to 2D image coordinates for all camera poses
-    u, v, z = get_points_projected_uv_and_depth(masked_seed_points, optimized_camera_to_world, K)
+    u, v, z = get_points_projected_uv_and_depth(masked_seed_points, optimized_camera_to_world, K)#shape (M, N)
     
     # Filter out invalid points (outside of the image boundaries or behind the camera)
     valid_points = (u >= 0) & (u < W) & (v >= 0) & (v < H) & (z > 0)#TODO: z need to handle occulusion
@@ -521,7 +574,7 @@ def get_points_projected_uv_and_depth(
     Returns:
         u: Tensor of shape (M, N) representing x-coordinates in the image plane.
         v: Tensor of shape (M, N) representing y-coordinates in the image plane.
-        depth: Tensor of shape (M, N) representing depth values.
+        depth: Tensor of shape (M, N) representing depth values. Depth to the camera
     """
     # Transform points to camera coordinates
     points_cam = masked_seed_points.unsqueeze(0) - optimized_camera_to_world[:, :3, 3].unsqueeze(1)  # (M, N, 3)

@@ -119,6 +119,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
     # Name of the output file.
     output_path: Path = Path("")
     top_k: int = 15
+    interpolate_camera: bool = True
 
     # inference
     inference_dataset: Literal["scannet200", "replica"] = "replica"
@@ -217,6 +218,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
         pred_classes = np.full(cls_num, 0)  
         for i in range(cls_num):
             boolean_mask = class_agnostic_3d_mask[:, i]
+            masked_seed_points0 = seed_points_0[boolean_mask]  # shape (N, 3)
             #get optimal camera indeces and bounding boxes for the object proposal
             best_camera_indices, bounding_boxes = object_optimal_k_camera_poses_bounding_box(
                                                         seed_points_0=seed_points_0,
@@ -234,7 +236,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 continue
             
             #get interpolated poses and its corresponding bounding boxes
-            interpolated_poses = interpolate_camera_poses_with_camera_trajectory(camera_to_world_opengl[best_camera_indices], bounding_boxes, K,W,H, 3)#get_interpolated_poses(adjusted_pose_a, adjusted_pose_b, steps=3)# SLERP interpolation        
+            interpolated_poses = interpolate_camera_poses_with_camera_trajectory(camera_to_world_opengl[best_camera_indices], masked_seed_points0, camera_interpolation)#get_interpolated_poses(adjusted_pose_a, adjusted_pose_b, steps=3)# SLERP interpolation
             interpolated_cameras = make_cameras(model.cameras[0:1], interpolated_poses)
             interpolated_poses_bounding_boxes = compute_camera_pose_bounding_boxes(
                                                     seed_points_0=seed_points_0,
@@ -246,50 +248,37 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                                                 )
             #make interpolated cameras
             interpolated_cameras = make_cameras(model.cameras[0:1], interpolated_poses)
-            ###debug pose####
-            debug_index = 0
-            with Image.open(model.image_file_names[best_camera_indices[debug_index]]) as img:
-                img = transforms.ToTensor()(img).cuda()  # (C,H,W)
-            min_u, min_v, max_u, max_v = bounding_boxes[debug_index]           
-            min_u, min_v, max_u, max_v = map(int, [min_u, min_v, max_u, max_v]) # Convert to integers for slicing
-            min_u, min_v = max(0, min_u), max(0, min_v)
-            max_u, max_v = min(W, max_u), min(H, max_v)
-            #Crop the image using valid indices
-            cropped_img = img[
-                :,min_v:max_v, min_u:max_u
-            ]
-
-            save_img(img.permute(1,2,0), f"tests/img_{debug_index}.png")
-            save_img(cropped_img.permute(1,2,0), f"tests/cropped_img_{debug_index}.png")
-            camera = interpolated_cameras[debug_index:debug_index+1]
-            nvs_mask_img = model.get_outputs(camera)["rgb"]#(H,W,3)
-            save_img(nvs_mask_img, f"tests/nvs_mask_img_{debug_index}.png")
-            import pdb;pdb.set_trace()
-            
             
             ########################inference (collect images for the 3D mask proposal)######################
             outputs = []
-            #loop through each interpolated camera pose
-            try:
-                for i_interpolated in range(interpolated_cameras.shape[0]):
-                    camera = interpolated_cameras[i_interpolated:i_interpolated+1]
-                    nvs_mask_img = model.get_outputs(camera)["rgb"]#(H,W,3)
-                    
-                    #croped nvs image
-                    min_u, min_v, max_u, max_v = interpolated_poses_bounding_boxes[i_interpolated]           
-                    min_u, min_v, max_u, max_v = map(int, [min_u, min_v, max_u, max_v]) # Convert to integers for slicing
-                    min_u, min_v = max(0, min_u), max(0, min_v)
-                    max_u, max_v = min(W, max_u), min(H, max_v)
-                    cropped_nvs_mask_image = nvs_mask_img[
-                        min_v:max_v, min_u:max_u
-                    ]
-                    outputs.append(cropped_nvs_mask_image.permute(2, 0, 1))#(C,H,W)
-                    
-                    save_img(cropped_nvs_mask_image, f"tests/cropped_nvs_mask_image_{i_interpolated}.png")
-            except:
-                import pdb;pdb.set_trace()
-                save_img(nvs_mask_img.permute(1,2,0), f"tests/cropped_nvs_mask_image_{i_interpolated}.png")
+            
+            ###################################Interpolated camera pose######################################
+            #render nvs images, crop them and save them, add to outputs
+            for interpolation_index in range(interpolated_cameras.shape[0]):
+                camera = interpolated_cameras[interpolation_index:interpolation_index+1]
+                nvs_img = model.get_outputs(camera)["rgb"]#(H,W,3)
+                #croped nvs image. 
+                min_u, min_v, max_u, max_v = interpolated_poses_bounding_boxes[interpolation_index]           
+                min_u, min_v, max_u, max_v = map(int, [min_u, min_v, max_u, max_v]) # Convert to integers for slicing
+                min_u, min_v = max(0, min_u), max(0, min_v)
+                max_u, max_v = min(W, max_u), min(H, max_v)
                 
+                cropped_nvs_img = nvs_img[
+                    min_v:max_v, min_u:max_u
+                ]
+                outputs.append(cropped_nvs_img.permute(2, 0, 1))#(C,H,W)
+
+                # #nvs mask image
+                # nvs_mask_img = model.get_outputs(camera)["rgb_mask"]#(H,W,3)
+                # cropped_nvs_mask_image = nvs_mask_img[
+                #     min_v:max_v, min_u:max_u
+                # ]
+                # outputs.append(cropped_nvs_mask_image.permute(2, 0, 1))#(C,H,W)
+                
+                # save_img(cropped_nvs_img, f"tests/cropped_nvs_image_{interpolation_index}.png")
+                # save_img(cropped_nvs_mask_image, f"tests/cropped_nvs_mask_image_{interpolation_index}.png")
+            #################################################################################################
+            
             # Loop through each dataset camera pose
             for index, pose_index in enumerate(best_camera_indices):
                 pose_index = pose_index.item()
@@ -329,7 +318,6 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     outputs.append(cropped_nvs_mask_image)
                     outputs.append(cropped_image)
                     #save_img(cropped_nvs_mask_image.permute(1, 2, 0), f"tests/cropped_image_{pose_index}.png")
-            # outputs = torch.stack(outputs)
             # (B,H,W,3)->(B,C,H,W)
             #  outputs = outputs.permute(0, 3, 1, 2)
 
@@ -342,7 +330,6 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
             )  # (B,200)
             # Aggregate scores across all images
             aggregated_scores = similarity_scores.sum(dim=0)  # Shape: (200,)
-            # normalized_scores = aggregated_scores / aggregated_scores.sum()
             # Find the text index with the maximum aggregated score
             max_ind = torch.argmax(aggregated_scores).item()  #
             pred_classes[i] = max_ind 
