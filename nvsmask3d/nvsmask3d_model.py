@@ -49,7 +49,6 @@ from nerfstudio.models.splatfacto import (
 from nerfstudio.viewer.viewer_elements import *
 from nvsmask3d.utils.camera_utils import (
     object_optimal_k_camera_poses,
-    compute_new_camera_pose_from_object_uv,
     get_camera_pose_in_opencv_convention,
     make_cameras,
     object_optimal_k_camera_poses_bounding_box,
@@ -211,8 +210,8 @@ class NVSMask3dModel(SplatfactoModel):
         mask_indices = self.points3D_mask[
             :, self.cls_index
         ]  # self.get_densified_mask_indices(self.cls_index) if self.config.add_means else self.points3D_mask[:, self.cls_index]
-        seed_points0 = self.seed_points[0].cuda()[mask_indices]
-        v2 = seed_points0.mean(dim=0)  #seed_points0_opengl.mean(dim=0)
+        masked_seed_points0 = self.seed_points[0].cuda()[mask_indices]
+        v2 = masked_seed_points0.mean(dim=0)  #seed_points0_opengl.mean(dim=0)
         v2 = v2 / torch.norm(v2)
         
         v1_a = -pose_a[:3, 2]
@@ -238,7 +237,8 @@ class NVSMask3dModel(SplatfactoModel):
         #get interpolated poses and its corresponding bounding boxes
         #interpolated_poses = interpolate_camera_poses_with_camera_trajectory(camera_to_world_opengl[best_camera_indices], bounding_boxes, K,W,H, 3)#get_interpolated_poses(adjusted_pose_a, adjusted_pose_b, steps=3)# SLERP interpolation        
         
-        interpolated_poses = get_interpolated_poses(pose_a, pose_b, steps=3)#torch.stack([pose_a, pose_b],dim=0)
+        # interpolated_poses = get_interpolated_poses(pose_a, pose_b, steps=3)#torch.stack([pose_a, pose_b],dim=0)
+        interpolated_poses = interpolate_camera_poses_with_camera_trajectory(camera_to_world_opengl[best_camera_indices], masked_seed_points0, 3)#get_interpolated_poses(adjusted_pose_a, adjusted_pose_b, steps=3)# SLERP interpolation
         interpolated_cameras = make_cameras(self.cameras[0:1], interpolated_poses)
         interpolated_poses_bounding_boxes = compute_camera_pose_bounding_boxes(
                                                 seed_points_0=self.seed_points[0].cuda(),

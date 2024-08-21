@@ -343,7 +343,7 @@ def compute_camera_pose_bounding_boxes(
     u, v, z = get_points_projected_uv_and_depth(masked_seed_points, optimized_camera_to_world, K)
     
     # Filter out invalid points (outside of the image boundaries or behind the camera)
-    valid_points = (u >= 0) & (u < W) & (v >= 0) & (v < H) & (z > 0)
+    valid_points = (u >= 0) & (u < W) & (v >= 0) & (v < H) & (z > 0)#TODO: z need to handle occulusion
 
     # Handle case where no valid points are found
     if not valid_points.any():
@@ -536,45 +536,52 @@ def get_points_projected_uv_and_depth(
 
     return u, v, depth
 
-def interpolate_camera_poses_with_camera_trajectory(poses, bounding_boxes,  K, W, H, steps_per_transition=10):
+def interpolate_camera_poses_with_camera_trajectory(poses, masked_seed_points0, steps_per_transition=10):
     """
-    Interpolates camera poses between the given camera poses using the camera trajectory. Including start pose amd end pose rotation adjustment based on bounding box.
+    Interpolates camera poses between the given camera poses on opencv convention by using the possible camera trajectory. 
+    Including start pose amd end pose rotation adjustment based on 3D object center point.
 
     Args:
-        poses (torch.Tensor): (M, 3, 4) c2w
-        K (torch.Tensor): (M, 3, 3) intrinsics
-        W (int): image width
-        H (int): image height
-        bounding_boxes (torch.Tensor): (M, 4) bounding boxes
+        poses (torch.Tensor): (M, 3, 4) c2w opengl convention
+        masked_seed_points0 (torch.Tensor): (N, 3) maked object point cloud opencv convention
         steps_per_transition (int, optional): The number of steps to interpolate between the two cameras. Defaults to 10.
 
     Returns:
         interpolated_camera_poses (torch.Tensor): (M * step_per_transition, 3, 4) interpolated camera-to-world matrices
     """
     
-    #poses = get_camera_pose_in_opencv_convention(poses)  # shape (M, 3, 4)
-    num_poses = poses.shape[0]
-
+    # prepare object center point (3, ) vector
+    v2 = masked_seed_points0.mean(dim=0)
+    v2 = v2 / torch.norm(v2)
+    
     # Interpolate camera poses
+    num_poses = poses.shape[0]
     interpolated_camera_poses = []
     for i in range(num_poses - 1):
         # Get the start and end camera poses
         pose_a = poses[i]
         pose_b = poses[i + 1]
-        # get bounding box
-        min_u_a, min_v_a, max_u_a, max_v_a = bounding_boxes[i]
-        min_u_b, min_v_b, max_u_b, max_v_b = bounding_boxes[i + 1]
         
-        # Adjust the start and end camera poses based on the bounding box
-        object_uv_a = torch.tensor([(min_u_a + max_u_a) / 2, (min_v_a + max_v_a) / 2], dtype=torch.float32)
-        pose_a = compute_new_camera_pose_from_object_uv(camera_pose = pose_a, object_uv=object_uv_a, K = K[i], image_width=W, image_height=H)
-        object_uv_b = torch.tensor([(min_u_b + max_u_b) / 2, (min_v_b + max_v_b) / 2], dtype=torch.float32)
-        pose_b = compute_new_camera_pose_from_object_uv(camera_pose = pose_b, object_uv=object_uv_b, K = K[i], image_width=W, image_height=H)
+        #prepare camera (3,) vector.
+        v1_a = -pose_a[:3, 2] # z-axis, filipped to opencv convention
+        v1_a = v1_a / torch.norm(v1_a)
+        v1_b = -pose_b[:3, 2]
+        v1_b = v1_b / torch.norm(v1_b)
+        
+        #get rotation matrix
+        R_a = rotate_vector_to_vector(v1_a, v2)
+        R_a = R_a @ pose_a[:3, :3]
+        pose_a[:3, :3] = R_a
+        R_b = rotate_vector_to_vector(v1_b, v2)
+        R_b = R_b @ pose_b[:3, :3]
+        pose_b[:3, :3] = R_b
+        
+        # Interpolate between the two camera poses
         poses_ab = get_interpolated_poses(pose_a, pose_b, steps=steps_per_transition)# SLERP interpolation
         interpolated_camera_poses.append(poses_ab)
 
     interpolated_camera_poses = torch.cat(interpolated_camera_poses, dim=0)
-    # Final shape will be [3*n, 3, 4]
+    # Final shape will be [steps*num_poses, 3, 4]
     return interpolated_camera_poses
 
 def ideal_K_inverse(K):
@@ -590,83 +597,6 @@ def ideal_K_inverse(K):
     ], device=K.device)
     
     return K_inv
-
-def compute_new_camera_pose_from_object_uv(camera_pose: torch.Tensor, object_uv: torch.Tensor, K: torch.Tensor, image_width: int, image_height: int) -> torch.Tensor:
-    """
-    Get a new camera pose, which is centered on the view direction towards to the given object UV position using Rodrigues' rotation formula.
-    
-    Args:
-    - camera_pose (torch.Tensor): Current 3x4 camera pose matrix (OpenCV convention).
-    - object_uv (torch.Tensor): Object coordinates on UV plane, shape(4,) min_u_b, min_v_b, max_u_b, max_v_b Assumes origin is top-left (OpenCV convention).
-    - K (torch.Tensor): Camera intrinsics matrix, shape (3, 3).
-    - image_width (int): Width of the image.
-    - image_height (int): Height of the image.
-    
-    Returns:
-    - torch.Tensor: New 3x4 camera pose matrix.
-    """
-
-    # Ensure all tensors are on the same device
-    device = camera_pose.device
-    object_uv = object_uv.to(device)
-    K = K.to(device)
-
-    # 1. Extract current rotation and translation from the camera pose.
-    R = camera_pose[:, :3]  # 3x3 rotation matrix
-    t = camera_pose[:, 3]  # 3x1 translation vector
-
-    # 2. Compute the center of the object UV region.
-    u_center = (object_uv[0] + object_uv[2]) / 2.0
-    v_center = (object_uv[1] + object_uv[3]) / 2.0
-
-    # 3. Convert the UV coordinates to normalized image coordinates.
-    u_norm = (u_center - image_width / 2.0) / (image_width / 2.0)
-    v_norm = (v_center - image_height / 2.0) / (image_height / 2.0)
-
-
-    # 4. Compute the corresponding 3D direction in camera space.
-    uv_homogeneous = torch.tensor([u_norm, v_norm, 1.0], device=device)  # homogeneous coordinates
-    direction_3d = torch.linalg.inv(K) @ uv_homogeneous
-
-    # Normalize the direction vector.
-    direction_3d /= torch.norm(direction_3d)
-
-    # 5. Determine the current camera's view direction (typically along the z-axis).
-    current_view_direction = R[:, 2]  # Z-axis direction in the camera space.
-
-    # 6. Compute the axis and angle needed for the rotation (Rodrigues' rotation formula).
-    axis = torch.cross(current_view_direction, direction_3d)
-    if torch.norm(axis) < 1e-6:
-        # If the axis is close to zero, it means the direction is already aligned.
-        return camera_pose
-
-    axis = axis / torch.norm(axis)  # Normalize the axis.
-
-    # Calculate the angle between the two vectors.
-    angle = torch.acos(torch.clamp(torch.dot(current_view_direction, direction_3d), -1.0, 1.0))
-
-    # If the angle is very small, no need to rotate.
-    if torch.abs(angle) < 1e-6:
-        return camera_pose
-
-    # Construct the skew-symmetric matrix for the axis.
-    K_matrix = torch.tensor([
-        [0, -axis[2], axis[1]],
-        [axis[2], 0, -axis[0]],
-        [-axis[1], axis[0], 0]
-    ], device=device)
-
-    # Compute the rotation matrix using Rodrigues' rotation formula.
-    R_new = torch.eye(3, device=device) + torch.sin(angle) * K_matrix + (1 - torch.cos(angle)) * (K_matrix @ K_matrix)
-
-    # 7. Update the camera's rotation.
-    R_updated = R_new @ R
-
-    # 8. Return the new 3x4 camera pose.
-    new_camera_pose = torch.cat((R_updated, t.unsqueeze(1)), dim=1)  # Concatenate rotation and translation.
-
-    return new_camera_pose
-
 
 def quaternion_from_matrix(matrix: Tensor) -> Tensor:
     """Convert a rotation matrix to a quaternion."""
@@ -744,9 +674,11 @@ def get_interpolated_poses(pose_a: Tensor, pose_b: Tensor, steps: int = 10) -> L
     """Return interpolation of poses with specified number of steps.
 
     Args:
-        pose_a: first pose.
-        pose_b: second pose.
+        pose_a: first pose. (3, 4)
+        pose_b: second pose. (3, 4)
         steps: number of steps the interpolated pose path should contain.
+    returns:
+        interpolated poses: (steps, 3, 4)
     """
     quat_a = quaternion_from_matrix(pose_a[:3, :3])
     quat_b = quaternion_from_matrix(pose_b[:3, :3])
@@ -754,13 +686,13 @@ def get_interpolated_poses(pose_a: Tensor, pose_b: Tensor, steps: int = 10) -> L
     quats = [quaternion_slerp(quat_a, quat_b, t.item()) for t in ts]
     trans = [(1 - t) * pose_a[:3, 3] + t * pose_b[:3, 3] for t in ts]
 
-    poses_ab = []  # 使用列表来存储结果
+    poses_ab = []  
     for quat, tran in zip(quats, trans):
         pose = torch.eye(4, device=pose_a.device)
         pose[:3, :3] = quaternion_matrix(quat)[:3, :3]
         pose[:3, 3] = tran
         poses_ab.append(pose[:3, :])  # 将每个pose添加到列表中
-    # 最后将列表中的张量堆叠成一个Tensor
+
     return torch.stack(poses_ab, dim=0)
 
 
