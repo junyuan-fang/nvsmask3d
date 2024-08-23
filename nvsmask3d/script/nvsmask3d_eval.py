@@ -380,13 +380,6 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
             pred_classes[i] = max_ind  # max_ind_remapped
         return pred_classes
 
-# def conditional_weighted_similarity(mean_scores, std_scores, threshold=0.3, alpha=1.0, beta=1.0):
-#     if mean_scores.max() > threshold:
-#         # 仅在均值相似度超过阈值时考虑标准差
-#         return alpha * mean_scores - beta * std_scores
-#     else:
-#         return mean_scores  # 直接使用均值
-
 
 Commands = tyro.conf.FlagConversionOff[
     Union[

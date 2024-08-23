@@ -203,48 +203,6 @@ class OpenCLIPNetwork(BaseImageEncoder):
         processed_images = [self.process(img) for img in input]
         batch_tensor = torch.stack(processed_images).half()  # Shape (B, C, H, W)
         return self.model.encode_image(batch_tensor)
-    # @torch.no_grad()
-    # def classify_images(self, images: torch.Tensor, batch_size = 10) -> str:
-    #     """
-    #     Args:
-    #         images: a list [] of images (torch.Tensor). (C,W,H) in a list  # (B,C,H,W)
-
-    #     Returns:
-    #         str: inference object text
-    #     """
-    #     results = []
-    #     phrases_embeds = self.pos_embeds.to(images[0].dtype).half()
-
-    #     # Process images in batches
-    #     for batch_start in range(0, len(images), batch_size):
-    #         batch_images = images[batch_start:batch_start + batch_size]
-
-    #         # Encode each image in the batch
-    #         embeddings = [self.encode_image(img.unsqueeze(0)) for img in batch_images]
-    #         embed = torch.cat(embeddings, dim=0)
-
-    #         # Clear intermediate tensors to free memory
-    #         del embeddings
-    #         torch.cuda.empty_cache()
-
-    #         output = torch.mm(embed, phrases_embeds.T)
-
-    #         # Calculate softmax and store results
-    #         for i in range(embed.shape[0]):
-    #             probs = F.softmax(output[i], dim=-1)
-    #             highest_score_index = probs.argmax(dim=-1).item()
-    #             highest_score_value = probs[highest_score_index].item()
-    #             results.append((self.positives[highest_score_index], highest_score_value))
-
-    #         # Clear processed tensors to free memory
-    #         del embed, output
-    #         torch.cuda.empty_cache()
-
-    #     # Return the class with the highest score across all images
-    #     positive = max(results, key=lambda x: x[1])[0]
-
-    #     return positive
-    
     @torch.no_grad()
     def classify_images(self, images: torch.Tensor, batch_size = 10) -> str:
         """
@@ -254,52 +212,94 @@ class OpenCLIPNetwork(BaseImageEncoder):
         Returns:
             str: inference object text
         """
-        
-        # Find the maximum width and height across all images
-        max_width = max(img.shape[2] for img in images)
-        max_height = max(img.shape[1] for img in images)
-
-        def pad_image(img):
-            # Pad the image to the max width and height
-            padding = (0, max_width - img.shape[2], 0, max_height - img.shape[1])
-            return F.pad(img, padding, mode='constant', value=0)
-
-        # Pad all images to the same size
-        padded_images = [pad_image(img) for img in images]
-
-        all_logits = []
+        results = []
+        phrases_embeds = self.pos_embeds.to(images[0].dtype).half()
 
         # Process images in batches
-        for batch_start in range(0, len(padded_images), batch_size):
-            batch_images = padded_images[batch_start:batch_start + batch_size]
+        for batch_start in range(0, len(images), batch_size):
+            batch_images = images[batch_start:batch_start + batch_size]
 
-            # Stack images into a single batch for efficient encoding
-            image_batch = torch.stack(batch_images).cuda()  # Shape: (B, C, max_height, max_width)
-
-            # Encode all images in the batch in one go (batch processing)
-            embed = self.encode_image(image_batch).to(self.pos_embeds.dtype)  # Shape: (B, D)
-
-            # Prepare phrase embeddings
-            phrases_embeds = self.pos_embeds.to(embed.device)  # Shape: (C, D)
-
-            # Perform matrix multiplication for logits
-            logits = torch.matmul(embed, phrases_embeds.T)  # Shape: (B, C)
-
-            # Store logits for averaging later
-            all_logits.append(logits)
+            # Encode each image in the batch
+            embeddings = [self.encode_image(img.unsqueeze(0)) for img in batch_images]
+            embed = torch.cat(embeddings, dim=0)
 
             # Clear intermediate tensors to free memory
-            del image_batch, embed, logits
+            del embeddings
             torch.cuda.empty_cache()
 
-        # Concatenate logits from all batches
-        all_logits = torch.cat(all_logits, dim=0)  # Shape: (P, C)
+            output = torch.mm(embed, phrases_embeds.T)
 
-        # Compute the average logits across all images
-        averaged_logits = all_logits.mean(dim=0)  # Shape: (C,)
+            # Calculate softmax and store results
+            for i in range(embed.shape[0]):
+                probs = F.softmax(output[i], dim=-1)
+                highest_score_index = probs.argmax(dim=-1).item()
+                highest_score_value = probs[highest_score_index].item()
+                results.append((self.positives[highest_score_index], highest_score_value))
 
-        # Find the class with the highest score
-        positive_index = torch.argmax(averaged_logits).item()
-        positive = self.positives[positive_index]
+            # Clear processed tensors to free memory
+            del embed, output
+            torch.cuda.empty_cache()
+
+        # Return the class with the highest score across all images
+        positive = max(results, key=lambda x: x[1])[0]
 
         return positive
+    
+    # @torch.no_grad()
+    # def classify_images(self, images: torch.Tensor, batch_size = 10) -> str:
+    #     """
+    #     Args:
+    #         images: a list [] of images (torch.Tensor). (C,W,H) in a list  # (B,C,H,W)
+
+    #     Returns:
+    #         str: inference object text
+    #     """
+        
+    #     # Find the maximum width and height across all images
+    #     max_width = max(img.shape[2] for img in images)
+    #     max_height = max(img.shape[1] for img in images)
+
+    #     def pad_image(img):
+    #         # Pad the image to the max width and height
+    #         padding = (0, max_width - img.shape[2], 0, max_height - img.shape[1])
+    #         return F.pad(img, padding, mode='constant', value=0)
+
+    #     # Pad all images to the same size
+    #     padded_images = [pad_image(img) for img in images]
+
+    #     all_logits = []
+
+    #     # Process images in batches
+    #     for batch_start in range(0, len(padded_images), batch_size):
+    #         batch_images = padded_images[batch_start:batch_start + batch_size]
+
+    #         # Stack images into a single batch for efficient encoding
+    #         image_batch = torch.stack(batch_images).cuda()  # Shape: (B, C, max_height, max_width)
+
+    #         # Encode all images in the batch in one go (batch processing)
+    #         embed = self.encode_image(image_batch).to(self.pos_embeds.dtype)  # Shape: (B, D)
+
+    #         # Prepare phrase embeddings
+    #         phrases_embeds = self.pos_embeds.to(embed.device)  # Shape: (C, D)
+
+    #         # Perform matrix multiplication for logits
+    #         logits = torch.matmul(embed, phrases_embeds.T)  # Shape: (B, C)
+
+    #         # Store logits for averaging later
+    #         all_logits.append(logits)
+
+    #         # Clear intermediate tensors to free memory
+    #         del image_batch, embed, logits
+    #         torch.cuda.empty_cache()
+
+    #     # Concatenate logits from all batches
+    #     all_logits = torch.cat(all_logits, dim=0)  # Shape: (P, C)
+
+    #     # Compute the average logits across all images
+    #     averaged_logits = all_logits.mean(dim=0)  # Shape: (C,)
+
+    #     # Find the class with the highest score
+    #     positive_index = torch.argmax(averaged_logits).item()
+    #     positive = self.positives[positive_index]
+
+    #     return positive
