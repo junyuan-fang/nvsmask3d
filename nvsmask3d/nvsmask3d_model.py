@@ -306,7 +306,6 @@ class NVSMask3dModel(SplatfactoModel):
         # (B,H,W,3)->(B,C,H,W) no more
         # output = output.permute(0, 3, 1, 2)
         #print gpu memory
-        print(torch.cuda.memory_summary())
         texts = self.image_encoder.classify_images(outputs)
         self.output_text.value = texts
         return
