@@ -352,11 +352,9 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 # )
                 ######################################################
 
-                # append nvs mask3d outputs
-
-            # outputs = torch.stack(outputs)
-            # (B,H,W,3)->(B,C,H,W)
-            #  outputs = outputs.permute(0, 3, 1, 2)
+            # Clear intermediate memory before encoding
+            del img, nvs_mask_img
+            torch.cuda.empty_cache()
 
             # output is a list, which has tensors of the shape (C,H,W)
             mask_features = model.image_encoder.encode_batch_list_image(
@@ -378,6 +376,11 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
 
             # max_ind_remapped = model.image_encoder.label_mapper[max_ind], replica no need remapping
             pred_classes[i] = max_ind  # max_ind_remapped
+         
+            # Clear batch-specific outputs after processing
+            del outputs, mask_features, similarity_scores
+            torch.cuda.empty_cache()
+            
         return pred_classes
 
 
