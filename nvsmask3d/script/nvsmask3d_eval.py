@@ -219,7 +219,6 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
         # boolean_masks = torch.from_numpy(class_agnostic_3d_mask).bool().to('cuda')  # shape (N, 166)
 
         ################for inference################
-        N = class_agnostic_3d_mask.shape[0]
         cls_num = class_agnostic_3d_mask.shape[1]
         # pred_classes = torch.full(
         #     (N,), -1, dtype=torch.int64, device="cuda"
@@ -240,6 +239,8 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 W=W,
                 H=H,
                 boolean_mask=boolean_mask,  # select i_th mask
+                # depth_filenames=model.depth_file_names,
+                # depth_scale=model.depth_scale,
                 k_poses=self.top_k,
             )
             if best_camera_indices.shape[0] == 0:
@@ -318,18 +319,14 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 ]  # ["rgb_mask"]  # (H,W,3)
                 # nvs_img = model.get_outputs(single_camera)["rgb"]  # (H,W,3)
                 min_u, min_v, max_u, max_v = bounding_boxes[index]
-                if any(
-                    map(lambda x: torch.isinf(x) or x < 0, [min_u, min_v, max_u, max_v])
-                ):
-                    print(
-                        f"Skipping cropping for image {pose_index} due to invalid bounding box"
-                    )
+                if any(map(lambda x: torch.isinf(x) or x < 0, [min_u, min_v, max_u, max_v])):
+                    print(f"Skipping cropping for image {pose_index} due to invalid bounding box")
                     cropped_image = img  # Use the whole image if bbox is invalid
                     outputs.append(cropped_image)
                 else:
                     # Convert to integers for slicing
                     min_u, min_v, max_u, max_v = map(int, [min_u, min_v, max_u, max_v])
-                    C, H, W = img.shape
+                    _, H, W = img.shape
                     # Ensure the indices are within image bounds
                     min_u, min_v = max(0, min_u), max(0, min_v)
                     max_u, max_v = min(W, max_u), min(H, max_v)
@@ -363,20 +360,11 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
             similarity_scores = torch.mm(
                 mask_features, model.image_encoder.pos_embeds.T
             )  # (B,200)
-            # Aggregate scores across all images
-            # aggregated_scores = similarity_scores.sum(dim=0)  # Shape: (200,)
             mean_scores = similarity_scores.mean(dim=0)  # Shape: (200,)
-            # std_scores = similarity_scores.std(dim=0)  # Shape: (200,)
-            # weighted_scores = conditional_weighted_similarity(
-            #     mean_scores, std_scores
-            # )
-            # Find the text index with the maximum aggregated score
             max_ind = torch.argmax(mean_scores).item()
-            #max_ind = torch.argmax(mean_scores).item()  #
-
             # max_ind_remapped = model.image_encoder.label_mapper[max_ind], replica no need remapping
             pred_classes[i] = max_ind  # max_ind_remapped
-         
+            
             # Clear batch-specific outputs after processing
             del outputs, mask_features, similarity_scores
             torch.cuda.empty_cache()

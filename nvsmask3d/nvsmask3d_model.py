@@ -186,63 +186,67 @@ class NVSMask3dModel(SplatfactoModel):
             W=W,
             H=H,
             boolean_mask=self.points3D_mask[:, self.cls_index],
-            k_poses=5,
+            depth_filenames=self.metadata["depth_filenames"],
+            depth_scale=self.depth_scale,
+            k_poses=15,
         )
         if len(best_camera_indices) < 1:
             print("No optimal camera indices found")
             return
             
         #######################debug #############################
-        with Image.open(self.image_file_names[best_camera_indices[0]]) as img:
-            img = transforms.ToTensor()(img).cuda()  # (C,H,W)
-        save_img(img.permute(1, 2, 0), f"tests/image_{0}.png")
-        index_a = best_camera_indices[0]
-        index_b = best_camera_indices[1]
-        cameara = self.cameras[index_a:index_a+1]
-        camera_b = self.cameras[index_b:index_b+1]
+        # with Image.open(self.image_file_names[best_camera_indices[0]]) as img:
+        #     img = transforms.ToTensor()(img).cuda()  # (C,H,W)
+        # save_img(img.permute(1, 2, 0), f"tests/image_{0}.png")
+        # index_a = best_camera_indices[0]
+        # index_b = best_camera_indices[1]
+        # cameara = self.cameras[index_a:index_a+1]
+        # camera_b = self.cameras[index_b:index_b+1]
         
-        nvs_imga = self.get_outputs(cameara)["rgb"]#(H,W,3)
-        nvs_imgb = self.get_outputs(camera_b)["rgb"]#(H,W,3)
-        save_img(nvs_imga, f"tests/nvs_imga.png")
-        save_img(nvs_imgb, f"tests/nvs_imgb.png")
+        # nvs_imga = self.get_outputs(cameara)["rgb"]#(H,W,3)
+        # nvs_imgb = self.get_outputs(camera_b)["rgb"]#(H,W,3)
+        # save_img(nvs_imga, f"tests/nvs_imga.png")
+        # save_img(nvs_imgb, f"tests/nvs_imgb.png")
         
-        pose_a = camera_to_world_opengl[index_a] #camera_to_world_opengl[index_a]
-        pose_b = camera_to_world_opengl[index_b] #camera_to_world_opengl[index_b]
-        # get bounding box
+        # pose_a = camera_to_world_opengl[index_a] #camera_to_world_opengl[index_a]
+        # pose_b = camera_to_world_opengl[index_b] #camera_to_world_opengl[index_b]
+        # # get bounding box
 
-        ##get object vector
-        mask_indices = self.points3D_mask[
-            :, self.cls_index
-        ]  # self.get_densified_mask_indices(self.cls_index) if self.config.add_means else self.points3D_mask[:, self.cls_index]
-        masked_seed_points0 = self.seed_points[0].cuda()[mask_indices]
-        v2 = masked_seed_points0.mean(dim=0)  #seed_points0_opengl.mean(dim=0)
-        v2 = v2 / torch.norm(v2)
+        # ##get object vector
+        # mask_indices = self.points3D_mask[
+        #     :, self.cls_index
+        # ]  # self.get_densified_mask_indices(self.cls_index) if self.config.add_means else self.points3D_mask[:, self.cls_index]
+        # masked_seed_points0 = self.seed_points[0].cuda()[mask_indices]
+        # v2 = masked_seed_points0.mean(dim=0)  #seed_points0_opengl.mean(dim=0)
+        # v2 = v2 / torch.norm(v2)
         
-        v1_a = -pose_a[:3, 2]
-        v1_a = v1_a / torch.norm(v1_a) 
-        R = rotate_vector_to_vector(v1_a, v2)
-        R_a = R @ pose_a[:3, :3]
-        pose_a[:3, :3] = R_a
+        # v1_a = -pose_a[:3, 2]
+        # v1_a = v1_a / torch.norm(v1_a) 
+        # R = rotate_vector_to_vector(v1_a, v2)
+        # R_a = R @ pose_a[:3, :3]
+        # pose_a[:3, :3] = R_a
         
-        v1_b = -pose_b[:3, 2]
-        v1_b = v1_b / torch.norm(v1_b)
-        R = rotate_vector_to_vector(v1_b, v2)
-        R_b = R @ pose_b[:3, :3]
-        pose_b[:3, :3] = R_b
+        # v1_b = -pose_b[:3, 2]
+        # v1_b = v1_b / torch.norm(v1_b)
+        # R = rotate_vector_to_vector(v1_b, v2)
+        # R_b = R @ pose_b[:3, :3]
+        # pose_b[:3, :3] = R_b
         
-        camera_a = make_cameras(self.cameras[0:1], pose_a.unsqueeze(0))
-        camera_b = make_cameras(self.cameras[0:1], pose_b.unsqueeze(0))
-        nvs_mask_img_a = self.get_outputs(camera_a)["rgb"]#(H,W,3)
-        nvs_mask_img_b = self.get_outputs(camera_b)["rgb"]#(H,W,3)
-        save_img(nvs_mask_img_a, f"tests/nvs_mask_img_a.png")
-        save_img(nvs_mask_img_b, f"tests/nvs_mask_img_b.png")
+        # camera_a = make_cameras(self.cameras[0:1], pose_a.unsqueeze(0))
+        # camera_b = make_cameras(self.cameras[0:1], pose_b.unsqueeze(0))
+        # nvs_mask_img_a = self.get_outputs(camera_a)["rgb"]#(H,W,3)
+        # nvs_mask_img_b = self.get_outputs(camera_b)["rgb"]#(H,W,3)
+        # save_img(nvs_mask_img_a, f"tests/nvs_mask_img_a.png")
+        # save_img(nvs_mask_img_b, f"tests/nvs_mask_img_b.png")
 
         ##########################################################
         #get interpolated poses and its corresponding bounding boxes
         #interpolated_poses = interpolate_camera_poses_with_camera_trajectory(camera_to_world_opengl[best_camera_indices], bounding_boxes, K,W,H, 3)#get_interpolated_poses(adjusted_pose_a, adjusted_pose_b, steps=3)# SLERP interpolation        
-        
-        # interpolated_poses = get_interpolated_poses(pose_a, pose_b, steps=3)#torch.stack([pose_a, pose_b],dim=0)
-        interpolated_poses = interpolate_camera_poses_with_camera_trajectory(camera_to_world_opengl[best_camera_indices], masked_seed_points0, 3)#get_interpolated_poses(adjusted_pose_a, adjusted_pose_b, steps=3)# SLERP interpolation
+        mask_indices = self.points3D_mask[
+            :, self.cls_index
+        ]
+        masked_seed_points0 = self.seed_points[0].cuda()[mask_indices]
+        interpolated_poses = interpolate_camera_poses_with_camera_trajectory(camera_to_world_opengl[best_camera_indices], masked_seed_points0, 2)#get_interpolated_poses(adjusted_pose_a, adjusted_pose_b, steps=3)# SLERP interpolation
         interpolated_cameras = make_cameras(self.cameras[0:1], interpolated_poses)
         interpolated_poses_bounding_boxes = compute_camera_pose_bounding_boxes(
                                                 seed_points_0=self.seed_points[0].cuda(),
@@ -262,7 +266,6 @@ class NVSMask3dModel(SplatfactoModel):
             nvs_mask_img = self.get_outputs(camera)["rgb_mask"]#(H,W,3)
             nvs_img = self.get_outputs(camera)["rgb"]#(H,W,3)
 
-            
             #croped nvs image
             min_u, min_v, max_u, max_v = interpolated_poses_bounding_boxes[i]           
             min_u, min_v, max_u, max_v = map(int, [min_u, min_v, max_u, max_v]) # Convert to integers for slicing
@@ -279,7 +282,7 @@ class NVSMask3dModel(SplatfactoModel):
             save_img(cropped_nvs_img, f"tests/cropped_nvs_image_{i}.png")
             save_img(cropped_nvs_mask_image, f"tests/cropped_nvs_mask_image_{i}.png")
 
-        #render gt cropped images, add to outputs
+        #ground truth, masked gt rendered by gaussians
         for index, pose_index in enumerate(best_camera_indices):
             camera = self.cameras[pose_index : pose_index + 1]
             nvs_mask_img = self.get_outputs(camera)["rgb_mask"]#(H,W,3)
@@ -294,13 +297,15 @@ class NVSMask3dModel(SplatfactoModel):
             cropped_img = img[
                 :,min_v:max_v, min_u:max_u
             ]
-            cropped_nvs_img = nvs_mask_img[
+            cropped_nvs_mask_img = nvs_mask_img[
                 min_v:max_v, min_u:max_u
             ]
-            outputs.append(cropped_nvs_img.permute(2, 0, 1))#(C,H,W)
+            outputs.append(cropped_nvs_mask_img.permute(2, 0, 1))#(C,H,W)
+            save_img(cropped_nvs_mask_img, f"tests/cropped_nvs_masked_img_origin_pose_{index}.png")
+
             outputs.append(cropped_img)
             save_img(cropped_img.permute(1,2,0), f"tests/cropped_img_{index}.png")
-            save_img(cropped_nvs_img, f"tests/cropped_nvs_img_origin_pose_{index}.png")
+
 
         #output = torch.stack(outputs)
         # (B,H,W,3)->(B,C,H,W) no more

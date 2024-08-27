@@ -283,42 +283,42 @@ def object_optimal_k_camera_poses_bounding_box(
     # z is the depth of the point in the camera coordinate system.
     u, v, z = get_points_projected_uv_and_depth(masked_seed_points, optimized_camera_to_world, K)#shape (M, N)
     valid_points = (u >= 0) & (u < W) & (v >= 0) & (v < H) & (z > 0)
-    # if depth_filenames:
-    #     #load depth image
-    #     depth_maps = load_depth_maps(depth_filenames, depth_scale, device = seed_points_0.device)
-    #     #valid_points = torch.abs((depth_maps[u[valid_points].long(), v[valid_points].long()]- depth_maps) <= vis_depth_threshold)
+    if depth_filenames:        
+        #load depth image
+        depth_maps = load_depth_maps(depth_filenames, depth_scale, device = seed_points_0.device)
+        #valid_points = torch.abs((depth_maps[u[valid_points].long(), v[valid_points].long()]- depth_maps) <= vis_depth_threshold)
 
-    #     # Calculate valid point indices
-    #     u_valid = u[valid_points].long()
-    #     v_valid = v[valid_points].long()
+        # Calculate valid point indices
+        u_valid = u[valid_points].long()
+        v_valid = v[valid_points].long()
 
-    #     # Get depth values at valid points for each depth map
-    #     depth_at_valid_points = depth_maps[
-    #         torch.arange(depth_maps.shape[0], device=depth_maps.device).unsqueeze(1),
-    #         v_valid.unsqueeze(0).expand(depth_maps.shape[0], -1),
-    #         u_valid.unsqueeze(0).expand(depth_maps.shape[0], -1)
-    #     ]
+        # Get depth values at valid points for each depth map
+        depth_at_valid_points = depth_maps[
+            torch.arange(depth_maps.shape[0], device=depth_maps.device).unsqueeze(1),
+            v_valid.unsqueeze(0).expand(depth_maps.shape[0], -1),
+            u_valid.unsqueeze(0).expand(depth_maps.shape[0], -1)
+        ]
 
-    #     # Flatten depth maps for easy indexing
-    #     depth_maps_flat = depth_maps.view(depth_maps.shape[0], -1)
+        # Flatten depth maps for easy indexing
+        depth_maps_flat = depth_maps.view(depth_maps.shape[0], -1)
 
-    #     # Calculate pixel indices for valid points
-    #     pixel_indices = v_valid * W + u_valid
+        # Calculate pixel indices for valid points
+        pixel_indices = v_valid * W + u_valid
 
-    #     # Compare depth values
-    #     valid_points_depth_comparison = torch.abs(
-    #         depth_at_valid_points - depth_maps_flat[:, pixel_indices]
-    #     ) <= vis_depth_threshold
+        # Compare depth values
+        valid_points_depth_comparison = torch.abs(
+            depth_at_valid_points - depth_maps_flat[:, pixel_indices]
+        ) <= vis_depth_threshold
 
-    #     # Clone the valid points mask before updating to avoid in-place modification issues
-    #     valid_points_cloned = valid_points.clone()
-    #     valid_points_cloned[valid_points] = valid_points_depth_comparison.all(dim=0)
+        # Clone the valid points mask before updating to avoid in-place modification issues
+        valid_points_cloned = valid_points.clone()
+        valid_points_cloned[valid_points] = valid_points_depth_comparison.all(dim=0)
 
-    #     valid_points = valid_points_cloned
+        valid_points = valid_points_cloned
 
-    #     # Cleanup
-    #     del depth_maps, depth_maps_flat, depth_at_valid_points
-    #     torch.cuda.empty_cache()
+        # Cleanup
+        del depth_maps, depth_maps_flat, depth_at_valid_points
+        torch.cuda.empty_cache()
         
     if valid_points.any().item() != True:
         print("No valid points found")
