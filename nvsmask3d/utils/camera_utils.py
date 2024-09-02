@@ -247,7 +247,7 @@ def object_optimal_k_camera_poses(
 
 
 @torch.no_grad()
-def process_depth_maps_in_chunks(depth_maps, u_valid, v_valid, z_valid, chunk_size=50, vis_depth_threshold=0.4):
+def process_depth_maps_in_chunks(depth_maps, u_valid, v_valid, z_valid, chunk_size=100, vis_depth_threshold=0.4):
     """
     Processes depth maps in chunks and compares them with the provided z values to filter valid depths.
 
@@ -270,11 +270,7 @@ def process_depth_maps_in_chunks(depth_maps, u_valid, v_valid, z_valid, chunk_si
         depth_maps_chunk = depth_maps[start:end]
 
         # Efficiently index and process the chunk
-        depth_at_valid_points = depth_maps_chunk[
-            torch.arange(end - start, device=depth_maps.device).unsqueeze(1),
-            v_valid.expand(end - start, -1),
-            u_valid.expand(end - start, -1)
-        ]
+        depth_at_valid_points = depth_maps_chunk[:, v_valid, u_valid]
 
         # Compare depth_at_valid_points with z_valid using the threshold
         valid_chunk = torch.abs(depth_at_valid_points - z_valid) <= vis_depth_threshold
@@ -423,10 +419,13 @@ def compute_camera_pose_bounding_boxes(
     valid_points = (u >= 0) & (u < W) & (v >= 0) & (v < H) & (z > 0)
 
     # Handle cases where no valid points are found for any camera
+    # if not valid_points.any():
+    #     print("No valid points found for any camera pose")
+    #     return torch.empty((optimized_camera_to_world.shape[0], 4), device="cuda")  # Return empty bounding boxes
     if not valid_points.any():
-        print("No valid points found for any camera pose")
-        return torch.empty((optimized_camera_to_world.shape[0], 4), device="cuda")  # Return empty bounding boxes
-
+        print("No valid points found")
+        return torch.tensor([]), torch.tensor([])
+    
     # Calculate min and max u and v for valid points for each camera
     min_u, _ = u.masked_fill(~valid_points, float("inf")).min(dim=1)  # shape (M,)
     max_u, _ = u.masked_fill(~valid_points, float("-inf")).max(dim=1)

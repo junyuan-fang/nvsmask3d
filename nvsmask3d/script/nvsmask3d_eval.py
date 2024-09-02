@@ -246,57 +246,66 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
             # ########################inference######################
             outputs = []
             
-            # #get interpolated poses and its corresponding bounding boxes
-            # interpolated_poses = interpolate_camera_poses_with_camera_trajectory(camera_to_world_opengl[best_camera_indices], seed_points_0[boolean_mask], camera_interpolation)#get_interpolated_poses(adjusted_pose_a, adjusted_pose_b, steps=3)# SLERP interpolation
-            # interpolated_cameras = make_cameras(model.cameras[0:1], interpolated_poses)
-            # interpolated_poses_bounding_boxes = compute_camera_pose_bounding_boxes(
-            #                                         seed_points_0=model.seed_points[0].cuda(),
-            #                                         optimized_camera_to_world=get_camera_pose_in_opencv_convention(interpolated_poses),
-            #                                         K=interpolated_cameras.get_intrinsics_matrices().to(device="cuda"), 
-            #                                         W=W, 
-            #                                         H=H,
-            #                                         boolean_mask=model.points3D_mask[:, model.cls_index]#model.points3D_mask[:, self.cls_index],
-            #                                     )
-            # ###################################Interpolated camera pose######################################
-            #render nvs images, crop them and save them, add to outputs
-            # for interpolation_index in range(interpolated_cameras.shape[0]):
-            #     camera = interpolated_cameras[interpolation_index:interpolation_index+1]
-            #     #croped nvs image. 
-            #     min_u, min_v, max_u, max_v = interpolated_poses_bounding_boxes[interpolation_index]           
-            #     if any(
-            #         map(lambda x: torch.isinf(x) or x < 0, [min_u, min_v, max_u, max_v])
-            #     ):
-            #         print(
-            #             f"Skipping cropping for image {pose_index} due to invalid bounding box"
-            #         )
-            #         nvs_img = model.get_outputs(camera)["rgb"]#(H,W,3)
-            #         outputs.append(nvs_img)
-            #         nvs_mask_img = model.get_outputs(camera)["rgb_mask"]#(H,W,3)
-            #         outputs.append(nvs_mask_img)
-            #     else:
-            #         min_u, min_v, max_u, max_v = map(int, [min_u, min_v, max_u, max_v]) # Convert to integers for slicing
-            #         min_u, min_v = max(0, min_u), max(0, min_v)
-            #         max_u, max_v = min(W, max_u), min(H, max_v)
-                    
-            #         nvs_img = model.get_outputs(camera)["rgb"]#(H,W,3)
-            #         cropped_nvs_img = nvs_img[
-            #             min_v:max_v, min_u:max_u
-            #         ]
-            #         try:
-            #             save_img(cropped_nvs_img, f"tests/cropped_nvs_image_{interpolation_index}.png")
-            #         except:
-            #             continue
-            #             #import pdb;pdb.set_trace()
-            #         outputs.append(cropped_nvs_img.permute(2, 0, 1))#(C,H,W)
+                # Interpolate camera poses and bounding boxes
+            interpolated_poses = interpolate_camera_poses_with_camera_trajectory(
+                camera_to_world_opengl[best_camera_indices],
+                seed_points_0[boolean_mask],
+                camera_interpolation
+            )
+            interpolated_cameras = make_cameras(model.cameras[0:1], interpolated_poses)
 
-            #         #nvs mask image
-            #         nvs_mask_img = model.get_outputs(camera)["rgb_mask"]#(H,W,3)
-            #         cropped_nvs_mask_image = nvs_mask_img[
-            #             min_v:max_v, min_u:max_u
-            #         ]
-            #         outputs.append(cropped_nvs_mask_image.permute(2, 0, 1))#(C,H,W)
+            interpolated_poses_bounding_boxes = compute_camera_pose_bounding_boxes(
+                seed_points_0=model.seed_points[0].cuda(),
+                optimized_camera_to_world=get_camera_pose_in_opencv_convention(interpolated_poses),
+                K=interpolated_cameras.get_intrinsics_matrices().to(device="cuda"),
+                W=W,
+                H=H,
+                boolean_mask=boolean_mask
+            )
+
+            # Render NVS images, crop, save, and add to outputs
+            for interpolation_index in range(interpolated_cameras.shape[0]):
+                camera = interpolated_cameras[interpolation_index:interpolation_index+1]
+
+                min_u, min_v, max_u, max_v = interpolated_poses_bounding_boxes[interpolation_index]
+                # Unpack bounding box
+                min_u = 0 if min_u == float('-inf') else min_u
+                min_v = 0 if min_v == float('-inf') else min_v
+                max_u = W if max_u == float('inf') else max_u
+                max_v = H if max_v == float('inf') else max_v
+                
+                min_u, min_v, max_u, max_v = map(int, [min_u, min_v, max_u, max_v])
+
+                # Clamp values to ensure they are within the valid range
+                min_u = max(0, min(min_u, W - 1))
+                min_v = max(0, min(min_v, H - 1))
+                max_u = max(0, min(max_u, W))
+                max_v = max(0, min(max_v, H))
+
+                # Get output dimensions to validate bounding box
+                nvs_img = model.get_outputs(camera)["rgb"]  # (H, W, 3)
+
+                # Check if bounding box is valid
+                if min_u < max_u and min_v < max_v:
+                    cropped_nvs_img = nvs_img[min_v:max_v, min_u:max_u]
+                    outputs.append(cropped_nvs_img.permute(2, 0, 1))  # (C, H, W)
+
+                    # Save the cropped image
+                    try:
+                        save_img(cropped_nvs_img, f"tests/cropped_nvs_image_{interpolation_index}.png")
+                    except Exception as e:
+                        print(f"Failed to save image {interpolation_index}: {e}")
+                        continue
+
+                    # Process and crop the nvs mask image
+                    nvs_mask_img = model.get_outputs(camera)["rgb_mask"]  # (H, W, 3)
+                    cropped_nvs_mask_image = nvs_mask_img[min_v:max_v, min_u:max_u].permute(2, 0, 1)  # (C, H, W)
+                    outputs.append(cropped_nvs_mask_image)
+                else:
+                    print(f"Invalid bounding box for image {interpolation_index}: "
+                        f"min_u={min_u}, max_u={max_u}, min_v={min_v}, max_v={max_v}")
                     
-            #         # save_img(cropped_nvs_mask_image, f"tests/cropped_nvs_mask_image_{interpolation_index}.png")
+                    # save_img(cropped_nvs_mask_image, f"tests/cropped_nvs_mask_image_{interpolation_index}.png")
             #################################################################################################
             
             #gt camera pose
@@ -315,30 +324,34 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 ]  # ["rgb_mask"]  # (H,W,3)
                 # nvs_img = model.get_outputs(single_camera)["rgb"]  # (H,W,3)
                 min_u, min_v, max_u, max_v = bounding_boxes[index]
+                min_u = 0 if min_u == float('-inf') else min_u
+                min_v = 0 if min_v == float('-inf') else min_v
+                max_u = W if max_u == float('inf') else max_u
+                max_v = H if max_v == float('inf') else max_v
+                
                 min_u, min_v, max_u, max_v = map(int, [min_u, min_v, max_u, max_v])
                 _, H, W = img.shape
 
-                # 确保裁剪边界在图像范围内
-                min_u = max(0, min_u)
-                min_v = max(0, min_v)
-                max_u = min(W, max_u)
-                max_v = min(H, max_v)
+                # Clamp values to ensure they are within the valid range
+                min_u = max(0, min(min_u, W - 1))
+                min_v = max(0, min(min_v, H - 1))
+                max_u = max(0, min(max_u, W))
+                max_v = max(0, min(max_v, H))
 
                 # 检查裁剪区域是否有效（确保裁剪区域有正面积）
                 if min_u < max_u and min_v < max_v:
                     # 如果有效，则裁剪图像
                     cropped_image = img[:, min_v:max_v, min_u:max_u]
                     cropped_nvs_mask_image = nvs_mask_img[min_v:max_v, min_u:max_u].permute(2, 0, 1)
-                    outputs.append(cropped_image)
-                else:
-                    # 如果无效，使用整个图像并记录日志
+                    #outputs.append(cropped_image)
+                    outputs.append(cropped_nvs_mask_image)
+
+                else:# skip
                     print(f"Invalid bounding box for image {pose_index}: "
                         f"min_u={min_u}, max_u={max_u}, min_v={min_v}, max_v={max_v}")
-                    outputs.append(img)  # 添加未裁剪的图像
-                    cropped_nvs_mask_image = nvs_mask_img.permute(2, 0, 1)
+                    #outputs.append(img)  # 添加未裁剪的图像
+                    #cropped_nvs_mask_image = nvs_mask_img.permute(2, 0, 1)
 
-                # 无论裁剪是否成功，都会添加到输出列表中
-                outputs.append(cropped_nvs_mask_image)
 
 
                 ###################save rendered image#################
@@ -356,6 +369,9 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 del img, nvs_mask_img, cropped_nvs_mask_image
             torch.cuda.empty_cache()
 
+            if len(outputs) == 0:
+                print(f"Skipping inference for mask {i} due to no valid camera poses")
+                continue
             # output is a list, which has tensors of the shape (C,H,W)
             mask_features = model.image_encoder.encode_batch_list_image(
                 outputs
