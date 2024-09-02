@@ -245,6 +245,49 @@ def object_optimal_k_camera_poses(
 
     return best_poses  # Cameras torch.Size([k_poses])
 
+
+@torch.no_grad()
+def process_depth_maps_in_chunks(depth_maps, u_valid, v_valid, z_valid, chunk_size=50, vis_depth_threshold=0.4):
+    """
+    Processes depth maps in chunks and compares them with the provided z values to filter valid depths.
+
+    Args:
+        depth_maps (torch.Tensor): Tensor of shape (M, H, W), containing depth maps.
+        u_valid (torch.Tensor): Tensor of valid u coordinates of shape (N,).
+        v_valid (torch.Tensor): Tensor of valid v coordinates of shape (N,).
+        z_valid (torch.Tensor): Tensor of valid z values of shape (N,).
+        chunk_size (int): Number of depth maps to process per chunk.
+        vis_depth_threshold (float): Visibility depth threshold for comparison.
+
+    Returns:
+        torch.Tensor: A flattened boolean tensor indicating valid depth points across all chunks.
+    """
+    valid_depths = torch.zeros_like(z_valid, dtype=torch.bool)  # Initialize to False
+
+    # Iterate over chunks
+    for start in range(0, depth_maps.shape[0], chunk_size):
+        end = min(start + chunk_size, depth_maps.shape[0])
+        depth_maps_chunk = depth_maps[start:end]
+
+        # Efficiently index and process the chunk
+        depth_at_valid_points = depth_maps_chunk[
+            torch.arange(end - start, device=depth_maps.device).unsqueeze(1),
+            v_valid.expand(end - start, -1),
+            u_valid.expand(end - start, -1)
+        ]
+
+        # Compare depth_at_valid_points with z_valid using the threshold
+        valid_chunk = torch.abs(depth_at_valid_points - z_valid) <= vis_depth_threshold
+        
+        # Update the valid_depths tensor
+        valid_depths |= valid_chunk.any(dim=0)
+
+        # Cleanup after processing each chunk
+        del depth_maps_chunk, depth_at_valid_points, valid_chunk
+        torch.cuda.empty_cache()
+
+    return valid_depths  # Return a flattened tensor
+
 @torch.no_grad()
 def object_optimal_k_camera_poses_bounding_box(
     seed_points_0,
@@ -253,9 +296,11 @@ def object_optimal_k_camera_poses_bounding_box(
     W,
     H,
     boolean_mask,
-    depth_filenames = None,
-    depth_scale = None,
+    depth_filenames=None,
+    depth_scale=None,
     k_poses=2,
+    chunk_size=50,
+    vis_depth_threshold=0.4,
 ):
     """
     Selects the top k optimal camera poses based on the visibility score of the 3D mask.
@@ -273,54 +318,36 @@ def object_optimal_k_camera_poses_bounding_box(
 
     Returns:
         best_poses_indices (torch.Tensor): (k_poses,) on cpu
-        final_bounding_boxes (torch.Tensor): (k_poses, 4) on cpu,normalized to [0,1]
+        final_bounding_boxes (torch.Tensor): (k_poses, 4) on cpu, normalized to [0,1]
     """
 
     masked_seed_points = seed_points_0[boolean_mask]  # shape (N, 3)
-    # Vectorized computation for all camera poses.For example. 
-    # For example each point in the u is the x coordinate of the point in the image plane. 
-    # v is the y coordinate of the point in the image plane. 
-    # z is the depth of the point in the camera coordinate system.
-    u, v, z = get_points_projected_uv_and_depth(masked_seed_points, optimized_camera_to_world, K)#shape (M, N)
+    u, v, z = get_points_projected_uv_and_depth(masked_seed_points, optimized_camera_to_world, K)  # shape (M, N)
     valid_points = (u >= 0) & (u < W) & (v >= 0) & (v < H) & (z > 0)
-    if depth_filenames:        
-        #load depth image
-        depth_maps = load_depth_maps(depth_filenames, depth_scale, device = seed_points_0.device)
-        #valid_points = torch.abs((depth_maps[u[valid_points].long(), v[valid_points].long()]- depth_maps) <= vis_depth_threshold)
+
+    if depth_filenames:
+        # Load depth image
+        depth_maps = load_depth_maps(depth_filenames, depth_scale, device=seed_points_0.device).half()
 
         # Calculate valid point indices
         u_valid = u[valid_points].long()
         v_valid = v[valid_points].long()
+        z_valid = z[valid_points]  # Keep as float for accuracy
 
-        # Get depth values at valid points for each depth map
-        depth_at_valid_points = depth_maps[
-            torch.arange(depth_maps.shape[0], device=depth_maps.device).unsqueeze(1),
-            v_valid.unsqueeze(0).expand(depth_maps.shape[0], -1),
-            u_valid.unsqueeze(0).expand(depth_maps.shape[0], -1)
-        ]
+        # Process depth maps in chunks
+        valid_depths = process_depth_maps_in_chunks(depth_maps, u_valid, v_valid, z_valid, chunk_size=chunk_size, vis_depth_threshold=vis_depth_threshold)
 
-        # Flatten depth maps for easy indexing
-        depth_maps_flat = depth_maps.view(depth_maps.shape[0], -1)
+        # Update valid_points directly using the valid_depths
+        valid_points_clone = valid_points.clone()
+        valid_points_clone[valid_points] = valid_depths
 
-        # Calculate pixel indices for valid points
-        pixel_indices = v_valid * W + u_valid
-
-        # Compare depth values
-        valid_points_depth_comparison = torch.abs(
-            depth_at_valid_points - depth_maps_flat[:, pixel_indices]
-        ) <= vis_depth_threshold
-
-        # Clone the valid points mask before updating to avoid in-place modification issues
-        valid_points_cloned = valid_points.clone()
-        valid_points_cloned[valid_points] = valid_points_depth_comparison.all(dim=0)
-
-        valid_points = valid_points_cloned
+        valid_points = valid_points_clone
 
         # Cleanup
-        del depth_maps, depth_maps_flat, depth_at_valid_points
+        del depth_maps, valid_depths, valid_points_clone
         torch.cuda.empty_cache()
         
-    if valid_points.any().item() != True:
+    if not valid_points.any():
         print("No valid points found")
         return torch.tensor([]), torch.tensor([])
 
@@ -330,8 +357,6 @@ def object_optimal_k_camera_poses_bounding_box(
     min_v, _ = v.masked_fill(~valid_points, float("inf")).min(dim=1)
     max_v, _ = v.masked_fill(~valid_points, float("-inf")).max(dim=1)
 
-    # check the shape of the min_u, max_u, min_v, max_v
-    # print(u[valid_points].max())
     # Handle -inf and inf by finding the largest/smallest valid coordinates
     max_u = torch.where(max_u == float("-inf"), u[valid_points].max(), max_u)
     max_v = torch.where(max_v == float("-inf"), v[valid_points].max(), max_v)
@@ -350,7 +375,6 @@ def object_optimal_k_camera_poses_bounding_box(
 
     # Ensure indices are on the CPU
     best_poses_indices = best_poses_indices.cpu()
-    # best_poses = camera[best_poses_indices]
 
     # Prepare final bounding boxes for visualization
     final_bounding_boxes = torch.stack(
@@ -363,10 +387,8 @@ def object_optimal_k_camera_poses_bounding_box(
         dim=1,
     )  # (k_poses, 4)
 
-    return (
-        best_poses_indices,
-        final_bounding_boxes,
-    )  # Returns both the best camera poses and their bounding boxes
+    return best_poses_indices, final_bounding_boxes
+
     
 @torch.no_grad()
 def compute_camera_pose_bounding_boxes(

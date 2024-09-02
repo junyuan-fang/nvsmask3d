@@ -218,15 +218,10 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
         # Convert class-agnostic mask to a boolean tensor and move to GPU
         # boolean_masks = torch.from_numpy(class_agnostic_3d_mask).bool().to('cuda')  # shape (N, 166)
 
-        ################for inference################
         cls_num = class_agnostic_3d_mask.shape[1]
-        # pred_classes = torch.full(
-        #     (N,), -1, dtype=torch.int64, device="cuda"
-        # ) # shape (N,)
-        #############################################
-        # Loop through each mask
         pred_classes = np.full(cls_num, 0)  # -1)
-
+        
+        # Loop through each mask
         for i in range(cls_num):
             boolean_mask = class_agnostic_3d_mask[:, i]
             (
@@ -239,8 +234,8 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 W=W,
                 H=H,
                 boolean_mask=boolean_mask,  # select i_th mask
-                # depth_filenames=model.depth_file_names,
-                # depth_scale=model.depth_scale,
+                depth_filenames=model.metadata["depth_filenames"],
+                depth_scale=model.depth_scale,
                 k_poses=self.top_k,
             )
             if best_camera_indices.shape[0] == 0:
@@ -304,6 +299,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
             #         # save_img(cropped_nvs_mask_image, f"tests/cropped_nvs_mask_image_{interpolation_index}.png")
             #################################################################################################
             
+            #gt camera pose
             for index, pose_index in enumerate(best_camera_indices):
                 pose_index = pose_index.item()
 
@@ -319,26 +315,30 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 ]  # ["rgb_mask"]  # (H,W,3)
                 # nvs_img = model.get_outputs(single_camera)["rgb"]  # (H,W,3)
                 min_u, min_v, max_u, max_v = bounding_boxes[index]
-                if any(map(lambda x: torch.isinf(x) or x < 0, [min_u, min_v, max_u, max_v])):
-                    print(f"Skipping cropping for image {pose_index} due to invalid bounding box")
-                    cropped_image = img  # Use the whole image if bbox is invalid
+                min_u, min_v, max_u, max_v = map(int, [min_u, min_v, max_u, max_v])
+                _, H, W = img.shape
+
+                # 确保裁剪边界在图像范围内
+                min_u = max(0, min_u)
+                min_v = max(0, min_v)
+                max_u = min(W, max_u)
+                max_v = min(H, max_v)
+
+                # 检查裁剪区域是否有效（确保裁剪区域有正面积）
+                if min_u < max_u and min_v < max_v:
+                    # 如果有效，则裁剪图像
+                    cropped_image = img[:, min_v:max_v, min_u:max_u]
+                    cropped_nvs_mask_image = nvs_mask_img[min_v:max_v, min_u:max_u].permute(2, 0, 1)
                     outputs.append(cropped_image)
                 else:
-                    # Convert to integers for slicing
-                    min_u, min_v, max_u, max_v = map(int, [min_u, min_v, max_u, max_v])
-                    _, H, W = img.shape
-                    # Ensure the indices are within image bounds
-                    min_u, min_v = max(0, min_u), max(0, min_v)
-                    max_u, max_v = min(W, max_u), min(H, max_v)
+                    # 如果无效，使用整个图像并记录日志
+                    print(f"Invalid bounding box for image {pose_index}: "
+                        f"min_u={min_u}, max_u={max_u}, min_v={min_v}, max_v={max_v}")
+                    outputs.append(img)  # 添加未裁剪的图像
+                    cropped_nvs_mask_image = nvs_mask_img.permute(2, 0, 1)
 
-                    # Crop the image using valid indices
-                    cropped_image = img[:, min_v:max_v, min_u:max_u]
-                    #outputs.append(cropped_image)
-                    cropped_nvs_mask_image = nvs_mask_img[
-                        min_v:max_v, min_u:max_u
-                    ].permute(2, 0, 1)
-                    outputs.append(cropped_nvs_mask_image)
-                    outputs.append(cropped_image)
+                # 无论裁剪是否成功，都会添加到输出列表中
+                outputs.append(cropped_nvs_mask_image)
 
 
                 ###################save rendered image#################
@@ -350,7 +350,10 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 ######################################################
 
             # Clear intermediate memory before encoding
-            del img, nvs_mask_img
+            if 'cropped_image' in locals():
+                del img, nvs_mask_img, cropped_image, cropped_nvs_mask_image
+            else:
+                del img, nvs_mask_img, cropped_nvs_mask_image
             torch.cuda.empty_cache()
 
             # output is a list, which has tensors of the shape (C,H,W)
@@ -360,8 +363,13 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
             similarity_scores = torch.mm(
                 mask_features, model.image_encoder.pos_embeds.T
             )  # (B,200)
-            mean_scores = similarity_scores.mean(dim=0)  # Shape: (200,)
-            max_ind = torch.argmax(mean_scores).item()
+            #aggregate similarity scores
+            scores = similarity_scores.sum(dim=0)  # Shape: (200,)
+            max_ind = torch.argmax(scores).item()
+            #mean scores
+            # mean_scores = similarity_scores.mean(dim=0)  # Shape: (200,)
+            # max_ind = torch.argmax(mean_scores).item()
+            
             # max_ind_remapped = model.image_encoder.label_mapper[max_ind], replica no need remapping
             pred_classes[i] = max_ind  # max_ind_remapped
             
