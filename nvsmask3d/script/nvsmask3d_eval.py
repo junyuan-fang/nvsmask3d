@@ -301,9 +301,9 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     ##################################
 
                     # Process and crop the nvs mask image, seems will make inference worse
-                    # nvs_mask_img = model.get_outputs(camera)["rgb_mask"]  # (H, W, 3)
-                    # cropped_nvs_mask_image = nvs_mask_img[min_v:max_v, min_u:max_u].permute(2, 0, 1)  # (C, H, W)
-                    # outputs.append(cropped_nvs_mask_image)###########################################################################gaussian#####################################################################
+                    nvs_mask_img = model.get_outputs(camera)["rgb_mask"]  # (H, W, 3)
+                    cropped_nvs_mask_image = nvs_mask_img[min_v:max_v, min_u:max_u].permute(2, 0, 1)  # (C, H, W)
+                    outputs.append(cropped_nvs_mask_image)###########################################################################gaussian#####################################################################
                 else:
                     print(f"Invalid bounding box for image {interpolation_index}: "
                         f"min_u={min_u}, max_u={max_u}, min_v={min_v}, max_v={max_v}")
@@ -380,25 +380,34 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 print(f"Skipping inference for mask {i} due to no valid camera poses")
                 continue
             # output is a list, which has tensors of the shape (C,H,W)
-            mask_features = model.image_encoder.encode_batch_list_image(
-                outputs
-            )  # (B,512)
-            similarity_scores = torch.mm(
-                mask_features, model.image_encoder.pos_embeds.T
-            )  # (B,200)
-            #aggregate similarity scores
-            scores = similarity_scores.sum(dim=0)  # Shape: (200,)
-            max_ind = torch.argmax(scores).item()
-            #mean scores
-            # mean_scores = similarity_scores.mean(dim=0)  # Shape: (200,)
-            # max_ind = torch.argmax(mean_scores).item()
             
-            # max_ind_remapped = model.image_encoder.label_mapper[max_ind], replica no need remapping
-            pred_classes[i] = max_ind  # max_ind_remapped
             
-            # Clear batch-specific outputs after processing
-            del outputs, mask_features, similarity_scores
-            torch.cuda.empty_cache()
+            with torch.no_grad():
+                mask_features = model.image_encoder.encode_batch_list_image(
+                    outputs
+                )  # (B,512)
+                similarity_scores = torch.mm(
+                    mask_features, model.image_encoder.pos_embeds.T
+                )  # (B,200)
+                #aggregate similarity scores 你目前是将批次中的相似度分数进行求和（sum），这可能会导致信息丢失，尤其是在增强视图之间存在较大差异的情况下。
+                # scores = similarity_scores.sum(dim=0)  # Shape: (200,)
+                # max_ind = torch.argmax(scores).item()
+                
+                #mean scores
+                # mean_scores = similarity_scores.mean(dim=0)  # Shape: (200,)
+                # max_ind = torch.argmax(mean_scores).item()
+                
+                #max pooling
+                scores, _ = similarity_scores.max(dim=0)  # Shape: (200,)
+                max_ind = torch.argmax(scores).item()
+
+                
+                # max_ind_remapped = model.image_encoder.label_mapper[max_ind], replica no need remapping
+                pred_classes[i] = max_ind  # max_ind_remapped
+                
+                # Clear batch-specific outputs after processing
+                del outputs, mask_features, similarity_scores
+                torch.cuda.empty_cache()
             
         return pred_classes
 
