@@ -265,6 +265,8 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
         
         # Loop through each mask
         for i in range(cls_num):
+            # set instance
+            model.cls_index = i
             boolean_mask = class_agnostic_3d_mask[:, i]
             (
                 best_camera_indices,
@@ -370,8 +372,6 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
 
                 single_camera = model.cameras[pose_index : pose_index + 1]
                 assert single_camera.shape[0] == 1, "Only one camera at a time"
-                # set instance
-                model.cls_index = i
                 # img = model.get_outputs(single_camera)["rgb_mask"]#["rgb"]#
                 with Image.open(model.image_file_names[pose_index]) as img:
                     img = transforms.ToTensor()(img).cuda()  # (C,H,W)
