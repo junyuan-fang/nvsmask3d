@@ -4,7 +4,7 @@ import math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, Type
-
+import os
 import cv2
 import numpy as np
 from nerfstudio.plugins.registry_dataparser import DataParserSpecification
@@ -213,8 +213,9 @@ class ReplicaNvsmask3D(DataParser):
                 self.config.data / "replica_masks" / (self.config.sequence + ".pt")
             )
             #load gt masks for amblation study
+            current_dir = os.getcwd()
             mask_path = (
-                Path("/home/wangs9/junyuan/nerfstudio-nvsmask3d/nvsmask3d/data/Replica/replica_ground_truth_masks") / (self.config.sequence + ".pt")
+                Path(current_dir) / "nvsmask3d/data/Replica/replica_ground_truth_masks" / (self.config.sequence + ".pt")
             )
             mask_data = self._load_mask(mask_path)
             if mask_data is not None:

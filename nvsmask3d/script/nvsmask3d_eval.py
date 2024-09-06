@@ -15,9 +15,10 @@
 #!/usr/bin/env python
 """
 eval.py
+ns-eval for_ap --load_config nvsmask3d/data/replica
 """
-
 from __future__ import annotations
+import wandb
 from PIL import Image
 import torchvision.transforms as transforms
 from nvsmask3d.utils.utils import save_img
@@ -29,8 +30,6 @@ from typing import Optional
 from typing import Literal, Optional, Tuple, Union
 import torch
 from nvsmask3d.utils.camera_utils import (
-    object_optimal_k_camera_poses,
-    optimal_k_camera_poses_of_scene,
     get_camera_pose_in_opencv_convention,
     object_optimal_k_camera_poses_bounding_box,
     interpolate_camera_poses_with_camera_trajectory,
@@ -45,10 +44,39 @@ from nvsmask3d.eval.scannet200.eval_semantic_instance import (
     evaluate as evaluate_scannet200,
 )
 from nvsmask3d.eval.replica.eval_semantic_instance import evaluate as evaluate_replica
-
+from nvsmask3d.eval.replica.eval_semantic_instance import (
+    CLASS_LABELS as REPLICA_CLASSES,
+)
 import tyro
 from nerfstudio.utils.eval_utils import eval_setup
 from nerfstudio.utils.rich_utils import CONSOLE
+# Function to concatenate images horizontally and vertically
+def concat_images_horizontally(imgs):
+    widths, heights = zip(*(i.size for i in imgs))
+    total_width = sum(widths)
+    max_height = max(heights)
+
+    new_img = Image.new('RGB', (total_width, max_height))
+    x_offset = 0
+    for img in imgs:
+        new_img.paste(img, (x_offset, 0))
+        x_offset += img.size[0]
+    return new_img
+
+def concat_images_vertically(imgs):
+    if len(imgs) == 0:  # Ensure there's at least one image
+        raise ValueError("No images to concatenate vertically!")
+    
+    widths, heights = zip(*(i.size for i in imgs))
+    max_width = max(widths)
+    total_height = sum(heights)
+
+    new_img = Image.new('RGB', (max_width, total_height))
+    y_offset = 0
+    for img in imgs:
+        new_img.paste(img, (0, y_offset))
+        y_offset += img.size[1]
+    return new_img
 
 
 @dataclass
@@ -125,6 +153,18 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
     inference_dataset: Literal["scannet200", "replica"] = "replica"
 
     def main(self) -> None:
+        # Initialize a new run in WandB
+        # 假设从配置或命令行参数中读取 project_name 和 run_name
+        project_name = "nvsmask3d_evaluation"
+        run_name = "test_img_saving"
+
+        # 初始化 WandB
+        wandb.init(project=project_name, name=run_name, config={
+            "top_k": 15,
+            "camera_interpolation": 1,
+            "inference_mode": "rgb+masked_gaussian",
+        })
+
         gt_dir = self.load_config / "ground_truth"
         if self.inference_dataset == "replica":
             scene_names = [
@@ -179,6 +219,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     class_agnostic_3d_mask=model.points3D_mask,
                     seed_points_0=seed_points_0,
                     k_poses=2,
+                    scene_name=scene_name,
                 )
                 pred_masks = model.points3D_mask.cpu().numpy()  # move to cpu
                 pred_scores = np.ones(pred_classes.shape[0])
@@ -195,8 +236,9 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 inst_AP = evaluate_replica(
                     preds, gt_dir, output_file="output.txt", dataset="replica"
                 )
+                wandb.log({"mAP": inst_AP})
 
-    def pred_classes(self, model, class_agnostic_3d_mask, seed_points_0, k_poses=2,camera_interpolation = 1):
+    def pred_classes(self, model, class_agnostic_3d_mask, seed_points_0, k_poses=2,camera_interpolation = 1, scene_name=""):
         """
         Args:
         model (NVSMask3DModel): The model to use for inference
@@ -262,6 +304,9 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 H=H,
                 boolean_mask=boolean_mask
             )
+            #restore img for wandb
+            interpolated_images = []
+            gt_images = []
 
             # Render NVS images, crop, save, and add to outputs
             for interpolation_index in range(interpolated_cameras.shape[0]):
@@ -290,7 +335,10 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     #Get output dimensions to validate bounding box
                     nvs_img = model.get_outputs(camera)["rgb"]  # (H, W, 3)
                     cropped_nvs_img = nvs_img[min_v:max_v, min_u:max_u]
-                    outputs.append(cropped_nvs_img.permute(2, 0, 1))  # (C, H, W) ######################################################rgb##################################################################
+                    cropped_nvs_img = cropped_nvs_img.permute(2, 0, 1) # (H, W, 3)
+                    outputs.append(cropped_nvs_img)  # (C, H, W) ######################################################rgb##################################################################
+                    cropped_nvs_img = cropped_nvs_img.cpu()
+                    nvs_img_pil = transforms.ToPILImage()(cropped_nvs_img)
                     #############debug################
                     # Save the cropped image
                     # try:
@@ -300,17 +348,22 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     #     continue  
                     ##################################
 
-                    # Process and crop the nvs mask image, seems will make inference worse
+                    # # Process and crop the nvs mask image, seems will make inference worse
                     nvs_mask_img = model.get_outputs(camera)["rgb_mask"]  # (H, W, 3)
                     cropped_nvs_mask_image = nvs_mask_img[min_v:max_v, min_u:max_u].permute(2, 0, 1)  # (C, H, W)
                     outputs.append(cropped_nvs_mask_image)###########################################################################gaussian#####################################################################
+                    cropped_nvs_mask_image = cropped_nvs_mask_image.cpu()
+                    nvs_mask_img_pil = transforms.ToPILImage()(cropped_nvs_mask_image)
+                    # Combine GT image and mask horizontally
+                    combined_nvs_image = concat_images_vertically([nvs_img_pil, nvs_mask_img_pil])
+                    interpolated_images.append(combined_nvs_image)
                 else:
                     print(f"Invalid bounding box for image {interpolation_index}: "
                         f"min_u={min_u}, max_u={max_u}, min_v={min_v}, max_v={max_v}")
                     
                     # save_img(cropped_nvs_mask_image, f"tests/cropped_nvs_mask_image_{interpolation_index}.png")
             #################################################################################################
-            
+
             #gt camera pose
             for index, pose_index in enumerate(best_camera_indices):
                 pose_index = pose_index.item()
@@ -344,17 +397,23 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     # 如果有效，则裁剪图像
                     cropped_image = img[:, min_v:max_v, min_u:max_u]
                     outputs.append(cropped_image)#######################################################################################rgb#####################
+                    cropped_image = cropped_image.cpu()
+                    gt_img_pil = transforms.ToPILImage()(cropped_image)
 
                     nvs_mask_img = model.get_outputs(single_camera)["rgb_mask"]  # ["rgb_mask"]  # (H,W,3)
                     cropped_nvs_mask_image = nvs_mask_img[min_v:max_v, min_u:max_u].permute(2, 0, 1)
                     outputs.append(cropped_nvs_mask_image)#############################################################################gaussian###################
+                    cropped_nvs_mask_image = cropped_nvs_mask_image.cpu()
+                    gt_mask_img_pil = transforms.ToPILImage()(cropped_nvs_mask_image)
+                    # Combine GT image and mask horizontally
+                    combined_gt_image = concat_images_vertically([gt_img_pil, gt_mask_img_pil])
+                    gt_images.append(combined_gt_image)
 
                 else:# skip
                     print(f"Invalid bounding box for image {pose_index}: "
                         f"min_u={min_u}, max_u={max_u}, min_v={min_v}, max_v={max_v}")
                     #outputs.append(img)  # 添加未裁剪的图像
                     #cropped_nvs_mask_image = nvs_mask_img.permute(2, 0, 1)
-
 
 
                 ###################save rendered image#################
@@ -394,12 +453,12 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 # max_ind = torch.argmax(scores).item()
                 
                 #mean scores
-                # mean_scores = similarity_scores.mean(dim=0)  # Shape: (200,)
-                # max_ind = torch.argmax(mean_scores).item()
+                mean_scores = similarity_scores.mean(dim=0)  # Shape: (200,)
+                max_ind = torch.argmax(mean_scores).item()
                 
                 #max pooling
-                scores, _ = similarity_scores.max(dim=0)  # Shape: (200,)
-                max_ind = torch.argmax(scores).item()
+                # scores, _ = similarity_scores.max(dim=0)  # Shape: (200,)
+                # max_ind = torch.argmax(scores).item()
 
                 
                 # max_ind_remapped = model.image_encoder.label_mapper[max_ind], replica no need remapping
@@ -408,6 +467,20 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 # Clear batch-specific outputs after processing
                 del outputs, mask_features, similarity_scores
                 torch.cuda.empty_cache()
+                
+                # Combine all interpolated images vertically and log to WandB
+                if len(interpolated_images) > 0:
+                    final_interpolated_image = concat_images_horizontally(interpolated_images)
+                    wandb.log({f"Scene: {scene_name}": wandb.Image(final_interpolated_image, caption=f"Interpolated Image for object {i}, predected class: {REPLICA_CLASSES[max_ind]}" )},step = i)
+                else:
+                    print(f"No interpolated images available for object {i}")
+            
+                # Combine all GT images vertically and log to WandB
+                if len(gt_images) > 0:
+                    final_gt_image = concat_images_horizontally(gt_images)
+                    wandb.log({f"Scene {scene_name}": wandb.Image(final_gt_image, caption=f"GT Camera Pose for object {i}, predected class: {REPLICA_CLASSES[max_ind]}")}, step= i)
+                else:
+                    print(f"No GT images available for object {i}")
             
         return pred_classes
 

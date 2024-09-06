@@ -6,6 +6,7 @@ nerfstudio/
 semantic-gaussians/
 *json
 OpenYOLO3D*
+wandb/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
