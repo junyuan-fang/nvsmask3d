@@ -50,7 +50,7 @@ from nvsmask3d.eval.replica.eval_semantic_instance import (
 import tyro
 from nerfstudio.utils.eval_utils import eval_setup
 from nerfstudio.utils.rich_utils import CONSOLE
-from nvsmask3d.utils.utils import concat_images_vertically, concat_images_horizontally
+from nvsmask3d.utils.utils import concat_images_vertically, concat_images_horizontally,log_evaluation_results_to_wandb
 
 @dataclass
 class ComputePSNR:
@@ -92,8 +92,6 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
 
     # Path to config YAML file.
     load_config: Path = Path("nvsmask3d/data/replica")
-    # Name of the output file.
-    output_path: Path = Path("")
     top_k: int = 15
     visibility_score: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] = lambda num_visible_points, bounding_box_area: num_visible_points
     occlusion_aware: Optional[bool] = True
@@ -107,21 +105,21 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
     # inference
     inference_dataset: Literal["scannet200", "replica"] = "replica"
 
-    def __post_init__(self):
-        # 如果没有提供 run_name_for_wandb，就自动生成一个基于参数的名字
-        if self.run_name_for_wandb is None:
-            self.run_name_for_wandb = self.generate_run_name()
+    # def __post_init__(self):
+    #     # 如果没有提供 run_name_for_wandb，就自动生成一个基于参数的名字
+    #     if self.run_name_for_wandb is None:
+    #         self.run_name_for_wandb = self.generate_run_name()
 
-    def generate_run_name(self) -> str:
-        """根据实验参数生成合理的 WandB run name."""
-        occlusion_str = "occ-aware" if self.occlusion_aware else "no-occ"
-        rgb_camera_str = f"rgb-cam-{self.interpolate_n_rgb_camera}" if self.gt_camera_rgb else "no-rgb-cam"
-        gaussian_camera_str = f"gaussian-cam-{self.interpolate_n_gaussian_camera}" if self.gt_camera_gaussian else "no-gaussian-cam"
-        interpolation_str = f"interp-{self.interpolate_n_camera}-cam"
+    # def generate_run_name(self) -> str:
+    #     """根据实验参数生成合理的 WandB run name."""
+    #     occlusion_str = "occ-aware" if self.occlusion_aware else "no-occ"
+    #     rgb_camera_str = f"rgb-cam-{self.interpolate_n_rgb_camera}" if self.gt_camera_rgb else "no-rgb-cam"
+    #     gaussian_camera_str = f"gaussian-cam-{self.interpolate_n_gaussian_camera}" if self.gt_camera_gaussian else "no-gaussian-cam"
+    #     interpolation_str = f"interp-{self.interpolate_n_camera}-cam"
         
-        # 生成实验名字
-        run_name = f"{self.project_name}_topk-{self.top_k}_{occlusion_str}_{interpolation_str}_{rgb_camera_str}_{gaussian_camera_str}"
-        return run_name
+    #     # 生成实验名字
+    #     run_name = f"{self.project_name}_topk-{self.top_k}_{occlusion_str}_{interpolation_str}_{rgb_camera_str}_{gaussian_camera_str}"
+    #     return run_name
 
     def main(self) -> None:
         # Initialize a new run in WandB
@@ -204,7 +202,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 inst_AP = evaluate_replica(
                     preds, gt_dir, output_file="output.txt", dataset="replica"
                 )
-                wandb.log({"mAP": inst_AP})
+                log_evaluation_results_to_wandb(inst_AP)
 
     def pred_classes(self, model, class_agnostic_3d_mask, seed_points_0, scene_name=""):
         """
@@ -454,7 +452,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 # Combine all GT images vertically and log to WandB
                 if len(gt_images) > 0 and 'gt_images' in locals():
                     final_gt_image = concat_images_horizontally(gt_images)
-                    wandb.log({f"Scene {scene_name}": wandb.Image(final_gt_image, caption=f"GT Camera Pose for object {i}, predected class: {REPLICA_CLASSES[max_ind]}")}, step= i)
+                    wandb.log({f"Scene: {scene_name}": wandb.Image(final_gt_image, caption=f"GT Camera Pose for object {i}, predected class: {REPLICA_CLASSES[max_ind]}")}, step= i)
                 else:
                     print(f"No GT images available for object {i}")
             

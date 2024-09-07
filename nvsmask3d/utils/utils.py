@@ -947,3 +947,24 @@ def concat_images_vertically(imgs):
         new_img.paste(img, (0, y_offset))
         y_offset += img.size[1]
     return new_img
+
+import wandb
+
+def log_evaluation_results_to_wandb(avgs):
+    # 创建 WandB 表格
+    table = wandb.Table(columns=["Class", "AP", "AP_50%", "AP_25%"])
+    
+    # 将每个类别的评估结果添加到表格中
+    for class_name, class_metrics in avgs["classes"].items():
+        table.add_data(
+            class_name,
+            class_metrics["ap"],
+            class_metrics["ap50%"],
+            class_metrics["ap25%"]
+        )
+    
+    # 添加整体平均结果到表格
+    table.add_data("Average", avgs["all_ap"], avgs["all_ap_50%"], avgs["all_ap_25%"])
+    
+    # 记录到 WandB
+    wandb.log({"Evaluation Results": table})
