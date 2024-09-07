@@ -125,13 +125,6 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
         # Initialize a new run in WandB
         # 假设从配置或命令行参数中读取 project_name 和 run_name
 
-        # 初始化 WandB
-        wandb.init(project=self.project_name, name=self.run_name_for_wandb, config={
-            "top_k": self.top_k,
-            "camera_interpolation": 1,#TODO
-            "inference_mode": "rgb+masked_gaussian",#TODO
-        })
-
         gt_dir = self.load_config / "ground_truth"
         if self.inference_dataset == "replica":
             scene_names = [

@@ -2,7 +2,7 @@ import torch
 from pathlib import Path
 from typing import Callable, Optional
 from nvsmask3d.script.nvsmask3d_eval import ComputeForAP  # 导入你的 ComputeForAP 类
-import tqdm
+import wandb
 
 # 定义实验类
 class Experiment:
@@ -46,6 +46,21 @@ class Experiment:
         return run_name
     # 运行实验的方法
     def run(self):
+        # Initialize a new WandB run for each experiment
+        wandb.init(
+            project=self.project_name,
+            name=self.run_name_for_wandb,
+            config={
+                "top_k": self.top_k,
+                "visibility_score_fn": self.visibility_score_fn,
+                "occlusion_aware": self.occlusion_aware,
+                "interpolate_n_camera": self.interpolate_n_camera,
+                "interpolate_n_rgb_camera": self.interpolate_n_rgb_camera,
+                "interpolate_n_gaussian_camera": self.interpolate_n_gaussian_camera,
+                "gt_camera_rgb": self.gt_camera_rgb,
+                "gt_camera_gaussian": self.gt_camera_gaussian
+            }
+        )
         # 初始化 ComputeForAP 实例
         compute_ap = ComputeForAP(
             load_config=self.load_config,
@@ -64,6 +79,8 @@ class Experiment:
 
         # 运行 ComputeForAP 的 main 方法
         compute_ap.main()
+        # Finish the current WandB run so the next one is a fresh run
+        wandb.finish()
 
 # 创建实验配置
 experiments = [
