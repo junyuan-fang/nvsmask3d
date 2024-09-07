@@ -297,6 +297,8 @@ def object_optimal_k_camera_poses_bounding_box(
     k_poses=2,
     chunk_size=50,
     vis_depth_threshold=0.4,
+    score_fn=lambda num_visible_points, bounding_box_area: num_visible_points  # 默认是用可见点数作为得分
+
 ):
     """
     Selects the top k optimal camera poses based on the visibility score of the 3D mask.
@@ -364,7 +366,7 @@ def object_optimal_k_camera_poses_bounding_box(
 
     # Compute visibility scores for all poses
     num_visible_points = valid_points.float().sum(dim=1)
-    visibility_scores = num_visible_points * bounding_box_area
+    visibility_scores = score_fn(num_visible_points, bounding_box_area)  # 默认是用可见点数作为得分
 
     # Select top k scored poses
     _, best_poses_indices = torch.topk(visibility_scores, k_poses)

@@ -909,3 +909,41 @@ def fov2focal(fov, pixels):
 
 def focal2fov(focal, pixels):
     return 2 * math.atan(pixels / (2 * focal))
+
+# Function to concatenate images horizontally and vertically
+def concat_images_horizontally(imgs):
+    # 过滤掉 None 的图像，确保只处理有效图像
+    imgs = [img for img in imgs if img is not None]
+    
+    if len(imgs) == 0:  # 如果没有有效图像，抛出异常
+        raise ValueError("No images to concatenate horizontally!")
+    
+    widths, heights = zip(*(i.size for i in imgs))
+    total_width = sum(widths)
+    max_height = max(heights)
+
+    new_img = Image.new('RGB', (total_width, max_height))
+    x_offset = 0
+    for img in imgs:
+        new_img.paste(img, (x_offset, 0))
+        x_offset += img.size[0]
+    return new_img
+
+
+def concat_images_vertically(imgs):
+    # 过滤掉 None 的图像，确保只处理有效图像
+    imgs = [img for img in imgs if img is not None]
+    
+    if len(imgs) == 0:  # 如果没有有效图像，抛出异常
+        raise ValueError("No images to concatenate vertically!")
+    
+    widths, heights = zip(*(i.size for i in imgs))
+    max_width = max(widths)
+    total_height = sum(heights)
+
+    new_img = Image.new('RGB', (max_width, total_height))
+    y_offset = 0
+    for img in imgs:
+        new_img.paste(img, (0, y_offset))
+        y_offset += img.size[1]
+    return new_img

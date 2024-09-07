@@ -213,10 +213,10 @@ class ReplicaNvsmask3D(DataParser):
                 self.config.data / "replica_masks" / (self.config.sequence + ".pt")
             )
             #load gt masks for amblation study
-            current_dir = os.getcwd()
-            mask_path = (
-                Path(current_dir) / "nvsmask3d/data/Replica/replica_ground_truth_masks" / (self.config.sequence + ".pt")
-            )
+            # current_dir = os.getcwd()
+            # mask_path = (
+            #     Path(current_dir) / "nvsmask3d/data/Replica/replica_ground_truth_masks" / (self.config.sequence + ".pt")
+            # )
             mask_data = self._load_mask(mask_path)
             if mask_data is not None:
                 metadata.update(mask_data)
