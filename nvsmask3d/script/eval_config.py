@@ -34,12 +34,15 @@ class Experiment:
     def generate_run_name(self) -> str:
         """根据实验参数生成合理的 WandB run name."""
         occlusion_str = "occ-aware" if self.occlusion_aware else "no-occ"
-        rgb_camera_str = f"rgb-cam-{self.interpolate_n_rgb_camera}" if self.gt_camera_rgb else "no-rgb-cam"
-        gaussian_camera_str = f"gaussian-cam-{self.interpolate_n_gaussian_camera}" if self.gt_camera_gaussian else "no-gaussian-cam"
+        rgb_camera_str = f"interp-rgb-cam-{self.interpolate_n_rgb_camera}" 
+        gaussian_camera_str = f"interp-gaussian-cam-{self.interpolate_n_gaussian_camera}" 
         interpolation_str = f"interp-{self.interpolate_n_camera}-cam"
+
+        gt_rgb_info = f"gt_rgb-{self.gt_camera_rgb}"  # True 或 False
+        gt_gaussian_info = f"gt_gaussian-{self.gt_camera_gaussian}"  # True 或 False
         
         # 生成实验名字
-        run_name = f"{self.project_name}_topk-{self.top_k}_{occlusion_str}_{interpolation_str}_{rgb_camera_str}_{gaussian_camera_str}"
+        run_name = f"{self.project_name}_topk-{self.top_k}_{occlusion_str}_{gt_rgb_info}_{gt_gaussian_info}_{interpolation_str}_{rgb_camera_str}_{gaussian_camera_str}"
         return run_name
     # 运行实验的方法
     def run(self):
@@ -304,6 +307,5 @@ experiments = [
         
 ]
 
-# 批量运行实验
-for experiment in tqdm.tqdm(experiments):
-    experiment.run()    
+def get_experiments():
+    return experiments    

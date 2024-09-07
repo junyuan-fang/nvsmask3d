@@ -52,6 +52,10 @@ ns-eval for_ap --load_config outputs/unnamed/splatfacto/2024-08-08_210343/config
 ns-eval for_ap --load_config nvsmask3d/data/replica
 
 ```
+# Run evaluation in script
+```
+python nvsmask3d/script/eval_all.py
+```
 ### for replica validation
 ```
 ns-eval for_ap --load_config nvsmask3d/data/replica
