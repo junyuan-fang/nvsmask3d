@@ -950,21 +950,31 @@ def concat_images_vertically(imgs):
 
 import wandb
 
-def log_evaluation_results_to_wandb(avgs):
+def format_to_percentage(value):
+    # 将值四舍五入到小数点后一位，并添加百分号
+    return "{:.1f}%".format(round(value * 100, 1))
+
+def log_evaluation_results_to_wandb(avgs, run_name):
     # 创建 WandB 表格
     table = wandb.Table(columns=["Class", "AP", "AP_50%", "AP_25%"])
     
-    # 将每个类别的评估结果添加到表格中
+    # 添加整体平均结果到表格（保留一位小数并四舍五入且加上百分号）
+    table.add_data(
+        "Average", 
+        format_to_percentage(avgs["all_ap"]), 
+        format_to_percentage(avgs["all_ap_50%"]), 
+        format_to_percentage(avgs["all_ap_25%"])
+    )
+    
+    # 将每个类别的评估结果添加到表格中（保留一位小数并四舍五入且加上百分号）
     for class_name, class_metrics in avgs["classes"].items():
         table.add_data(
             class_name,
-            class_metrics["ap"],
-            class_metrics["ap50%"],
-            class_metrics["ap25%"]
+            format_to_percentage(class_metrics["ap"]),
+            format_to_percentage(class_metrics["ap50%"]),
+            format_to_percentage(class_metrics["ap25%"])
         )
-    
-    # 添加整体平均结果到表格
-    table.add_data("Average", avgs["all_ap"], avgs["all_ap_50%"], avgs["all_ap_25%"])
-    
+
     # 记录到 WandB
-    wandb.log({"Evaluation Results": table})
+    wandb.log({run_name: table})
+

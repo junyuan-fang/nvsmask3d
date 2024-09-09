@@ -1,11 +1,13 @@
 # run.py
 
-from nvsmask3d.script.eval_config  import get_experiments
+from nvsmask3d.script.eval_config  import get_rgb_experiment, get_gaussian_experiment
 from tqdm import tqdm
 
 # 获取实验配置
-experiments = get_experiments()
+experiments = get_gaussian_experiment()#get_rgb_experiment()
 
 # 批量运行实验
 for experiment in tqdm(experiments):
     experiment.run()
+# test = experiments[0]
+# test.run()

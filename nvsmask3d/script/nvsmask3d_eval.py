@@ -48,6 +48,8 @@ from nvsmask3d.eval.replica.eval_semantic_instance import (
     CLASS_LABELS as REPLICA_CLASSES,
 )
 import tyro
+import wandb
+import threading
 from nerfstudio.utils.eval_utils import eval_setup
 from nerfstudio.utils.rich_utils import CONSOLE
 from nvsmask3d.utils.utils import concat_images_vertically, concat_images_horizontally,log_evaluation_results_to_wandb
@@ -100,10 +102,13 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
     interpolate_n_gaussian_camera: Optional[int] = 1
     gt_camera_rgb: Optional[bool] = True
     gt_camera_gaussian: Optional[bool] = True
-    project_name: str = "nvsmask3d_evaluation"
-    run_name_for_wandb: Optional[str] = None
+    project_name: str = "zeroshot_enhancement"
+    run_name_for_wandb: Optional[str] = "test"
     # inference
     inference_dataset: Literal["scannet200", "replica"] = "replica"
+    
+    if run_name_for_wandb == "test":
+        pretrain_embeddings = torch.tensor(np.load("../../hanlin/sub_sampled_embs.npy"), device="cuda", dtype=torch.float)
 
     # def __post_init__(self):
     #     # 如果没有提供 run_name_for_wandb，就自动生成一个基于参数的名字
@@ -121,33 +126,39 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
     #     run_name = f"{self.project_name}_topk-{self.top_k}_{occlusion_str}_{interpolation_str}_{rgb_camera_str}_{gaussian_camera_str}"
     #     return run_name
 
+
     def main(self) -> None:
-        # Initialize a new run in WandB
+        if self.run_name_for_wandb == "test":
+            wandb.init(project=self.project_name, name=self.run_name_for_wandb)
         # 假设从配置或命令行参数中读取 project_name 和 run_name
 
         gt_dir = self.load_config / "ground_truth"
         if self.inference_dataset == "replica":
             scene_names = [
+
                 "office0",
                 "office1",
                 "office2",
                 "office3",
                 "office4",
-                "room0",
                 "room1",
                 "room2",
+                "room0",
+
             ]
             test_mode = "all replica"
 
             load_configs = [
+
                 "outputs/office0/nvsmask3d/2024-08-14_204330/config.yml",
                 "outputs/office1/nvsmask3d/2024-08-14_204330/config.yml",
                 "outputs/office2/nvsmask3d/2024-08-14_205100/config.yml",
                 "outputs/office3/nvsmask3d/2024-08-14_205128/config.yml",
                 "outputs/office4/nvsmask3d/2024-08-14_210152/config.yml",
-                "outputs/room0/nvsmask3d/2024-08-14_210501/config.yml",
                 "outputs/room1/nvsmask3d/2024-08-14_211248/config.yml",
                 "outputs/room2/nvsmask3d/2024-08-14_211851/config.yml",
+                "outputs/room0/nvsmask3d/2024-08-14_210501/config.yml",
+
             ]
 
             # ["outputs/office0/nvsmask3d/2024-08-12_215616/config.yml",
@@ -195,7 +206,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 inst_AP = evaluate_replica(
                     preds, gt_dir, output_file="output.txt", dataset="replica"
                 )
-                log_evaluation_results_to_wandb(inst_AP)
+                log_evaluation_results_to_wandb(inst_AP,self.run_name_for_wandb)
 
     def pred_classes(self, model, class_agnostic_3d_mask, seed_points_0, scene_name=""):
         """
@@ -269,7 +280,6 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 )
                 #restore img for wandb
                 interpolated_images = []
-                gt_images = []
 
                 # Render NVS images, crop, save, and add to outputs
                 for interpolation_index in range(interpolated_cameras.shape[0]):
@@ -330,6 +340,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
             
             #gt camera pose
             if self.gt_camera_rgb or self.gt_camera_gaussian:
+                gt_images = []
                 for index, pose_index in enumerate(best_camera_indices):
                     pose_index = pose_index.item()
 
@@ -415,9 +426,23 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 similarity_scores = torch.mm(
                     mask_features, model.image_encoder.pos_embeds.T
                 )  # (B,200)
-                #aggregate similarity scores 你目前是将批次中的相似度分数进行求和（sum），这可能会导致信息丢失，尤其是在增强视图之间存在较大差异的情况下。
-                scores = similarity_scores.sum(dim=0)  # Shape: (200,)
-                max_ind = torch.argmax(scores).item()
+                
+                if self.run_name_for_wandb == "test":
+                    B = similarity_scores.shape[0]
+                    weights = torch.max(similarity_scores, dim=1).values  # (B,)
+                    assert weights.shape[0] == B
+                    correction = torch.mean(
+                        torch.mm(mask_features, self.pretrain_embeddings.T), dim=1
+                    )  # (B,)
+                    assert correction.shape[0] == B
+                    weights = torch.softmax(weights - correction)
+                    assert weights.shape[0] == B
+                    scores = torch.sum(similarity_scores * weights[:, None], dim=0)
+                    max_ind = torch.argmax(scores).item()
+                else:
+                    #aggregate similarity scores 你目前是将批次中的相似度分数进行求和（sum），这可能会导致信息丢失，尤其是在增强视图之间存在较大差异的情况下。
+                    scores = similarity_scores.sum(dim=0)  # Shape: (200,) for scannet200 
+                    max_ind = torch.argmax(scores).item()
                 
                 #mean scores
                 # mean_scores = similarity_scores.mean(dim=0)  # Shape: (200,)
@@ -436,18 +461,18 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 torch.cuda.empty_cache()
                 
                 # Combine all interpolated images vertically and log to WandB
-                if len(interpolated_images) > 0 and 'interpolated_images' in locals():
+                if 'interpolated_images' in locals() and len(interpolated_images) > 0:
                     final_interpolated_image = concat_images_horizontally(interpolated_images)
-                    wandb.log({f"Scene: {scene_name}": wandb.Image(final_interpolated_image, caption=f"Interpolated Image for object {i}, predected class: {REPLICA_CLASSES[max_ind]}" )},step = i)
-                else:
-                    print(f"No interpolated images available for object {i}")
+                    wandb.log({f"Scene: {scene_name}": wandb.Image(final_interpolated_image, caption=f"Interpolated Image for object {i}, predected class: {REPLICA_CLASSES[max_ind]}" )})
+                # else:
+                #     print(f"No interpolated images available for object {i}")
             
                 # Combine all GT images vertically and log to WandB
-                if len(gt_images) > 0 and 'gt_images' in locals():
+                if 'gt_images' in locals() and len(gt_images) > 0:
                     final_gt_image = concat_images_horizontally(gt_images)
-                    wandb.log({f"Scene: {scene_name}": wandb.Image(final_gt_image, caption=f"GT Camera Pose for object {i}, predected class: {REPLICA_CLASSES[max_ind]}")}, step= i)
-                else:
-                    print(f"No GT images available for object {i}")
+                    wandb.log({f"Scene: {scene_name}": wandb.Image(final_gt_image, caption=f"GT Camera Pose for object {i}, predected class: {REPLICA_CLASSES[max_ind]}")})
+                # else:
+                #     print(f"No GT images available for object {i}")
             
         return pred_classes
 
