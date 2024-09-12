@@ -317,7 +317,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                             cropped_nvs_mask_image = nvs_mask_img[min_v:max_v, min_u:max_u].permute(2, 0, 1)  # (C, H, W)
                             outputs.append(cropped_nvs_mask_image)###########################################################################gaussian#####################################################################
                             cropped_nvs_mask_image = cropped_nvs_mask_image.cpu()
-                            nvs_mask_img_label_map = model.image_encoder.return_image_map(cropped_nvs_mask_image)#for wandb
+                            #nvs_mask_img_label_map = model.image_encoder.return_image_map(cropped_nvs_mask_image)#for wandb
                             nvs_mask_img_pil = transforms.ToPILImage()(cropped_nvs_mask_image)#for wandb
                             # Combine GT image and mask horizontally
                         combined_nvs_image = concat_images_vertically([nvs_img_pil, nvs_mask_img_pil])#for wandb
