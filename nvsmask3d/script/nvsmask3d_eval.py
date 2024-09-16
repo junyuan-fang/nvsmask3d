@@ -106,11 +106,9 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
     run_name_for_wandb: Optional[str] = "test"
     # inference
     inference_dataset: Literal["scannet200", "replica"] = "replica"
-    print(torch.version.cuda)  # Should print the CUDA version
-    print(torch.cuda.is_available())  # Should return True
 
-    if run_name_for_wandb == "test":
-        pretrain_embeddings = torch.load("../../hanlin/pretrain_embeddings.pt", map_location="cuda")
+    #if run_name_for_wandb == "test":
+    pretrain_embeddings = torch.load("../../hanlin/pretrain_embeddings.pt", map_location="cuda")#20000,768
 
 
     def main(self) -> None:
@@ -416,29 +414,38 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
             
             
             with torch.no_grad():
+                algorithm = 2
                 mask_features = model.image_encoder.encode_batch_list_image(
                     outputs
                 )  # (B,512)
                 similarity_scores = torch.mm(
                     mask_features, model.image_encoder.pos_embeds.T
                 )  # (B,200)
-                
-                if self.run_name_for_wandb == "test":
-                    B = similarity_scores.shape[0]
-                    weights = torch.max(similarity_scores, dim=1).values  # (B,)
+                B = similarity_scores.shape[0]
+                similarity_scores_pretrain_text = torch.mm(mask_features, self.pretrain_embeddings.T)
+                # if self.run_name_for_wandb == "test":
+                if algorithm == 1:
+                    # if self.run_name_for_wandb == "test":
+                    weights = torch.max(similarity_scores, dim=1).values  # accriss text prompt
                     assert weights.shape == (B,)
-                    correction = torch.mean(
-                        torch.mm(mask_features, self.pretrain_embeddings.T), dim=1
-                    )  # (B,)
+                    correction = torch.mean(similarity_scores_pretrain_text, dim=1)  # (B,)
                     assert correction.shape == (B,)
                     weights = torch.softmax(weights - correction, dim=0)
                     assert weights.shape == (B,)
                     scores = torch.sum(similarity_scores * weights[:, None], dim=0)
-                    max_ind = torch.argmax(scores).item()
-                else:
-                    #aggregate similarity scores 你目前是将批次中的相似度分数进行求和（sum），这可能会导致信息丢失，尤其是在增强视图之间存在较大差异的情况下。
-                    scores = similarity_scores.sum(dim=0)  # Shape: (200,) for scannet200 
-                    max_ind = torch.argmax(scores).item()
+
+                if algorithm == 2:
+                    E_pretrain_text = torch.mean(similarity_scores_pretrain_text, dim=1)  # (B,)
+                    assert E_pretrain_text.shape == (B,)
+                    logit_normalized = similarity_scores - ( E_pretrain_text).unsqueeze(1)# (B,C)
+                    weights = torch.softmax(logit_normalized, dim=0)
+                    scores = torch.sum(similarity_scores * weights, dim=0)
+                max_ind = torch.argmax(scores).item()
+                
+                # else:
+                #     #aggregate similarity scores 你目前是将批次中的相似度分数进行求和（sum），这可能会导致信息丢失，尤其是在增强视图之间存在较大差异的情况下。
+                #     scores = similarity_scores.sum(dim=0)  # Shape: (200,) for scannet200 
+                #     max_ind = torch.argmax(scores).item()
                 
                 #mean scores
                 # mean_scores = similarity_scores.mean(dim=0)  # Shape: (200,)

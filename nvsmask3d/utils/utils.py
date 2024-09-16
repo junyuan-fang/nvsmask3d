@@ -951,34 +951,31 @@ def concat_images_vertically(imgs):
 import wandb
 
 def format_to_percentage(value):
-    # 将值四舍五入到小数点后一位，并添加百分号
-    return "{:.1f}%".format(round(value * 100, 1))
+    """Safely format a value as a percentage with one decimal place."""
+    try:
+        return "{:.1f}%".format(value * 100)
+    except (TypeError, ValueError):
+        return "0.0%"
 
 def log_evaluation_results_to_wandb(avgs, run_name):
-    # Create a new WandB table for each log
-    table = wandb.Table(columns=["Class", "AP", "AP_50%", "AP_25%"])
-
-    # Add overall average results to the table
+    # Define the metrics to log
+    metrics = ["AP", "AP50", "AP25"]
+    
+    # Create a W&B Table with "Class" and the defined metrics as columns
+    table = wandb.Table(columns=["Class"] + metrics)
+    
+    # Log overall average results in percentage format
     table.add_data(
         "Average", 
-        format_to_percentage(avgs["all_ap"]), 
-        format_to_percentage(avgs["all_ap_50%"]), 
-        format_to_percentage(avgs["all_ap_25%"])
+        *[format_to_percentage(avgs.get(f"all_{m.lower()}", 0)) for m in metrics]
     )
-
-    # Add class-wise results to the table
-    for class_name, class_metrics in avgs["classes"].items():
+    
+    # Log per-class results (ensure values are retrieved safely)
+    for class_name, class_metrics in avgs.get("classes", {}).items():
         table.add_data(
             class_name,
-            format_to_percentage(class_metrics["ap"]),
-            format_to_percentage(class_metrics["ap50%"]),
-            format_to_percentage(class_metrics["ap25%"])
+            *[format_to_percentage(class_metrics.get(m.lower(), 0)) for m in metrics]
         )
-
-    # Ensure each log gets a new table instance
-    wandb.log({f"{run_name}_table": table})
-
-    # Also log other metrics separately (if needed)
-    wandb.log({"all_ap": avgs["all_ap"], "all_ap_50%": avgs["all_ap_50%"], "all_ap_25%": avgs["all_ap_25%"]})
-
-
+    
+    # Log the table in W&B under a unique key
+    wandb.log({f"{run_name}_evaluation_results": table})
