@@ -243,7 +243,8 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 )
                 continue
 
-            outputs = []
+            rgb_outputs = []
+            masked_gaussian_outputs = []
             # Interpolate camera poses and bounding boxes
             if self.interpolate_n_camera*self.interpolate_n_rgb_camera > 0 or self.interpolate_n_camera*self.interpolate_n_gaussian_camera > 0:
                 interpolated_poses = interpolate_camera_poses_with_camera_trajectory(
@@ -297,7 +298,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                             nvs_img = model.get_outputs(camera)["rgb"]  # (H, W, 3)
                             cropped_nvs_img = nvs_img[min_v:max_v, min_u:max_u]
                             cropped_nvs_img = cropped_nvs_img.permute(2, 0, 1) # (H, W, 3)
-                            outputs.append(cropped_nvs_img)  # (C, H, W) ######################################################rgb##################################################################
+                            rgb_outputs.append(cropped_nvs_img)  # (C, H, W) ######################################################rgb##################################################################
                             cropped_nvs_img = cropped_nvs_img.cpu()#for wandb
                             # nvs_img_label_map = model.image_encoder.return_image_map(cropped_nvs_img)#for wandb
                             nvs_img_pil = transforms.ToPILImage()(cropped_nvs_img)#for wandb
@@ -313,7 +314,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                             # # Process and crop the nvs mask image, seems will make inference worse
                             nvs_mask_img = model.get_outputs(camera)["rgb_mask"]  # (H, W, 3)
                             cropped_nvs_mask_image = nvs_mask_img[min_v:max_v, min_u:max_u].permute(2, 0, 1)  # (C, H, W)
-                            outputs.append(cropped_nvs_mask_image)###########################################################################gaussian#####################################################################
+                            masked_gaussian_outputs.append(cropped_nvs_mask_image)###########################################################################gaussian#####################################################################
                             cropped_nvs_mask_image = cropped_nvs_mask_image.cpu()
                             #nvs_mask_img_label_map = model.image_encoder.return_image_map(cropped_nvs_mask_image)#for wandb
                             nvs_mask_img_pil = transforms.ToPILImage()(cropped_nvs_mask_image)#for wandb
@@ -326,7 +327,6 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                         print(f"Invalid bounding box for image {interpolation_index}: "
                             f"min_u={min_u}, max_u={max_u}, min_v={min_v}, max_v={max_v}")
             #################################################################################################
-            
             #gt camera pose
             if self.gt_camera_rgb or self.gt_camera_gaussian:
                 gt_images = []
@@ -366,14 +366,14 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                         # 如果有效，则裁剪图像
                         if self.gt_camera_rgb:
                             cropped_image = img[:, min_v:max_v, min_u:max_u]
-                            outputs.append(cropped_image)#######################################################################################rgb#####################
+                            rgb_outputs.append(cropped_image)#######################################################################################rgb#####################
                             cropped_image = cropped_image.cpu()#for wandb
                             # gt_img_pil_label_map = model.image_encoder.return_image_map(cropped_image) #for wandb
                             gt_img_pil = transforms.ToPILImage()(cropped_image)#for wandb
                         if self.gt_camera_gaussian:
                             nvs_mask_img = model.get_outputs(single_camera)["rgb_mask"]  # ["rgb_mask"]  # (H,W,3)
                             cropped_nvs_mask_image = nvs_mask_img[min_v:max_v, min_u:max_u].permute(2, 0, 1)
-                            outputs.append(cropped_nvs_mask_image)#############################################################################gaussian###################
+                            masked_gaussian_outputs.append(cropped_nvs_mask_image)#############################################################################gaussian###################
                             cropped_nvs_mask_image = cropped_nvs_mask_image.cpu()#for wandb
                             # gt_mask_img_label_map = model.image_encoder.return_image_map(cropped_nvs_mask_image)#for wandb
                             gt_mask_img_pil = transforms.ToPILImage()(cropped_nvs_mask_image) #for wandb
@@ -407,39 +407,52 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 del nvs_mask_img
             torch.cuda.empty_cache()
 
-            if len(outputs) == 0:
+            if len(rgb_outputs)+len(masked_gaussian_outputs) == 0:
                 print(f"Skipping inference for mask {i} due to no valid camera poses")
                 continue
             # output is a list, which has tensors of the shape (C,H,W)
             
             
             with torch.no_grad():
-                algorithm = 2
+                algorithm = 1
+                T = 1.0# refer to temperature
+                rgb_features = model.image_encoder.encode_batch_list_image(
+                    rgb_outputs
+                )  
+                rgb_logits = torch.mm(
+                    rgb_features, model.image_encoder.pos_embeds.T
+                )  
+
                 mask_features = model.image_encoder.encode_batch_list_image(
-                    outputs
-                )  # (B,512)
-                similarity_scores = torch.mm(
+                    masked_gaussian_outputs
+                )  
+                mask_logits = torch.mm(
                     mask_features, model.image_encoder.pos_embeds.T
-                )  # (B,200)
-                B = similarity_scores.shape[0]
-                similarity_scores_pretrain_text = torch.mm(mask_features, self.pretrain_embeddings.T)
+                )  
+                
+                # pretrained text prompt
+                rgb_logits_pretrain_text = torch.mm(rgb_features, self.pretrain_embeddings.T)
+                mask_logits_pretrain_text = torch.mm(mask_features, self.pretrain_embeddings.T)
                 # if self.run_name_for_wandb == "test":
                 if algorithm == 1:
                     # if self.run_name_for_wandb == "test":
-                    weights = torch.max(similarity_scores, dim=1).values  # accriss text prompt
-                    assert weights.shape == (B,)
-                    correction = torch.mean(similarity_scores_pretrain_text, dim=1)  # (B,)
-                    assert correction.shape == (B,)
-                    weights = torch.softmax(weights - correction, dim=0)
-                    assert weights.shape == (B,)
-                    scores = torch.sum(similarity_scores * weights[:, None], dim=0)
+                    correction_mask = mask_logits_pretrain_text.mean(dim=1, keepdim=True)
+                    correction_rgb = rgb_logits_pretrain_text.mean(dim=1, keepdim=True)
+                    weights_mask = mask_logits.max(dim=1, keepdim=True).values # accriss text prompt Mx1
+                    weights_rgb = rgb_logits.max(dim=1, keepdim=True).values  # accriss text prompt
+                    weights_mask = torch.softmax((weights_mask - correction_mask) / T, dim=0) 
+                    weights_rgb = torch.softmax((weights_rgb - correction_rgb) / T, dim=0) 
+                    weights = torch.cat([weights_mask, weights_rgb], dim=0) 
+                    all_logits = torch.cat([mask_logits, rgb_logits], dim=0)
+                    weighted_logits = all_logits * weights
+                    scores = torch.sum(weighted_logits, dim=0)
 
-                if algorithm == 2:
-                    E_pretrain_text = torch.mean(similarity_scores_pretrain_text, dim=1)  # (B,)
-                    assert E_pretrain_text.shape == (B,)
-                    logit_normalized = similarity_scores - ( E_pretrain_text).unsqueeze(1)# (B,C)
-                    weights = torch.softmax(logit_normalized, dim=0)
-                    scores = torch.sum(similarity_scores * weights, dim=0)
+                # if algorithm == 2:
+                #     E_pretrain_text = torch.mean(similarity_scores_pretrain_text, dim=1)  # (B,)
+                #     assert E_pretrain_text.shape == (B,)
+                #     logit_normalized = similarity_scores - ( E_pretrain_text).unsqueeze(1)# (B,C)
+                #     weights = torch.softmax(logit_normalized/T, dim=0)
+                #     scores = torch.sum(similarity_scores * weights, dim=0)
                 max_ind = torch.argmax(scores).item()
                 
                 # else:
@@ -460,8 +473,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 pred_classes[i] = max_ind  # max_ind_remapped
                 
                 # Clear batch-specific outputs after processing
-                del outputs, mask_features, similarity_scores
-                torch.cuda.empty_cache()
+
                 
                 # Log interpolated images
                 if 'interpolated_images' in locals() and len(interpolated_images) > 0:
@@ -472,6 +484,9 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 if 'gt_images' in locals() and len(gt_images) > 0:
                     final_gt_image = concat_images_horizontally(gt_images)
                     wandb.log({f"GT Scene: {scene_name}": wandb.Image(final_gt_image, caption=f"GT Camera Pose for object {i} predicted class: {REPLICA_CLASSES[max_ind]}")})
+
+                del rgb_outputs, masked_gaussian_outputs,rgb_features, mask_features, rgb_logits, mask_logits, rgb_logits_pretrain_text, mask_logits_pretrain_text, weights, all_logits, scores, weights_mask, weights_rgb, correction_mask, correction_rgb, weighted_logits
+                torch.cuda.empty_cache()
                 
                 # if 'interpolated_images_label_map' in locals() and len(interpolated_images_label_map) > 0:
                 #     final_interpolated_image_label_map = concat_images_horizontally(interpolated_images_label_map)

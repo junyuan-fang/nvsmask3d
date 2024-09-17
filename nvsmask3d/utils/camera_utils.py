@@ -760,7 +760,10 @@ def get_interpolated_poses(pose_a: Tensor, pose_b: Tensor, steps: int = 10) -> L
     """
     quat_a = quaternion_from_matrix(pose_a[:3, :3])
     quat_b = quaternion_from_matrix(pose_b[:3, :3])
-    ts = torch.linspace(0, 1, steps, device=pose_a.device)
+    if steps == 1:
+        ts = torch.tensor([0.5], device=pose_a.device)  # Set midpoint for steps=1
+    else:
+        ts = torch.linspace(0, 1, steps + 2, device=pose_a.device)[1:-1]  # Exclude the start and end points
     quats = [quaternion_slerp(quat_a, quat_b, t.item()) for t in ts]
     trans = [(1 - t) * pose_a[:3, 3] + t * pose_b[:3, 3] for t in ts]
 
