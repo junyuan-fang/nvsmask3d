@@ -748,35 +748,7 @@ def quaternion_matrix(quaternion: Tensor) -> Tensor:
     ], device=quaternion.device)
 
 
-# def get_interpolated_poses(pose_a: Tensor, pose_b: Tensor, steps: int = 10) -> List[Tensor]:#old
-#     """Return interpolation of poses with specified number of steps.
-
-#     Args:
-#         pose_a: first pose. (3, 4)
-#         pose_b: second pose. (3, 4)
-#         steps: number of steps the interpolated pose path should contain.
-#     returns:
-#         interpolated poses: (steps, 3, 4)
-#     """
-#     quat_a = quaternion_from_matrix(pose_a[:3, :3])
-#     quat_b = quaternion_from_matrix(pose_b[:3, :3])
-#     if steps == 1:
-#         ts = torch.tensor([0.5], device=pose_a.device)  # Set midpoint for steps=1
-#     else:
-#         ts = torch.linspace(0, 1, steps + 2, device=pose_a.device)[1:-1]  # Exclude the start and end points
-#     quats = [quaternion_slerp(quat_a, quat_b, t.item()) for t in ts]
-#     trans = [(1 - t) * pose_a[:3, 3] + t * pose_b[:3, 3] for t in ts]
-
-#     poses_ab = []  
-#     for quat, tran in zip(quats, trans):
-#         pose = torch.eye(4, device=pose_a.device)
-#         pose[:3, :3] = quaternion_matrix(quat)[:3, :3]
-#         pose[:3, 3] = tran
-#         poses_ab.append(pose[:3, :])  # 将每个pose添加到列表中
-
-#     return torch.stack(poses_ab, dim=0)
-
-def get_interpolated_poses(pose_a: Tensor, pose_b: Tensor, steps: int = 10, direction_to_object: Tensor = None) -> List[Tensor]:
+def get_interpolated_poses(pose_a: Tensor, pose_b: Tensor, steps: int = 10) -> List[Tensor]:#old
     """Return interpolation of poses with specified number of steps.
 
     Args:
@@ -786,24 +758,52 @@ def get_interpolated_poses(pose_a: Tensor, pose_b: Tensor, steps: int = 10, dire
     returns:
         interpolated poses: (steps, 3, 4)
     """
-
+    quat_a = quaternion_from_matrix(pose_a[:3, :3])
+    quat_b = quaternion_from_matrix(pose_b[:3, :3])
     if steps == 1:
         ts = torch.tensor([0.5], device=pose_a.device)  # Set midpoint for steps=1
     else:
         ts = torch.linspace(0, 1, steps + 2, device=pose_a.device)[1:-1]  # Exclude the start and end points
+    quats = [quaternion_slerp(quat_a, quat_b, t.item()) for t in ts]
     trans = [(1 - t) * pose_a[:3, 3] + t * pose_b[:3, 3] for t in ts]
 
-    # Define the camera's default forward direction (negative Z-axis in OpenCV convention)
-    camera_forward = torch.tensor([0, 0, -1], device=pose_a.device)
-
     poses_ab = []  
-    for tran in  trans:
+    for quat, tran in zip(quats, trans):
         pose = torch.eye(4, device=pose_a.device)
-        pose[:3, :3] = rotate_vector_to_vector(camera_forward, direction_to_object)[:3, :3]
+        pose[:3, :3] = quaternion_matrix(quat)[:3, :3]
         pose[:3, 3] = tran
         poses_ab.append(pose[:3, :])  # 将每个pose添加到列表中
 
     return torch.stack(poses_ab, dim=0)
+
+# def get_interpolated_poses(pose_a: Tensor, pose_b: Tensor, steps: int = 10, direction_to_object: Tensor = None) -> List[Tensor]:
+#     """Return interpolation of poses with specified number of steps.
+
+#     Args:
+#         pose_a: first pose. (3, 4)
+#         pose_b: second pose. (3, 4)
+#         steps: number of steps the interpolated pose path should contain.
+#     returns:
+#         interpolated poses: (steps, 3, 4)
+#     """
+
+#     if steps == 1:
+#         ts = torch.tensor([0.5], device=pose_a.device)  # Set midpoint for steps=1
+#     else:
+#         ts = torch.linspace(0, 1, steps + 2, device=pose_a.device)[1:-1]  # Exclude the start and end points
+#     trans = [(1 - t) * pose_a[:3, 3] + t * pose_b[:3, 3] for t in ts]
+
+#     # Define the camera's default forward direction (negative Z-axis in OpenCV convention)
+#     camera_forward = torch.tensor([0, 0, -1], device=pose_a.device, dtype=pose_a.dtype)
+
+#     poses_ab = []  
+#     for tran in  trans:
+#         pose = torch.eye(4, device=pose_a.device)
+#         pose[:3, :3] = rotate_vector_to_vector(camera_forward, direction_to_object)[:3, :3]
+#         pose[:3, 3] = tran
+#         poses_ab.append(pose[:3, :])  # 将每个pose添加到列表中
+
+#     return torch.stack(poses_ab, dim=0)
 
 
 def get_interpolated_k(k_a: Tensor, k_b: Tensor, steps: int = 10) -> List[Tensor]:
