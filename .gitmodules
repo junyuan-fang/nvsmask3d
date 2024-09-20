@@ -1,0 +1,6 @@
+[submodule "nvsmask3d/YOLO-World"]
+	path = nvsmask3d/YOLO-World
+	url = https://github.com/AILab-CVC/YOLO-World.git
+[submodule "segment-anything"]
+	path = segment-anything
+	url = https://github.com/facebookresearch/segment-anything.git
