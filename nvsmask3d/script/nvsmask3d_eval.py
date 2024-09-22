@@ -417,7 +417,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
             
             
             with torch.no_grad():
-                algorithm = 1
+                algorithm = 0
                 T = 1.0# refer to temperature
                 if len(rgb_outputs) > 0:
                     rgb_features = model.image_encoder.encode_batch_list_image(
@@ -437,6 +437,9 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     )  
                     mask_logits_pretrain_text = torch.mm(mask_features, self.pretrain_embeddings.T)
                 # if self.run_name_for_wandb == "test":
+                if algorithm == 0:
+                #aggregate similarity scores 你目前是将批次中的相似度分数进行求和（sum），这可能会导致信息丢失，尤其是在增强视图之间存在较大差异的情况下。
+                    scores = rgb_logits.sum(dim=0)  # Shape: (200,) for scannet200 
                 if algorithm == 1:
                     weights_mask = None
                     weights_rgb = None
