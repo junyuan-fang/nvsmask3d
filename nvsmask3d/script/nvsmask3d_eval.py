@@ -106,6 +106,8 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
     gt_camera_gaussian: Optional[bool] = True
     project_name: str = "zeroshot_enhancement"
     run_name_for_wandb: Optional[str] = "test"
+    algorithm: int = 0
+    seed:int = 42
     sam: bool = True
     # inference
     inference_dataset: Literal["scannet200", "replica"] = "replica"
@@ -115,6 +117,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
 
 
     def main(self) -> None:
+        torch.manual_seed(self.seed)
         if self.run_name_for_wandb == "test":
             wandb.init(project=self.project_name, name=self.run_name_for_wandb)
         # 假设从配置或命令行参数中读取 project_name 和 run_name
@@ -346,25 +349,18 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     with Image.open(model.image_file_names[pose_index]) as img:
                         img = transforms.ToTensor()(img).cuda()  # (C,H,W)
                     if valid_u[index].shape[0] == 0 or valid_v[index].shape[0] == 0:
-                        print(f"Skipping inference for object {i} pose {index} due to no valid camera poses, assign")
+                        # print(f"Skipping inference for object {i} pose {index} due to no valid camera poses, assign")
                         continue
                     proposal_points_coords_2d = torch.stack((valid_u[index].long(), valid_v[index].long()), dim=1)  # (N, 2)
-                    # sparse_map = torch.zeros((H, W, 3), dtype=torch.float32, device="cuda")
-                    # sparse_map[valid_u[0].long(), valid_v[0].long()] = 1
-                    # save_img(sparse_map, f"tests/sparse_map.png")
-                    # save_img(img.permute(1, 2, 0), f"tests/0.png")
+
 
                     assert(len(proposal_points_coords_2d.shape) == 2)
                     sam_network.set_image(img)#3,H,W
                     mask_i = sam_network.get_best_mask(proposal_points_coords_2d)
                     if mask_i.sum() == 0:
-                        print(f"Skipping inference for object {i} pose {index} due to no valid camera poses, assign")
+                        # print(f"Skipping inference for object {i} pose {index} due to no valid camera poses, assign")
                         continue
-                    # x1, y1, x2, y2 = sam_network.mask2box(mask_i)
-                    # image = img[:, y1:y2, x1:x2]
-                    # save_img(image.permute(1, 2, 0), f"tests/1.png")
-                    # import pdb;pdb.set_trace()
-                    # Now compute the multi-level crops using the best mask
+
                     for level in range(3): # num_levels = 3
                         min_u, min_v, max_u, max_v = sam_network.mask2box_multi_level(mask_i, level, expansion_ratio = 0.1)
                         _, H, W = img.shape
@@ -417,7 +413,6 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
             
             
             with torch.no_grad():
-                algorithm = 0
                 T = 1.0# refer to temperature
                 if len(rgb_outputs) > 0:
                     rgb_features = model.image_encoder.encode_batch_list_image(
@@ -437,10 +432,10 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     )  
                     mask_logits_pretrain_text = torch.mm(mask_features, self.pretrain_embeddings.T)
                 # if self.run_name_for_wandb == "test":
-                if algorithm == 0:
+                if self.algorithm == 0:
                 #aggregate similarity scores 你目前是将批次中的相似度分数进行求和（sum），这可能会导致信息丢失，尤其是在增强视图之间存在较大差异的情况下。
                     scores = rgb_logits.sum(dim=0)  # Shape: (200,) for scannet200 
-                if algorithm == 1:
+                if self.algorithm == 1:
                     weights_mask = None
                     weights_rgb = None
                     # if self.run_name_for_wandb == "test":
