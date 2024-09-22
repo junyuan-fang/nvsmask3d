@@ -346,7 +346,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     with Image.open(model.image_file_names[pose_index]) as img:
                         img = transforms.ToTensor()(img).cuda()  # (C,H,W)
                     if valid_u[index].shape[0] == 0 or valid_v[index].shape[0] == 0:
-                        print(f"Skipping inference for mask {i} due to no valid camera poses, assign")
+                        print(f"Skipping inference for object {i} pose {index} due to no valid camera poses, assign")
                         continue
                     proposal_points_coords_2d = torch.stack((valid_u[index].long(), valid_v[index].long()), dim=1)  # (N, 2)
                     # sparse_map = torch.zeros((H, W, 3), dtype=torch.float32, device="cuda")
@@ -355,8 +355,11 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     # save_img(img.permute(1, 2, 0), f"tests/0.png")
 
                     assert(len(proposal_points_coords_2d.shape) == 2)
-                    sam_network.set_image(img.unsqueeze(0))#(1,3,H,W)
+                    sam_network.set_image(img)#3,H,W
                     mask_i = sam_network.get_best_mask(proposal_points_coords_2d)
+                    if mask_i.sum() == 0:
+                        print(f"Skipping inference for object {i} pose {index} due to no valid camera poses, assign")
+                        continue
                     # x1, y1, x2, y2 = sam_network.mask2box(mask_i)
                     # image = img[:, y1:y2, x1:x2]
                     # save_img(image.permute(1, 2, 0), f"tests/1.png")

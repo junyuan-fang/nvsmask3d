@@ -38,8 +38,9 @@ class SamNetWork(BaseImageEncoder):
         """
         Set an image in tensor format for SAM to use.
         Arguments:
-        image -- tensor of shape (1, 3, H, W)
+        image -- tensor of shape ( 3, H, W)
         """
+        image = (image * 255).unsqueeze(0) #
         _, _, H, W = image.shape
         self.original_size =  (H,W)
         transformed_image = self.predictor.transform.apply_image_torch(image)
@@ -61,7 +62,13 @@ class SamNetWork(BaseImageEncoder):
         image_size = (self.predictor.input_size[-2], self.predictor.input_size[-1])  # Image size [shape: (H, W)]
 
         point_coords_new = torch.clone(point_coords)  # [shape: (N, 2), where N is the number of points]
-        #point_coords_new[:, [0, 1]] = point_coords_new[:, [1, 0]]  # [shape: (N, 2)] Swap X and Y 
+        # point_coords_new[:, 0] = point_coords[:, 1]
+        # point_coords_new[:, 1] = point_coords[:, 0]  # Swap X and Y
+        # sparse_map = torch.zeros((480, 640, 3), dtype=torch.float32, device="cuda")
+        # sparse_map[point_coords_new[:, 0].long(), point_coords_new[:, 1].long()] = 1
+        # from nvsmask3d.utils.utils import save_img
+        # save_img(sparse_map, f"tests/sparse_map.png")
+        # import pdb; pdb.set_trace()
         
         # Perform random rounds and select the best mask based on confidence scores
         for i in range(self.num_random_rounds):
@@ -81,9 +88,12 @@ class SamNetWork(BaseImageEncoder):
             except:
                 import pdb; pdb.set_trace()
 
-            if scores[0] > best_score:
+            if scores[0] > best_score:#multimask_output=False
                 best_score = scores[0]
                 best_mask = masks[0]
+            # if scores.squeeze()[0] > best_score:multimask_output=False
+            #     best_score = scores.squeeze()[0]
+            #     best_mask = masks[:, 0, :, :]  # [shape: (1, H, W)]
 
         # Ensure we have a valid best mask
         if best_mask is None:
@@ -172,30 +182,37 @@ if __name__ == "__main__":
     from torchvision import transforms
     from PIL import Image, ImageDraw, ImageOps
 
-    config = SAMNetworkConfig()
-    sam = SamNetWork(config)
-    image = Image.open("/home/fangj1/Code/nerfstudio-nvsmask3d/tests/0.png").convert('RGB')  # Ensure 3-channel RGB
+    # config = SAMNetworkConfig()
+    # sam = SamNetWork(config)
+    # image = Image.open("/home/fangj1/Code/nerfstudio-nvsmask3d/tests/0.png").convert('RGB')  # Ensure 3-channel RGB
     
-    # Define a transformation to convert the image to tensor and normalize it
-    transform = transforms.Compose([
-        transforms.ToTensor(),  # Convert to tensor with shape (3, H, W)
-    ])
+    # # Define a transformation to convert the image to tensor and normalize it
+    # transform = transforms.Compose([
+    #     transforms.ToTensor(),  # Convert to tensor with shape (3, H, W)
+    # ])
     
-    # Apply the transformation to the image
-    image_tensor = transform(image)
+    # # Apply the transformation to the image
+    # image_tensor = transform(image)
     
-    # Add a batch dimension to the tensor (1, 3, H, W)
-    image_tensor = image_tensor.unsqueeze(0).cuda()
-    sam.set_image(image_tensor)
-    selected_coords = torch.tensor([[[254, 196],
-         [267, 212],
-         [256, 215],
-         [268, 204],
-         [255, 197]]], device='cuda:0')
-    # print(sam.embedding_dim)
-    selected_coords = sam.predictor.transform.apply_coords_torch(selected_coords, original_size=sam.original_size)
-    print(selected_coords.shape)
-    image = Image.open("tests/0.png")
+    # # Add a batch dimension to the tensor (1, 3, H, W)
+    # image_tensor = image_tensor.unsqueeze(0).cuda()
+    # _, _, H, W = image_tensor.shape
+    # original_size =  (H,W)
+    # transformed_image = sam.predictor.transform.apply_image_torch(image_tensor)
+    # sam.predictor.set_torch_image(transformed_image, original_image_size=original_size)
+    # selected_coords_given = torch.tensor([[[254, 196],
+    #      [267, 212],
+    #      [256, 215],
+    #      [268, 204],
+    #      [255, 197]]], device='cuda:0')
+    # selected_coords = torch.clone(selected_coords_given)  # [shape: (N, 2), where N is the number of points]
+    # selected_coords[:, :, 0] = selected_coords_given[:, :, 1]
+    # selected_coords[:, :, 1] = selected_coords_given[:, :, 0]  # Swap X and Y
+    # # print(sam.embedding_dim)
+    # #(1,5,2)
+    # selected_coords = sam.predictor.transform.apply_coords_torch(selected_coords, original_size=original_size)
+    # print(selected_coords.shape)
+    # image = Image.open("tests/0.png")
     
     # # 创建绘图对象
     # draw = ImageDraw.Draw(image)
@@ -210,26 +227,83 @@ if __name__ == "__main__":
     # # 保存图像
     # image.save("tests/1.png")
     # print(f"Marked image saved as tests/1.png")
+    # point_labels = torch.ones((1,5), device='cuda:0').int()
+    # masks, scores, _ = sam.predictor.predict_torch(
+    # point_coords=selected_coords.to(sam.model.device),
+    # point_labels=point_labels.to(sam.model.device),
+    # multimask_output=False
+    # )
+    # binary_mask = masks.squeeze() # [shape: (H, W)]
+    # binary_mask_np = binary_mask.cpu().numpy().astype('uint8') * 255  # Convert to binary image (0 or 255)
+
+    # binary_mask_img = Image.fromarray(binary_mask_np).convert("L")  # 转换为灰度图像 (L mode)
+
+    # # 2. 将 mask 作为 alpha 通道叠加在原始图像上
+    # # 将 mask 转换为透明度通道
+    # alpha_mask = ImageOps.invert(binary_mask_img)  # 反转使得前景透明度较高
+    # image_with_mask = image.copy()
+    # image_with_mask.putalpha(alpha_mask)  # 将 mask 作为 alpha 通道叠加
+
+    # # 3. 保存结果
+    # image_with_mask.save("tests/2.png")
+    # print(f"Image with mask saved as tests/1.png"
+    # )
+    
     # import pdb; pdb.set_trace()
-    point_labels = torch.ones((1,5), device='cuda:0').int()
-    masks, scores, _ = sam.predictor.predict_torch(
-    point_coords=selected_coords.to(sam.model.device),
-    point_labels=point_labels.to(sam.model.device),
-    multimask_output=False
+    config = SAMNetworkConfig()
+    sam = SamNetWork(config)
+
+    # Step 1: 加载图像
+    image = Image.open("/home/fangj1/Code/nerfstudio-nvsmask3d/tests/0.png").convert('RGB')  # 确保是RGB三通道
+
+    # Step 2: 将图像转换为Tensor格式
+    transform = transforms.Compose([
+        transforms.ToTensor(),  # 将图像转换为tensor，形状为(3, H, W)
+    ])
+    image_tensor = transform(image)
+    image_tensor = image_tensor.unsqueeze(0).cuda()  # 添加批次维度，形状为(1, 3, H, W)
+
+    # Step 3: 使用set_image设置图像
+    sam.set_image(image_tensor)
+
+    # Step 4: 定义坐标并进行预测
+    point_coords = torch.tensor([[254, 196],
+        [267, 212],
+        [256, 215],
+        [268, 204],
+        [255, 197]], device='cuda:0')
+    point_coords_new = torch.clone(point_coords)
+    point_coords_new[:,0] = point_coords[:,1]
+    point_coords_new[:,1] = point_coords[:,0]
+    # 绘制红点
+    image = Image.open("/home/fangj1/Code/nerfstudio-nvsmask3d/tests/0.png")
+    draw = ImageDraw.Draw(image)
+    coords = point_coords.cpu().numpy()
+    point_size = 5
+    for x, y in coords:
+        draw.ellipse([x - point_size, y - point_size, x + point_size, y + point_size], fill='red', outline='red')
+    image.save("tests/1.png")
+    print(f"Marked image saved as tests/1.png")
+    # Step 5: 进行遮罩预测
+    point_labels = torch.ones((5), device='cuda:0').int()
+    masks, scores, _ = sam.predictor.predict(
+        point_coords=point_coords.cpu().numpy(),  # `predict` 需要 numpy 格式的坐标
+        point_labels=point_labels.cpu().numpy(),
+        multimask_output=True
     )
-    binary_mask = masks.squeeze()[torch.argmax(scores)] # [shape: (H, W)]
-    binary_mask_np = binary_mask.cpu().numpy().astype('uint8') * 255  # Convert to binary image (0 or 255)
 
-    binary_mask_img = Image.fromarray(binary_mask_np).convert("L")  # 转换为灰度图像 (L mode)
+    # Step 6: 处理输出遮罩
+    binary_mask = masks.squeeze()[0]  # [shape: (H, W)]
+    binary_mask_np = (binary_mask > 0).astype('uint8') * 255  # 转换为二进制图像（0或255）
 
-    # 2. 将 mask 作为 alpha 通道叠加在原始图像上
-    # 将 mask 转换为透明度通道
+    # Step 7: 将mask与原始图像叠加
+    binary_mask_img = Image.fromarray(binary_mask_np).convert("L")  # 转换为灰度图像(L模式)
     alpha_mask = ImageOps.invert(binary_mask_img)  # 反转使得前景透明度较高
     image_with_mask = image.copy()
-    image_with_mask.putalpha(alpha_mask)  # 将 mask 作为 alpha 通道叠加
+    image_with_mask.putalpha(alpha_mask)  # 将mask作为alpha通道叠加
 
-    # 3. 保存结果
-    image_with_mask.save("tests/1.png")
-    print(f"Image with mask saved as tests/1.png"
-    )
+    # Step 8: 保存结果图像
+    image_with_mask.save("tests/2.png")
+    print(f"Image with mask saved as tests/2.png")
+
     import pdb; pdb.set_trace()
