@@ -179,72 +179,112 @@ def optimal_k_camera_poses_of_scene(
     return best_poses_per_mask
 
 @torch.no_grad()
-def object_optimal_k_camera_poses(
-    seed_points_0, boolean_mask, camera, k_poses=2
-):  # tested with no problem, faster than the previous one
+def object_optimal_k_camera_poses_2D_mask(
+    seed_points_0,
+    optimized_camera_to_world,
+    K,
+    W,
+    H,
+    boolean_mask,
+    depth_filenames=None,
+    depth_scale=None,
+    k_poses=2,
+    chunk_size=50,
+    vis_depth_threshold=0.4,
+    score_fn=lambda num_visible_points: num_visible_points  # 默认是用可见点数作为得分
+
+):
     """
-    Selects the top k optimal camera poses based on the visibility score of the 3D mask.
-    args:
-        seed_points_0: torch.Tensor, size is (N, 3), point cloud
-        boolean_mask: torch.Tenspr, size is (N,), for 3D mask #np.array, size is (N,), for 3D mask
-        camera: Cameras, for camera poses, size is (M, 3)
-        k_poses: int, for top k poses
+    Selects the top k optimal camera poses based on visibility scores computed for projected 3D points on a 2D mask.
+
+    The function projects 3D points into 2D for a set of candidate camera poses and calculates visibility scores. 
+    The visibility score is based on the number of valid 3D points projected into the 2D view that fall within image bounds and have valid depth values. 
+    The function returns the indices of the top k camera poses along with the 2D pixel positions for the valid projected points.
+
+    Args:
+        seed_points_0 (torch.Tensor): Tensor of shape (N, 3) representing the 3D points (e.g., masked object points) in world coordinates. Should be on CUDA.
+        optimized_camera_to_world (torch.Tensor): Tensor of shape (M, 3, 4) representing the camera-to-world transformation matrices for M camera poses in OpenCV convention. Should be on CUDA.
+        K (torch.Tensor): Tensor of shape (M, 3, 3) representing the camera intrinsics for M camera poses. Should be on CUDA.
+        W (int): Image width, typically 640 by default.
+        H (int): Image height, typically 360 by default.
+        boolean_mask (torch.Tensor): Boolean mask tensor of shape (N,) indicating the subset of 3D points to consider. Should be on CUDA.
+        k_poses (int, optional): The number of top camera poses to return based on visibility scores. Defaults to 2.
+        depth_filenames (Optional[List[str]]): List of depth map file paths for the candidate camera poses. Used to filter points by depth. Defaults to None.
+        depth_scale (Optional[float]): Scaling factor for depth values. Defaults to None.
+        chunk_size (int, optional): The chunk size for processing depth maps. Defaults to 50.
+        vis_depth_threshold (float, optional): Threshold for visibility based on depth comparison. Defaults to 0.4.
+        score_fn (Callable, optional): A scoring function for calculating visibility scores. Defaults to summing the number of valid points.
+
+    Returns:
+        best_poses_indices (torch.Tensor): Tensor of shape (k_poses,) representing the indices of the top k camera poses.
+        valid_u (List[torch.Tensor]): List of length k_poses containing the valid u coordinates for each camera pose.
+        valid_v (List[torch.Tensor]): List of length k_poses containing the valid v coordinates for each camera pose.
     """
-    # calculate time
-    # start = time.time()
 
-    # Move camera transformations to the GPU
-    optimized_camera_to_world = get_camera_pose_in_opencv_convention(camera.camera_to_worlds.to("cuda"))#shape (M, 3,4) on cuda
 
-    # Move intrinsics to the GPU
-    K = camera.get_intrinsics_matrices().to("cuda")
-    W, H = int(camera.width[0].item()), int(camera.height[0].item())
-
-    # Prepare seed points and boolean mask
     masked_seed_points = seed_points_0[boolean_mask]  # shape (N, 3)
+    u, v, z = get_points_projected_uv_and_depth(masked_seed_points, optimized_camera_to_world, K)  # shape (M, N)(200,3900)
+    valid_points = (u >= 0) & (u < W) & (v >= 0) & (v < H) & (z > 0) #shape (M, N)
 
-    # Precompute necessary values
-    visibility_scores = torch.zeros(
-        len(optimized_camera_to_world), device="cuda"
-    )  # shape (N,)
+    if depth_filenames:
+        # Load depth image
+        depth_maps = load_depth_maps(depth_filenames, depth_scale, device=seed_points_0.device).half()
 
-    # Vectorized computation for all camera poses
-    points_cam = masked_seed_points.unsqueeze(0) - optimized_camera_to_world[
-        :, :3, 3
-    ].unsqueeze(
-        1
-    )  # boardcast from (1,N,3) (M,1,3)to (M, N, 3)
-    points_cam = torch.bmm(
-        points_cam, optimized_camera_to_world[:, :3, :3]
-    )  # matrix multiplication from (M, N, 3) (M, 3, 3) to (M, N, 3)
-    # Project to 2D image plane using vectorized operations
-    u = points_cam[:, :, 0] * K[:, 0, 0].unsqueeze(1) / points_cam[:, :, 2] + K[
-        :, 0, 2
-    ].unsqueeze(1)#shape (M, N)
-    v = points_cam[:, :, 1] * K[:, 1, 1].unsqueeze(1) / points_cam[:, :, 2] + K[
-        :, 1, 2
-    ].unsqueeze(1)
+        # Calculate valid point indices
+        u_valid = u[valid_points].long() # shape (MxN, )
+        v_valid = v[valid_points].long() # shape (MxN, )
+        z_valid = z[valid_points]  # Keep as float for accuracy # shape (MxN, )
 
-    # Check valid points within image boundaries and in front of the camera
-    valid_points = (
-        (u >= 0) & (u < W) & (v >= 0) & (v < H) & (points_cam[:, :, 2] > 0)
-    )  # shape  (M, N)
+        # Process depth maps in chunks
+        valid_depths = process_depth_maps_in_chunks(depth_maps, u_valid, v_valid, z_valid, chunk_size=chunk_size, vis_depth_threshold=vis_depth_threshold)
+        # Update valid_points directly using the valid_depths
+        valid_points_clone = valid_points.clone() # shape (M, N)
+        valid_points_clone[valid_points] = valid_depths # shape (MxN, )
+
+        valid_points = valid_points_clone
+
+        # Cleanup
+        del depth_maps, valid_depths, valid_points_clone
+        torch.cuda.empty_cache()
+        
+    if not valid_points.any():
+        print("No valid points found")
+        return torch.tensor([]), torch.tensor([]), torch.tensor([])
+
 
     # Compute visibility scores for all poses
-    visibility_scores = valid_points.float().mean(dim=1)
+    num_visible_points = valid_points.float().sum(dim=1)
+    visibility_scores = num_visible_points  # 默认是用可见点数作为得分
 
     # Select top k scored poses
     _, best_poses_indices = torch.topk(visibility_scores, k_poses)
+    
+    # sparse_map = torch.zeros((H, W, 3), dtype=torch.float32, device="cuda")
+    # sparse_map[ u[0][valid_points[0]].long(), v[0][valid_points[0]].long()] = 1
+    # from nvsmask3d.utils.utils import save_img
+    # save_img(sparse_map, f"tests/sparse_map.png")
+    # import pdb; pdb.set_trace()
+    # Get the valid u and v coordinates for the best poses
+    valid_u = [ u[index][valid_points[index]].long() for index in best_poses_indices] # shape (k_poses, num_valid_points) 第二个维度不一定都是3900 全满, occlution原因
+    valid_v = [ v[index][valid_points[index]].long() for index in best_poses_indices] # shape (k_poses, num_valid_points)
+    # best_u = u[best_poses_indices]  # shape (k_poses, N)#(15,3900)
+    # best_v = v[best_poses_indices]  # shape (k_poses, N)#(15,3900)
+    # best_valid_points = valid_points[best_poses_indices]  # shape (k_poses, N)#(15,3900)
 
-    # Ensure indices are on the CPU
+
+    # # Only select valid points for the top poses, points differs for each pose
+    # valid_u = [best_u[i][best_valid_points[i]] for i in range(k_poses)]#(15,3900) 第二个维度不一定都是3900 全满, occlution原因
+    # valid_v = [best_v[i][best_valid_points[i]] for i in range(k_poses)]
+
+
+
+    # # Stack valid u and v to create 2D positions for each best camera pose
+    # masks = torch.stack([valid_u, valid_v], dim=1)  # shape (k_poses, num_valid_points, 2)
+
+    # Ensure indices are on the CPU for nerfstudio's camera
     best_poses_indices = best_poses_indices.cpu()
 
-    best_poses = camera[best_poses_indices]
-    # print time used
-    # print("Time used: ", time.time() - start)
-
-    return best_poses  # Cameras torch.Size([k_poses])
-
+    return best_poses_indices, valid_u, valid_v
 
 @torch.no_grad()
 def process_depth_maps_in_chunks(depth_maps, u_valid, v_valid, z_valid, chunk_size=100, vis_depth_threshold=0.4):
@@ -655,7 +695,7 @@ def interpolate_camera_poses_with_camera_trajectory(poses, masked_seed_points0, 
         pose_b[:3, :3] = R_b
         
         # Interpolate between the two camera poses
-        poses_ab = get_interpolated_poses(pose_a, pose_b, steps=steps_per_transition, direction_to_object=v2)# linear interpolation
+        poses_ab = get_interpolated_poses(pose_a, pose_b, steps=steps_per_transition)#, direction_to_object=v2)# linear interpolation
         interpolated_camera_poses.append(poses_ab)
 
     interpolated_camera_poses = torch.cat(interpolated_camera_poses, dim=0)

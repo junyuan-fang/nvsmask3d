@@ -48,7 +48,7 @@ from nerfstudio.models.splatfacto import (
 )
 from nerfstudio.viewer.viewer_elements import *
 from nvsmask3d.utils.camera_utils import (
-    object_optimal_k_camera_poses,
+    object_optimal_k_camera_poses_2D_mask,
     get_camera_pose_in_opencv_convention,
     make_cameras,
     object_optimal_k_camera_poses_bounding_box,
