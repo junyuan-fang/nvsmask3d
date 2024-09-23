@@ -36,6 +36,7 @@ from nvsmask3d.utils.camera_utils import (
     interpolate_camera_poses_with_camera_trajectory,
     make_cameras,
     compute_camera_pose_bounding_boxes,
+    compute_camera_pose_2D_masks
     
 )
 from nerfstudio.models.splatfacto import SplatfactoModel
@@ -107,7 +108,6 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
     project_name: str = "zeroshot_enhancement"
     run_name_for_wandb: Optional[str] = "test"
     algorithm: int = 0
-    seed:int = 42
     sam: bool = True
     # inference
     inference_dataset: Literal["scannet200", "replica"] = "replica"
@@ -117,7 +117,6 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
 
 
     def main(self) -> None:
-        torch.manual_seed(self.seed)
         if self.run_name_for_wandb == "test":
             wandb.init(project=self.project_name, name=self.run_name_for_wandb)
         # 假设从配置或命令行参数中读取 project_name 和 run_name
@@ -229,7 +228,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
         cls_num = class_agnostic_3d_mask.shape[1]
         pred_classes = np.full(cls_num, 0)  # -1)
         
-        # Loop through each mask
+        # Loop through each mask/ object
         for i in range(cls_num):
             # set instance
             model.cls_index = i
@@ -256,6 +255,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
             masked_gaussian_outputs = []
             # Interpolate camera poses and bounding boxes
             if self.interpolate_n_camera*self.interpolate_n_rgb_camera > 0 or self.interpolate_n_camera*self.interpolate_n_gaussian_camera > 0:
+                #camera interpolation
                 interpolated_poses = interpolate_camera_poses_with_camera_trajectory(
                     camera_to_world_opengl[best_camera_indices],
                     seed_points_0[boolean_mask],
@@ -263,6 +263,15 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 )
                 interpolated_cameras = make_cameras(model.cameras[0:1], interpolated_poses)
 
+                #get masks
+                # interp_valid_u, interp_valid_v = compute_camera_pose_2D_masks(
+                #     seed_points_0=model.seed_points[0].cuda(),
+                #     optimized_camera_to_world=get_camera_pose_in_opencv_convention(interpolated_poses),
+                #     K=interpolated_cameras.get_intrinsics_matrices().to(device="cuda"),
+                #     W=W,
+                #     H=H,
+                #     boolean_mask=boolean_mask
+                # )
                 interpolated_poses_bounding_boxes = compute_camera_pose_bounding_boxes(
                     seed_points_0=model.seed_points[0].cuda(),
                     optimized_camera_to_world=get_camera_pose_in_opencv_convention(interpolated_poses),
@@ -280,7 +289,8 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     try:
                         min_u, min_v, max_u, max_v = interpolated_poses_bounding_boxes[interpolation_index]
                     except:
-                        print(f"Failed to get bounding box for image {interpolation_index}")
+                        import pdb;pdb.set_trace()
+                        print(f"Failed to get bounding box for objec {i} interpolated camera {interpolation_index}")
                         continue
                     # Unpack bounding box
                     min_u = 0 if min_u == float('-inf') else min_u
@@ -340,7 +350,9 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
             if self.gt_camera_rgb or self.gt_camera_gaussian:
                 gt_images = []
                 # gt_images_label_map = []
+                
                 for index, pose_index in enumerate(best_camera_indices):
+                    torch.manual_seed(int(index))
                     pose_index = pose_index.item()
 
                     single_camera = model.cameras[pose_index : pose_index + 1]
@@ -360,7 +372,8 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     if mask_i.sum() == 0:
                         # print(f"Skipping inference for object {i} pose {index} due to no valid camera poses, assign")
                         continue
-
+                    
+                    #multilevel mask
                     for level in range(3): # num_levels = 3
                         min_u, min_v, max_u, max_v = sam_network.mask2box_multi_level(mask_i, level, expansion_ratio = 0.1)
                         _, H, W = img.shape

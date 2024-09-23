@@ -427,7 +427,6 @@ def object_optimal_k_camera_poses_bounding_box(
 
     return best_poses_indices, final_bounding_boxes
 
-    
 @torch.no_grad()
 def compute_camera_pose_bounding_boxes(
     seed_points_0: torch.Tensor,
@@ -484,6 +483,48 @@ def compute_camera_pose_bounding_boxes(
     bounding_boxes = torch.stack([min_u, min_v, max_u, max_v], dim=1)  # shape (M, 4)
 
     return bounding_boxes
+
+@torch.no_grad()
+def compute_camera_pose_2D_masks(
+    seed_points_0: torch.Tensor,
+    optimized_camera_to_world: torch.Tensor,
+    K: torch.Tensor,
+    W: int,
+    H: int,
+    boolean_mask: torch.Tensor,
+) -> torch.Tensor:
+    """
+    Computes the masks for each camera pose given a 3D mask.
+
+    Args:
+        seed_points_0 (torch.Tensor): (N,3) on cuda, the point cloud.
+        optimized_camera_to_world (torch.Tensor): (M,3,4) on cuda, need to be in OpenCV convention.
+        K (torch.Tensor): (M,3,3) on cuda, camera intrinsics for each camera.
+        W (int): Image width (e.g., 640).
+        H (int): Image height (e.g., 360).
+        boolean_mask (torch.Tensor): (N,) on cuda, the boolean mask for filtering relevant 3D points.
+
+    Returns:
+        valid_u (List[torch.Tensor]): List of length k_poses containing the valid u coordinates for each camera pose.
+        valid_v (List[torch.Tensor]): List of length k_poses containing the valid v coordinates for each camera pose.
+    """
+    # Filter out relevant 3D points using the boolean mask
+    masked_seed_points = seed_points_0[boolean_mask]  # shape (N, 3)
+
+    # Project points to 2D image coordinates for all camera poses
+    u, v, z = get_points_projected_uv_and_depth(masked_seed_points, optimized_camera_to_world, K)  # shape (M, N)
+
+    # Filter out invalid points (outside of the image boundaries or behind the camera)
+    valid_points = (u >= 0) & (u < W) & (v >= 0) & (v < H) & (z > 0)
+
+    if not valid_points.any():
+        print("No valid points found")
+        return torch.tensor([]), torch.tensor([]), torch.tensor([])
+
+    valid_u = [ u[index][valid_points[index]].long() for index in range(u.shape[0])] # shape (k_poses, num_valid_points) 第二个维度不一定都是3900 全满, occlution原因
+    valid_v = [ v[index][valid_points[index]].long() for index in range(u.shape[0])] # shape (k_poses, num_valid_points)
+
+    return valid_u, valid_v
 
 def rotate_vector_to_vector(v1: Tensor, v2: Tensor):
     """
