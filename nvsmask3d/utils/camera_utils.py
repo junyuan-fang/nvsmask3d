@@ -695,7 +695,7 @@ def get_points_projected_uv_and_depth(
 
     return u, v, depth
 
-def interpolate_camera_poses_with_camera_trajectory(poses, masked_seed_points0, steps_per_transition=10):
+def interpolate_camera_poses_with_camera_trajectory(poses, masked_seed_points0, steps_per_transition=10, slerp=False):#, model=None):
     """
     Interpolates camera poses between the given camera poses on opencv convention by using the possible camera trajectory. 
     Including start pose amd end pose rotation adjustment based on 3D object center point.
@@ -710,34 +710,75 @@ def interpolate_camera_poses_with_camera_trajectory(poses, masked_seed_points0, 
     """
     
     # prepare object center point (3, ) vector
-    v2 = masked_seed_points0.mean(dim=0)
-    v2 = v2 / torch.norm(v2)
+    v2 = masked_seed_points0.mean(dim=0) # openCV convention
     
     # Interpolate camera poses
     num_poses = poses.shape[0]
     interpolated_camera_poses = []
     for i in range(num_poses - 1):
         # Get the start and end camera poses
-        pose_a = poses[i]
-        pose_b = poses[i + 1]
+        pose_a = poses[i] 
+        pose_b = poses[i + 1] 
         
         #prepare camera (3,) vector.
         v1_a = -pose_a[:3, 2] # z-axis, filipped to opencv convention
         v1_a = v1_a / torch.norm(v1_a)
         v1_b = -pose_b[:3, 2]
         v1_b = v1_b / torch.norm(v1_b)
-        
         #get rotation matrix
         R_a = rotate_vector_to_vector(v1_a, v2)
-        R_a = R_a @ pose_a[:3, :3]
+        R_a = pose_a[:3, :3] @ R_a #在相机的本地坐标系中旋转
         pose_a[:3, :3] = R_a
         R_b = rotate_vector_to_vector(v1_b, v2)
-        R_b = R_b @ pose_b[:3, :3]
+        R_b = pose_b[:3, :3] @ R_b
         pose_b[:3, :3] = R_b
         
-        # Interpolate between the two camera poses
-        poses_ab = get_interpolated_poses(pose_a, pose_b, steps=steps_per_transition)#, direction_to_object=v2)# linear interpolation
-        interpolated_camera_poses.append(poses_ab)
+        # camera_a = make_cameras(model.cameras[0:1], pose_a.unsqueeze(0))
+        # camera_b = make_cameras(model.cameras[0:1], pose_b.unsqueeze(0))
+        # nvs_img_a = model.get_outputs(camera_a)["rgb"]  # (H, W, 3)
+        # nvs_img_b = model.get_outputs(camera_b)["rgb"]  # (H, W, 3)
+        # from nvsmask3d.utils.utils import save_img
+        # save_img(nvs_img_a, f"tests/object{i}_nvs_image_a.png")
+        # save_img(nvs_img_b, f"tests/object{i}_nvs_image_b.png")
+
+        #import pdb; pdb.set_trace()
+        #pose_a, poseb opengl convention
+        if slerp:
+            # Interpolate between the two camera poses
+            poses_ab = get_interpolated_poses(pose_a, pose_b, steps=steps_per_transition)#, direction_to_object=v2)# linear interpolation
+            interpolated_camera_poses.append(poses_ab)# (steps, 3, 4)
+
+        else:
+            # 创建一个从1到steps的等间隔序列
+            ts = torch.linspace(1, steps_per_transition, steps_per_transition, device=masked_seed_points0.device)
+            
+            t_factors = ts.unsqueeze(1) / (steps_per_transition + 1)  # 形状：(N, 1)
+
+            # 计算插值位置，形状为 (N, 3)
+            trans_list = pose_a[:3, 3] + (pose_b[:3, 3] - pose_a[:3, 3]) * t_factors
+
+            direction_to_object = v2[None,:] - trans_list  # (N, 3)
+
+            direction_norms = torch.norm(direction_to_object, dim=1, keepdim=True) + 1e-8
+            direction_to_object_normalized = direction_to_object / direction_norms  # (N, 3)
+
+            # 相机的默认前向方向（OpenCV 坐标系），扩展到批量大小
+            camera_forward = torch.tensor([0, 0, -1], dtype=torch.float32, device=masked_seed_points0.device)
+            camera_forward_batch = camera_forward[None,:].expand_as(direction_to_object_normalized)  # (N, 3)
+
+            # 计算旋转矩阵，形状：(N, 3, 3)
+            rotation_matrices = rotate_vector_to_vector(
+                camera_forward_batch,
+                direction_to_object_normalized
+            )  # (N, 3, 3)
+            
+            # 构建相机姿态矩阵（OpenGL 坐标系）
+            camera_poses_gl = torch.eye(4, dtype=torch.float32, device=masked_seed_points0.device).unsqueeze(0).repeat(rotation_matrices.shape[0], 1, 1)
+            camera_poses_gl[:, :3, :3] = rotation_matrices
+            camera_poses_gl[:, :3, 3] = trans_list
+
+            # 添加到插值相机姿态列表中
+            interpolated_camera_poses.append(camera_poses_gl)  # (steps, 4, 4)
 
     interpolated_camera_poses = torch.cat(interpolated_camera_poses, dim=0)
     # Final shape will be [steps*num_poses, 3, 4]
@@ -1120,3 +1161,50 @@ def get_projection_matrix(znear=0.001, zfar=1000, fovx=None, fovy=None, **kwargs
         ],
         **kwargs,
     )
+def matrix_to_quaternion(rotation_matrix: Tensor):
+    """
+    Convert a 3x3 rotation matrix to a unit quaternion.
+    """
+    if rotation_matrix.dim() == 2:
+        rotation_matrix = rotation_matrix[None, ...]
+    assert rotation_matrix.shape[1:] == (3, 3)
+
+    traces = torch.vmap(torch.trace)(rotation_matrix)
+    quaternion = torch.zeros(
+        rotation_matrix.shape[0],
+        4,
+        dtype=rotation_matrix.dtype,
+        device=rotation_matrix.device,
+    )
+    for i in range(rotation_matrix.shape[0]):
+        matrix = rotation_matrix[i]
+        trace = traces[i]
+        if trace > 0:
+            S = torch.sqrt(trace + 1.0) * 2
+            w = 0.25 * S
+            x = (matrix[2, 1] - matrix[1, 2]) / S
+            y = (matrix[0, 2] - matrix[2, 0]) / S
+            z = (matrix[1, 0] - matrix[0, 1]) / S
+        elif (matrix[0, 0] > matrix[1, 1]) and (matrix[0, 0] > matrix[2, 2]):
+            S = torch.sqrt(1.0 + matrix[0, 0] - matrix[1, 1] - matrix[2, 2]) * 2
+            w = (matrix[2, 1] - matrix[1, 2]) / S
+            x = 0.25 * S
+            y = (matrix[0, 1] + matrix[1, 0]) / S
+            z = (matrix[0, 2] + matrix[2, 0]) / S
+        elif matrix[1, 1] > matrix[2, 2]:
+            S = torch.sqrt(1.0 + matrix[1, 1] - matrix[0, 0] - matrix[2, 2]) * 2
+            w = (matrix[0, 2] - matrix[2, 0]) / S
+            x = (matrix[0, 1] + matrix[1, 0]) / S
+            y = 0.25 * S
+            z = (matrix[1, 2] + matrix[2, 1]) / S
+        else:
+            S = torch.sqrt(1.0 + matrix[2, 2] - matrix[0, 0] - matrix[1, 1]) * 2
+            w = (matrix[1, 0] - matrix[0, 1]) / S
+            x = (matrix[0, 2] + matrix[2, 0]) / S
+            y = (matrix[1, 2] + matrix[2, 1]) / S
+            z = 0.25 * S
+
+        quaternion[i] = torch.tensor(
+            [w, x, y, z], dtype=matrix.dtype, device=matrix.device
+        )
+    return quaternion

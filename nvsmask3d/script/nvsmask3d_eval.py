@@ -260,8 +260,9 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     camera_to_world_opengl[best_camera_indices],
                     seed_points_0[boolean_mask],
                     self.interpolate_n_camera,
+                    # model=model,#
                 )
-                interpolated_cameras = make_cameras(model.cameras[0:1], interpolated_poses)
+                interpolated_cameras = make_cameras(model.cameras[0:1], interpolated_poses) 
 
                 #get masks
                 # interp_valid_u, interp_valid_v = compute_camera_pose_2D_masks(
@@ -323,11 +324,12 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                             nvs_img_pil = transforms.ToPILImage()(cropped_nvs_img)#for wandb
                             #############debug################
                             # Save the cropped image
-                            # try:
-                            #     save_img(cropped_nvs_img, f"tests/cropped_nvs_image_{interpolation_index}.png")
-                            # except Exception as e:
-                            #     print(f"Failed to save image {interpolation_index}: {e}")
-                            #     continue  
+                            try:
+                                save_img(nvs_img, f"tests/object{i}cropped_nvs_image_{interpolation_index}.png")
+                            except Exception as e:
+                                import pdb;pdb.set_trace()
+                                print(f"Failed to save image {interpolation_index}: {e}")
+                                continue  
                             ##################################
                         if self.interpolate_n_gaussian_camera > 0:
                             # # Process and crop the nvs mask image, seems will make inference worse
@@ -588,7 +590,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     camera_to_world_opengl[best_camera_indices],
                     seed_points_0[boolean_mask],
                     self.interpolate_n_camera,
-                )
+                )# opencv convention
                 interpolated_cameras = make_cameras(model.cameras[0:1], interpolated_poses)
 
                 interpolated_poses_bounding_boxes = compute_camera_pose_bounding_boxes(

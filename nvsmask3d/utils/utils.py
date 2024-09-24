@@ -331,7 +331,7 @@ def depth_path_to_tensor(
 
 
 def save_img(image, image_path, verbose=True) -> None:
-    """helper to save images
+    """helper to save images H x W x C
 
     Args:
         image: image to save (numpy, Tensor)
