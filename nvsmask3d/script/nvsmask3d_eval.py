@@ -262,8 +262,8 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     camera_to_world_opengl[best_camera_indices],
                     masked_seed_points,
                     self.interpolate_n_camera,
-                    #model=model,#
-                    #j = i
+                    # model=model,#
+                    # j = i
                 )# (pose-1) * step
                 interpolated_cameras = make_cameras(model.cameras[0:1], interpolated_poses) 
 
@@ -299,7 +299,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
 
                     if valid_points[interpolation_index].any():
                         u_i = u[interpolation_index][valid]
-                        v_i = H-v[interpolation_index][valid]
+                        v_i = v[interpolation_index][valid]
                         
                         # 转换为整数索引
                         u_i = u_i.long()
@@ -334,6 +334,11 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                             #############debug################
                             # Save the cropped image
                             try:
+                                sparse_map = torch.zeros((H, W, 3), dtype=torch.float32, device="cuda")
+                                sparse_map[ v_i, u_i] = 1
+                                from nvsmask3d.utils.utils import save_img
+                                save_img(sparse_map, f"tests/sparse_map_object{i}nvs_image_{interpolation_index}.png")
+                                
                                 save_img(nvs_img, f"tests/object{i}nvs_image_{interpolation_index}.png")
                                 save_img(cropped_nvs_img.permute(1,2,0), f"tests/object{i}cropped_nvs_image_{interpolation_index}.png")
                             except Exception as e:
@@ -652,13 +657,12 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                             # nvs_img_label_map = model.image_encoder.return_image_map(cropped_nvs_img)#for wandb
                             nvs_img_pil = transforms.ToPILImage()(cropped_nvs_img)#for wandb
                             #############debug################
-                            try:
-                                save_img(nvs_img, f"tests/object{i}nvs_image_{interpolation_index}.png")
-                                save_img(cropped_nvs_img.permute(1,2,0), f"tests/object{i}cropped_nvs_image_{interpolation_index}.png")
-                            except Exception as e:
-                                import pdb;pdb.set_trace()
-                                print(f"Failed to save image {interpolation_index}: {e}")
-                                continue  
+                            # Save the cropped image
+                            # try:
+                            #     save_img(cropped_nvs_img, f"tests/cropped_nvs_image_{interpolation_index}.png")
+                            # except Exception as e:
+                            #     print(f"Failed to save image {interpolation_index}: {e}")
+                            #     continue  
                             ##################################
                         if self.interpolate_n_gaussian_camera > 0:
                             # # Process and crop the nvs mask image, seems will make inference worse

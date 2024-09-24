@@ -39,8 +39,8 @@ from PIL import Image
 ################debug################
 vis_depth_threshold = 0.4
 # opengl to opencv transformation matrix
-OPENGL_TO_OPENCV = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
-OPENCV_TO_OPENGL = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
+OPENGL_TO_OPENCV = np.array([[1.0, 0.0, 0.0, 0.0], [0.0, -1.0, 0.0, 0.0], [0.0, 0.0, -1.0, 0.0], [0.0, 0.0, 0.0, 1.0]])
+OPENCV_TO_OPENGL = np.array([[1.0, 0.0, 0.0, 0.0], [0.0, -1.0, 0.0, 0.0], [0.0, 0.0, -1.0, 0.0], [0.0, 0.0, 0.0, 1.0]])
 def get_camera_pose_in_opencv_convention(optimized_camera_to_world: torch.Tensor) -> torch.Tensor:
     """
     Converts a batch of camera poses from OpenGL to OpenCV convention.
@@ -61,7 +61,7 @@ def get_camera_pose_in_opencv_convention(optimized_camera_to_world: torch.Tensor
 
     # Add a column to `optimized_camera_to_world` to make it (M, 4, 4) for matrix multiplication
     optimized_camera_to_world = torch.cat(
-        [optimized_camera_to_world, torch.tensor([0, 0, 0, 1], device=optimized_camera_to_world.device, dtype=optimized_camera_to_world.dtype).view(1, 1, 4).expand(optimized_camera_to_world.shape[0], -1, -1)],
+        [optimized_camera_to_world, torch.tensor([0.0, 0.0, 0.0, 1.0], device=optimized_camera_to_world.device, dtype=optimized_camera_to_world.dtype).view(1, 1, 4).expand(optimized_camera_to_world.shape[0], -1, -1)],
         dim=1
     )
 
@@ -722,9 +722,11 @@ def interpolate_camera_poses_with_camera_trajectory(poses, masked_seed_points0, 
         
         pose_a[:3, 2] = -pose_a[:3, 2] # z-axis, filipped to opencv convention
         pose_b[:3, 2] = -pose_b[:3, 2]
+        # pose_a[:3, 1] = -pose_a[:3, 1] # y-axis, filipped to opencv convention
+        # pose_b[:3, 1] = -pose_b[:3, 1]
         
         # 从相机姿态中提取原始的上方向（Up Vector）
-        up_vector_a = pose_b[:, 1]  # 第二列y为上方向###########################
+        up_vector_a = pose_a[:, 1]  # 第二列y为上方向
         up_vector_a = up_vector_a / torch.norm(up_vector_a)  # 归一化
         # 使用 Look-At 方法计算新的旋转矩阵
         pose_a[:, :3] = compute_look_at_rotation(pose_a[:, 3], v2, up_vector_a)# pose_a[:, 3] opengl convention, v2 opencv convention, up_vector_a opengl convention
@@ -767,7 +769,7 @@ def interpolate_camera_poses_with_camera_trajectory(poses, masked_seed_points0, 
             t_factors = ts.unsqueeze(1) / (steps_per_transition + 1)  # 形状：(N, 1)
 
             # 计算插值位置，形状为 (N, 3)
-            
+            #pose already in opencv convention
             trans_list = pose_a[:3, 3] + (pose_b[:3, 3] - pose_a[:3, 3]) * t_factors
             up_vectors = up_vector_a.unsqueeze(0).expand(trans_list.shape[0], -1)
 
