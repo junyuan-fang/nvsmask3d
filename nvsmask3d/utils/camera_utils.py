@@ -695,7 +695,7 @@ def get_points_projected_uv_and_depth(
 
     return u, v, depth
 
-def interpolate_camera_poses_with_camera_trajectory(poses, masked_seed_points0, steps_per_transition=10, slerp=False):#, model=None):
+def interpolate_camera_poses_with_camera_trajectory(poses, masked_seed_points0, steps_per_transition=10, slerp=False):#, model=None, j=0):
     """
     Interpolates camera poses between the given camera poses on opencv convention by using the possible camera trajectory. 
     Including start pose amd end pose rotation adjustment based on 3D object center point.
@@ -708,40 +708,52 @@ def interpolate_camera_poses_with_camera_trajectory(poses, masked_seed_points0, 
     Returns:
         interpolated_camera_poses (torch.Tensor): (M * step_per_transition, 3, 4) interpolated camera-to-world matrices
     """
-    
+
     # prepare object center point (3, ) vector
-    v2 = masked_seed_points0.mean(dim=0) # openCV convention
+    v2 =  torch.median(masked_seed_points0, dim=0)[0] # openCV convention
     
     # Interpolate camera poses
     num_poses = poses.shape[0]
     interpolated_camera_poses = []
     for i in range(num_poses - 1):
         # Get the start and end camera poses
-        pose_a = poses[i] 
+        pose_a = poses[i] # opengl convention
         pose_b = poses[i + 1] 
         
-        #prepare camera (3,) vector.
-        v1_a = -pose_a[:3, 2] # z-axis, filipped to opencv convention
-        v1_a = v1_a / torch.norm(v1_a)
-        v1_b = -pose_b[:3, 2]
-        v1_b = v1_b / torch.norm(v1_b)
-        #get rotation matrix
-        R_a = rotate_vector_to_vector(v1_a, v2)
-        R_a = pose_a[:3, :3] @ R_a #在相机的本地坐标系中旋转
-        pose_a[:3, :3] = R_a
-        R_b = rotate_vector_to_vector(v1_b, v2)
-        R_b = pose_b[:3, :3] @ R_b
-        pose_b[:3, :3] = R_b
+        pose_a[:3, 2] = -pose_a[:3, 2] # z-axis, filipped to opencv convention
+        pose_b[:3, 2] = -pose_b[:3, 2]
+        
+        # 从相机姿态中提取原始的上方向（Up Vector）
+        up_vector_a = pose_b[:, 1]  # 第二列y为上方向###########################
+        up_vector_a = up_vector_a / torch.norm(up_vector_a)  # 归一化
+        # 使用 Look-At 方法计算新的旋转矩阵
+        pose_a[:, :3] = compute_look_at_rotation(pose_a[:, 3], v2, up_vector_a)# pose_a[:, 3] opengl convention, v2 opencv convention, up_vector_a opengl convention
+        
+        #b
+        up_vector_b = pose_b[:, 1]  # 第二列为上方向
+        up_vector_b = up_vector_b / torch.norm(up_vector_b)  # 归一化
+        pose_b[:, :3] = compute_look_at_rotation( pose_b[:, 3], v2, up_vector_b)
+        # #prepare camera (3,) vector.
+        # v1_a = -pose_a[:3, 2] # z-axis, filipped to opencv convention
+        # v1_a = v1_a / torch.norm(v1_a)
+        # v1_b = -pose_b[:3, 2]
+        # v1_b = v1_b / torch.norm(v1_b)
+        # #get rotation matrix
+        # R_a = rotate_vector_to_vector(v1_a, v2)
+        # R_a = pose_a[:3, :3] @ R_a #在相机的本地坐标系中旋转
+        # pose_a[:3, :3] = R_a
+        # R_b = rotate_vector_to_vector(v1_b, v2)
+        # R_b = pose_b[:3, :3] @ R_b
+        # pose_b[:3, :3] = R_b
         
         # camera_a = make_cameras(model.cameras[0:1], pose_a.unsqueeze(0))
         # camera_b = make_cameras(model.cameras[0:1], pose_b.unsqueeze(0))
         # nvs_img_a = model.get_outputs(camera_a)["rgb"]  # (H, W, 3)
         # nvs_img_b = model.get_outputs(camera_b)["rgb"]  # (H, W, 3)
         # from nvsmask3d.utils.utils import save_img
-        # save_img(nvs_img_a, f"tests/object{i}_nvs_image_a.png")
-        # save_img(nvs_img_b, f"tests/object{i}_nvs_image_b.png")
+        # save_img(nvs_img_a, f"tests/object{j}_cam{i}_nvs_image_a.png")
+        # save_img(nvs_img_b, f"tests/object{j}_cam{i}_nvs_image_b.png")
 
-        #import pdb; pdb.set_trace()
         #pose_a, poseb opengl convention
         if slerp:
             # Interpolate between the two camera poses
@@ -755,22 +767,25 @@ def interpolate_camera_poses_with_camera_trajectory(poses, masked_seed_points0, 
             t_factors = ts.unsqueeze(1) / (steps_per_transition + 1)  # 形状：(N, 1)
 
             # 计算插值位置，形状为 (N, 3)
+            
             trans_list = pose_a[:3, 3] + (pose_b[:3, 3] - pose_a[:3, 3]) * t_factors
+            up_vectors = up_vector_a.unsqueeze(0).expand(trans_list.shape[0], -1)
 
-            direction_to_object = v2[None,:] - trans_list  # (N, 3)
+            # direction_to_object = v2[None,:] - trans_list  # (N, 3)
 
-            direction_norms = torch.norm(direction_to_object, dim=1, keepdim=True) + 1e-8
-            direction_to_object_normalized = direction_to_object / direction_norms  # (N, 3)
+            # direction_norms = torch.norm(direction_to_object, dim=1, keepdim=True) + 1e-8
+            # direction_to_object_normalized = direction_to_object / direction_norms  # (N, 3)
 
-            # 相机的默认前向方向（OpenCV 坐标系），扩展到批量大小
-            camera_forward = torch.tensor([0, 0, -1], dtype=torch.float32, device=masked_seed_points0.device)
-            camera_forward_batch = camera_forward[None,:].expand_as(direction_to_object_normalized)  # (N, 3)
+            # # 相机的默认前向方向（OpenCV 坐标系），扩展到批量大小
+            # camera_forward = torch.tensor([0, 0, -1], dtype=torch.float32, device=masked_seed_points0.device)
+            # camera_forward_batch = camera_forward[None,:].expand_as(direction_to_object_normalized)  # (N, 3)
 
-            # 计算旋转矩阵，形状：(N, 3, 3)
-            rotation_matrices = rotate_vector_to_vector(
-                camera_forward_batch,
-                direction_to_object_normalized
-            )  # (N, 3, 3)
+            # # 计算旋转矩阵，形状：(N, 3, 3)
+            # rotation_matrices = rotate_vector_to_vector(
+            #     camera_forward_batch,
+            #     direction_to_object_normalized
+            # )  # (N, 3, 3)
+            rotation_matrices = batch_compute_look_at_rotation(trans_list, v2, up_vectors)  # (steps_per_transition, 3, 3)
             
             # 构建相机姿态矩阵（OpenGL 坐标系）
             camera_poses_gl = torch.eye(4, dtype=torch.float32, device=masked_seed_points0.device).unsqueeze(0).repeat(rotation_matrices.shape[0], 1, 1)
@@ -783,6 +798,67 @@ def interpolate_camera_poses_with_camera_trajectory(poses, masked_seed_points0, 
     interpolated_camera_poses = torch.cat(interpolated_camera_poses, dim=0)
     # Final shape will be [steps*num_poses, 3, 4]
     return interpolated_camera_poses
+# 计算旋转矩阵，针对每个插值位置
+def batch_compute_look_at_rotation(eyes, target, ups):
+    """
+    批量计算 Look-At 旋转矩阵
+
+    Args:
+        eyes (torch.Tensor): 相机位置，形状为 (N, 3)
+        target (torch.Tensor): 目标位置，形状为 (3,)
+        ups (torch.Tensor): 上方向，形状为 (N, 3)
+
+    Returns:
+        Rs (torch.Tensor): 旋转矩阵，形状为 (N, 3, 3)
+    """
+    # 计算前向向量
+    f = target.unsqueeze(0) - eyes  # (N, 3)
+    f = f / torch.norm(f, dim=1, keepdim=True)  # (N, 3)
+
+    # 确保上方向已归一化
+    ups = ups / torch.norm(ups, dim=1, keepdim=True)  # (N, 3)
+
+    # 计算右向量
+    s = torch.cross(f, ups, dim=1)  # (N, 3)
+    s = s / torch.norm(s, dim=1, keepdim=True)  # (N, 3)
+
+    # 计算真实的上向量
+    u = torch.cross(s, f, dim=1)  # (N, 3)
+
+    # 构建旋转矩阵
+    Rs = torch.stack([s, u, -f], dim=2)  # (N, 3, 3)
+
+    return Rs
+
+def compute_look_at_rotation(eye, target, up):
+    """
+    使用 Look-At 方法计算旋转矩阵，使相机从 eye 位置朝向 target，使用指定的上方向 up。
+
+    Args:
+        eye (torch.Tensor): 相机位置，形状为 (3,)
+        target (torch.Tensor): 目标位置，形状为 (3,)
+        up (torch.Tensor): 上方向，形状为 (3,)
+
+    Returns:
+        R (torch.Tensor): 旋转矩阵，形状为 (3, 3)
+    """
+    # 计算前向向量（从相机位置指向目标位置）
+    f = target - eye
+    f = f / torch.norm(f)
+
+    # 确保上方向已归一化
+    up = up / torch.norm(up)
+
+    # 计算右向量
+    s = torch.cross(f, up)
+    s = s / torch.norm(s)
+
+    # 计算真实的上向量
+    u = torch.cross(s, f)
+
+    # 构建旋转矩阵
+    R = torch.stack([s, u, -f], dim=1)  # 形状为 (3, 3)
+    return R
 
 def ideal_K_inverse(K):
     fx = K[0, 0]

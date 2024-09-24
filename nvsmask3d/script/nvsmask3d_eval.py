@@ -36,7 +36,8 @@ from nvsmask3d.utils.camera_utils import (
     interpolate_camera_poses_with_camera_trajectory,
     make_cameras,
     compute_camera_pose_bounding_boxes,
-    compute_camera_pose_2D_masks
+    compute_camera_pose_2D_masks,
+    get_points_projected_uv_and_depth
     
 )
 from nerfstudio.models.splatfacto import SplatfactoModel
@@ -233,6 +234,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
             # set instance
             model.cls_index = i
             boolean_mask = class_agnostic_3d_mask[:, i]
+            masked_seed_points = seed_points_0[boolean_mask]  # shape (N_masked, 3)
             best_camera_indices, valid_u, valid_v = object_optimal_k_camera_poses_2D_mask( 
                 seed_points_0=seed_points_0,
                 optimized_camera_to_world=camera_to_world_opencv,
@@ -258,10 +260,11 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 #camera interpolation
                 interpolated_poses = interpolate_camera_poses_with_camera_trajectory(
                     camera_to_world_opengl[best_camera_indices],
-                    seed_points_0[boolean_mask],
+                    masked_seed_points,
                     self.interpolate_n_camera,
-                    # model=model,#
-                )
+                    #model=model,#
+                    #j = i
+                )# (pose-1) * step
                 interpolated_cameras = make_cameras(model.cameras[0:1], interpolated_poses) 
 
                 #get masks
@@ -273,39 +276,45 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 #     H=H,
                 #     boolean_mask=boolean_mask
                 # )
-                interpolated_poses_bounding_boxes = compute_camera_pose_bounding_boxes(
-                    seed_points_0=model.seed_points[0].cuda(),
-                    optimized_camera_to_world=get_camera_pose_in_opencv_convention(interpolated_poses),
-                    K=interpolated_cameras.get_intrinsics_matrices().to(device="cuda"),
-                    W=W,
-                    H=H,
-                    boolean_mask=boolean_mask
-                )
+                # import pdb;pdb.set_trace()
+                # interpolated_poses_bounding_boxes = compute_camera_pose_bounding_boxes(
+                #     seed_points_0=model.seed_points[0].cuda(),
+                #     optimized_camera_to_world=get_camera_pose_in_opencv_convention(interpolated_poses),
+                #     K=interpolated_cameras.get_intrinsics_matrices().to(device="cuda"),
+                #     W=W,
+                #     H=H,
+                #     boolean_mask=boolean_mask
+                # )
                 #restore img for wandb
+                # Project points to 2D image coordinates for all camera poses
+                u, v, z = get_points_projected_uv_and_depth(masked_seed_points, get_camera_pose_in_opencv_convention(interpolated_poses), K = interpolated_cameras.get_intrinsics_matrices().to(device="cuda"))
+                valid_points = (u >= 0) & (u < W) & (v >= 0) & (v < H) & (z > 0)  # shape (M, N_masked)
+
                 interpolated_images = []
                 #interpolated_images_label_map = []
                 # Render NVS images, crop, save, and add to outputs
                 for interpolation_index in range(interpolated_cameras.shape[0]):
                     camera = interpolated_cameras[interpolation_index:interpolation_index+1]
-                    try:
-                        min_u, min_v, max_u, max_v = interpolated_poses_bounding_boxes[interpolation_index]
-                    except:
-                        import pdb;pdb.set_trace()
-                        print(f"Failed to get bounding box for objec {i} interpolated camera {interpolation_index}")
-                        continue
-                    # Unpack bounding box
-                    min_u = 0 if min_u == float('-inf') else min_u
-                    min_v = 0 if min_v == float('-inf') else min_v
-                    max_u = W if max_u == float('inf') else max_u
-                    max_v = H if max_v == float('inf') else max_v
-                    
-                    min_u, min_v, max_u, max_v = map(int, [min_u, min_v, max_u, max_v])
+                    valid = valid_points[interpolation_index]  # 形状：(N,)
 
-                    # Clamp values to ensure they are within the valid range
-                    min_u = max(0, min(min_u, W - 1))
-                    min_v = max(0, min(min_v, H - 1))
-                    max_u = max(0, min(max_u, W))
-                    max_v = max(0, min(max_v, H))
+                    if valid_points[interpolation_index].any():
+                        u_i = u[interpolation_index][valid]
+                        v_i = H-v[interpolation_index][valid]
+                        
+                        # 转换为整数索引
+                        u_i = u_i.long()
+                        v_i = v_i.long()
+                        
+                        # 确保索引在图像范围内
+                        u_i = torch.clamp(u_i, 0, W - 1)
+                        v_i = torch.clamp(v_i, 0, H - 1)
+                        
+                        min_u = u_i.min()
+                        max_u = u_i.max()
+                        min_v = v_i.min()
+                        max_v = v_i.max()
+                    else:# 如果没有有效点，
+                        continue
 
                     # Check if bounding box is valid
                     if min_u < max_u and min_v < max_v:
@@ -325,7 +334,8 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                             #############debug################
                             # Save the cropped image
                             try:
-                                save_img(nvs_img, f"tests/object{i}cropped_nvs_image_{interpolation_index}.png")
+                                save_img(nvs_img, f"tests/object{i}nvs_image_{interpolation_index}.png")
+                                save_img(cropped_nvs_img.permute(1,2,0), f"tests/object{i}cropped_nvs_image_{interpolation_index}.png")
                             except Exception as e:
                                 import pdb;pdb.set_trace()
                                 print(f"Failed to save image {interpolation_index}: {e}")
@@ -642,12 +652,13 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                             # nvs_img_label_map = model.image_encoder.return_image_map(cropped_nvs_img)#for wandb
                             nvs_img_pil = transforms.ToPILImage()(cropped_nvs_img)#for wandb
                             #############debug################
-                            # Save the cropped image
-                            # try:
-                            #     save_img(cropped_nvs_img, f"tests/cropped_nvs_image_{interpolation_index}.png")
-                            # except Exception as e:
-                            #     print(f"Failed to save image {interpolation_index}: {e}")
-                            #     continue  
+                            try:
+                                save_img(nvs_img, f"tests/object{i}nvs_image_{interpolation_index}.png")
+                                save_img(cropped_nvs_img.permute(1,2,0), f"tests/object{i}cropped_nvs_image_{interpolation_index}.png")
+                            except Exception as e:
+                                import pdb;pdb.set_trace()
+                                print(f"Failed to save image {interpolation_index}: {e}")
+                                continue  
                             ##################################
                         if self.interpolate_n_gaussian_camera > 0:
                             # # Process and crop the nvs mask image, seems will make inference worse
