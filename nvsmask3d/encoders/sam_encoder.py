@@ -65,6 +65,7 @@ class SamNetWork(BaseImageEncoder):
         # sparse_map = torch.zeros((H, W, 3), dtype=torch.float32, device="cuda")
         # sparse_map[point_coords[:, 0], point_coords[:, 1]] = 1
         # from nvsmask3d.utils.utils import save_img
+        # save_img(img.permute(1,2,0), f"tests/selected_img.png")#CHW
         # save_img(sparse_map, f"tests/sparse_map.png")
         ###########################
         point_coords[:, [0, 1]] = point_coords[:, [1, 0]] #convert to u,v
@@ -75,14 +76,6 @@ class SamNetWork(BaseImageEncoder):
             # 选择前 self.num_selected_points 个点
             selected_coords = point_coords[torch.randperm(point_coords.size(0))]
             selected_coords = selected_coords[:self.num_selected_points].unsqueeze(0)  # [shape: (1, num_selected_points, 2)]
-            #########debug ###########
-            # sparse_map = torch.zeros((H, W, 3), dtype=torch.float32, device="cuda")
-            # sparse_map[selected_coords[0,:, 0], selected_coords[0,:, 1]] = 1
-            # from nvsmask3d.utils.utils import save_img
-            # save_img(sparse_map, f"tests/selected_sparse_map.png")
-            # save_img(img.permute(1,2,0), f"tests/selected_img.png")#CHW
-            #import pdb; pdb.set_trace()
-            ###########################
             selected_coords = self.predictor.transform.apply_coords_torch(selected_coords, original_size=self.original_size)
             assert len(selected_coords.shape) == 3
             point_labels = torch.ones((1,self.num_selected_points if selected_coords.shape[1]> self.num_selected_points else selected_coords.shape[1]), device=self.model.device).int()

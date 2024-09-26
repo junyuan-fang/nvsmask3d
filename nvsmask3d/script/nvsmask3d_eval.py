@@ -112,7 +112,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
     sam: bool = True
     # inference
     inference_dataset: Literal["scannet200", "replica"] = "replica"
-
+    num_levels: int = 3
     #if run_name_for_wandb == "test":
     pretrain_embeddings = torch.load("../../hanlin/pretrain_embeddings.pt", map_location="cuda")#20000,768
 
@@ -199,6 +199,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     preds, gt_dir, output_file="output.txt", dataset="replica"
                 )
                 log_evaluation_results_to_wandb(inst_AP,self.run_name_for_wandb)
+
     def pred_classes_with_sam(self, scene_name=""):
         """
         Args:
@@ -245,17 +246,18 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 k_poses=self.top_k,
                 score_fn=self.visibility_score
             )
+            # Skip if no valid camera poses
             if best_camera_indices.shape[0] == 0 or len(valid_u) == 0 or len(valid_v) == 0:
-                print(
-                    f"Skipping inference for mask {i} due to no valid camera poses, assign",
-                )
+                # print(
+                #     f"Skipping inference for mask {i} due to no valid camera poses, assign",
+                # )
                 continue
 
             rgb_outputs = []
             masked_gaussian_outputs = []
             # Interpolate camera poses and bounding boxes
             if self.interpolate_n_camera*self.interpolate_n_rgb_camera > 0 or self.interpolate_n_camera*self.interpolate_n_gaussian_camera > 0:
-                #camera interpolation
+                #################################################################################################camera interpolation################################################################################################
                 interpolated_poses = interpolate_camera_poses_with_camera_trajectory(
                     camera_to_world_opengl[best_camera_indices],
                     masked_seed_points,
@@ -274,9 +276,8 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 for interpolation_index in range(interpolated_cameras.shape[0]):
                     camera = interpolated_cameras[interpolation_index:interpolation_index+1]
                     valid = valid_points[interpolation_index]  # 形状：(N,)
-
                     if valid_points[interpolation_index].any():
-                        u_i = u[interpolation_index][valid]
+                        u_i = u[interpolation_index][valid]#(N,)
                         v_i = v[interpolation_index][valid]
                         
                         # 转换为整数索引
@@ -286,11 +287,30 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                         # 确保索引在图像范围内
                         u_i = torch.clamp(u_i, 0, W - 1)
                         v_i = torch.clamp(v_i, 0, H - 1)
+                        #3DMask logic 
+                        # min_u = u_i.min()
+                        # max_u = u_i.max()
+                        # min_v = v_i.min()
+                        # max_v = v_i.max()
+
+                        ##################SAM logic#####################
+                        proposal_points_coords_2d = torch.stack((v_i, u_i), dim=1)  # (N, 2)
+                        nvs_img = self.model.get_outputs(camera)["rgb"]  # (H, W, 3)
+                        sam_network.set_image(nvs_img.permute(2,0,1))#3,H,W
+                        mask_i = sam_network.get_best_mask(proposal_points_coords_2d)
+                        if mask_i.sum() == 0:
+                            # print(f"Skipping inference for object {i} pose {index} due to no valid camera poses, assign")
+                            continue
                         
-                        min_u = u_i.min()
-                        max_u = u_i.max()
-                        min_v = v_i.min()
-                        max_v = v_i.max()
+                        #multilevel mask
+                        for level in range(self.num_levels):
+                            min_u, min_v, max_u, max_v = sam_network.mask2box_multi_level(mask_i, level, expansion_ratio = 0.1)
+                            H, W, _ = nvs_img.shape # (H, W, 3)
+                            min_u = max(0, min_u)
+                            min_v = max(0, min_v)
+                            max_u = min(W, max_u)
+                            max_v = min(H, max_v)
+                        ###############################################
                     else:# 如果没有有效点，
                         continue
 
@@ -302,23 +322,22 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                         # nvs_mask_img_label_map = None
                         if self.interpolate_n_rgb_camera > 0:
                             #Get output dimensions to validate bounding box
-                            nvs_img = self.model.get_outputs(camera)["rgb"]  # (H, W, 3)
-                            cropped_nvs_img = nvs_img[min_v:max_v, min_u:max_u]
-                            cropped_nvs_img = cropped_nvs_img.permute(2, 0, 1) # (H, W, 3)
-                            rgb_outputs.append(cropped_nvs_img)  # (C, H, W) ######################################################rgb##################################################################
+                            cropped_nvs_img = nvs_img[min_v:max_v, min_u:max_u]# (H, W, 3)
+                            cropped_nvs_img = cropped_nvs_img.permute(2, 0, 1) # (C, H, W)
+                            rgb_outputs.append(cropped_nvs_img) # (C, H, W) ------->add to rgb_outputs
                             cropped_nvs_img = cropped_nvs_img.cpu()#for wandb
                             # nvs_img_label_map = model.image_encoder.return_image_map(cropped_nvs_img)#for wandb
                             nvs_img_pil = transforms.ToPILImage()(cropped_nvs_img)#for wandb
                             #############debug################
                             # try:
                             #     sparse_map = torch.zeros((H, W, 3), dtype=torch.float32, device="cuda")
-                            #     sparse_map[ v_i, u_i] = 1
+                            #     # sparse_map[ v_i, u_i] = 1
+                            #     sparse_map[mask_i] = 1
                             #     from nvsmask3d.utils.utils import save_img
                             #     save_img(nvs_img, f"tests/interp_object_{i}_camera_{interpolation_index}.png")
                             #     save_img(sparse_map, f"tests/interp_sparse_map_object_{i}_camera_{interpolation_index}.png")
                             #     save_img(cropped_nvs_img.permute(1,2,0), f"tests/interp_object_{i}_cropped_camera_{interpolation_index}.png")
                             # except Exception as e:
-                            #     import pdb;pdb.set_trace()
                             #     print(f"Failed to save image {interpolation_index}: {e}")
                             #     continue  
                             ##################################
@@ -326,8 +345,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                             # # Process and crop the nvs mask image, seems will make inference worse
                             nvs_mask_img = self.model.get_outputs(camera)["rgb_mask"]  # (H, W, 3)
                             cropped_nvs_mask_image = nvs_mask_img[min_v:max_v, min_u:max_u].permute(2, 0, 1)  # (C, H, W)
-                            masked_gaussian_outputs.append(cropped_nvs_mask_image)###########################################################################gaussian#####################################################################
-                            cropped_nvs_mask_image = cropped_nvs_mask_image.cpu()
+                            masked_gaussian_outputs.append(cropped_nvs_mask_image) # (C, H, W)------->add to masked_gaussian_outputs
                             #nvs_mask_img_label_map = model.image_encoder.return_image_map(cropped_nvs_mask_image)#for wandb
                             nvs_mask_img_pil = transforms.ToPILImage()(cropped_nvs_mask_image)#for wandb
                             # Combine GT image and mask horizontally
@@ -338,7 +356,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     else:
                         print(f"Invalid bounding box for image {interpolation_index}: "
                             f"min_u={min_u}, max_u={max_u}, min_v={min_v}, max_v={max_v}")
-            #################################################################################################
+            #################################################################################################GT################################################################################################
             #gt camera pose
             if self.gt_camera_rgb or self.gt_camera_gaussian:
                 gt_images = []
@@ -354,18 +372,17 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     with Image.open(self.model.image_file_names[pose_index]) as img:
                         img = transforms.ToTensor()(img).cuda()  # (C,H,W)
 
+                    #SAM logic
                     proposal_points_coords_2d = torch.stack((valid_v[index], valid_u[index]), dim=1)  # (N, 2)
                     assert(len(proposal_points_coords_2d.shape) == 2)
                     sam_network.set_image(img)#3,H,W
-
                     mask_i = sam_network.get_best_mask(proposal_points_coords_2d)
-                    
                     if mask_i.sum() == 0:
                         # print(f"Skipping inference for object {i} pose {index} due to no valid camera poses, assign")
                         continue
                     
                     #multilevel mask
-                    for level in range(3): # num_levels = 3
+                    for level in range(self.num_levels):
                         min_u, min_v, max_u, max_v = sam_network.mask2box_multi_level(mask_i, level, expansion_ratio = 0.1)
                         _, H, W = img.shape
                         min_u = max(0, min_u)
