@@ -9,6 +9,6 @@ experiments = get_rgb_experiment()#get_gaussian_experiment()#get_rgb_experiment(
 # #批量运行实验
 # for experiment in tqdm(experiments):
 #     experiment.run()
-test = experiments[2]
+test = experiments[0]
 print(test.run_name_for_wandb)
 test.run()

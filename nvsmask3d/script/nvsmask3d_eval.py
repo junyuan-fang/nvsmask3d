@@ -171,22 +171,19 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     Path(load_configs[i]),
                     test_mode=test_mode,
                 )
-                model = pipeline.model
+                self.model = pipeline.model
                 # scene_id = scene_name[5:]
-                seed_points_0 = model.seed_points[0].cuda()  # shape (N, 3)
+                #seed_points_0 = self.model.seed_points[0].cuda()  # shape (N, 3)
 
                 pred_classes =  self.pred_classes_with_sam(
-                                    model=model,
-                                    class_agnostic_3d_mask=model.points3D_mask,
-                                    seed_points_0=seed_points_0,
                                     scene_name=scene_name,
                                 ) if self.sam  else self.pred_classes(
-                                    model=model,
-                                    class_agnostic_3d_mask=model.points3D_mask,
-                                    seed_points_0=seed_points_0,
+                                    model=self.model,
+                                    class_agnostic_3d_mask=self.model.points3D_mask,
+                                    seed_points_0=self.model.seed_points[0].cuda(),
                                     scene_name=scene_name,
                                 )
-                pred_masks = model.points3D_mask.cpu().numpy()  # move to cpu
+                pred_masks = self.model.points3D_mask.cpu().numpy()  # move to cpu
                 pred_scores = np.ones(pred_classes.shape[0])
                 # pred = {'pred_scores' = 100, 'pred_classes' = 100 'pred_masks' = Nx100}
                 print(
@@ -202,37 +199,38 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     preds, gt_dir, output_file="output.txt", dataset="replica"
                 )
                 log_evaluation_results_to_wandb(inst_AP,self.run_name_for_wandb)
-    def pred_classes_with_sam(self, model, class_agnostic_3d_mask, seed_points_0, scene_name=""):
+    def pred_classes_with_sam(self, scene_name=""):
         """
         Args:
-        model (NVSMask3DModel): The model to use for inference
         class_agnostic_3d_mask (torch.Tensor): The class-agnostic 3D mask (N, num_cls)
         seed_points_0 (torch.Tensor): The seed points (N,3)
         k_poses (int): The number of poses to render
         """
+        class_agnostic_3d_mask=self.model.points3D_mask
+        seed_points_0=self.model.seed_points[0].cuda()
+
         sam_config = SAMNetworkConfig()
         sam_network = SamNetWork(sam_config)
         # Move camera transformations to the GPU
     
-        camera_to_world_opengl = model.cameras.camera_to_worlds.to(
+        camera_to_world_opengl = self.model.cameras.camera_to_worlds.to(
             "cuda"
         )  # shape (M, 4, 4)
         camera_to_world_opencv = get_camera_pose_in_opencv_convention(camera_to_world_opengl)
 
         # Move intrinsics to the GPU
-        K = model.cameras.get_intrinsics_matrices().to("cuda")  # shape (M, 3, 3)
-        W, H = int(model.cameras.width[0].item()), int(model.cameras.height[0].item())
+        K = self.model.cameras.get_intrinsics_matrices().to("cuda")  # shape (M, 3, 3)
+        W, H = int(self.model.cameras.width[0].item()), int(self.model.cameras.height[0].item())
 
         # Convert class-agnostic mask to a boolean tensor and move to GPU
         # boolean_masks = torch.from_numpy(class_agnostic_3d_mask).bool().to('cuda')  # shape (N, 166)
-
         cls_num = class_agnostic_3d_mask.shape[1]
         pred_classes = np.full(cls_num, 0)  # -1)
         
         # Loop through each mask/ object
         for i in range(cls_num):
             # set instance
-            model.cls_index = i
+            self.model.cls_index = i
             boolean_mask = class_agnostic_3d_mask[:, i]
             masked_seed_points = seed_points_0[boolean_mask]  # shape (N_masked, 3)
             best_camera_indices, valid_u, valid_v = object_optimal_k_camera_poses_2D_mask( 
@@ -242,8 +240,8 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 W=W,
                 H=H,
                 boolean_mask=boolean_mask,  # select i_th mask
-                depth_filenames=model.metadata["depth_filenames"] if self.occlusion_aware else None,
-                depth_scale=model.depth_scale,
+                depth_filenames=self.model.metadata["depth_filenames"] if self.occlusion_aware else None,
+                depth_scale=self.model.depth_scale,
                 k_poses=self.top_k,
                 score_fn=self.visibility_score
             )
@@ -262,32 +260,12 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     camera_to_world_opengl[best_camera_indices],
                     masked_seed_points,
                     self.interpolate_n_camera,
-                    # model=model,#
-                    # j = i
-                )# (pose-1) * step
-                interpolated_cameras = make_cameras(model.cameras[0:1], interpolated_poses) 
+                )# ((pose-1) * step, 3, 4)
+                interpolated_cameras = make_cameras(self.model.cameras[0:1], interpolated_poses) 
 
-                #get masks
-                # interp_valid_u, interp_valid_v = compute_camera_pose_2D_masks(
-                #     seed_points_0=model.seed_points[0].cuda(),
-                #     optimized_camera_to_world=get_camera_pose_in_opencv_convention(interpolated_poses),
-                #     K=interpolated_cameras.get_intrinsics_matrices().to(device="cuda"),
-                #     W=W,
-                #     H=H,
-                #     boolean_mask=boolean_mask
-                # )
-                # import pdb;pdb.set_trace()
-                # interpolated_poses_bounding_boxes = compute_camera_pose_bounding_boxes(
-                #     seed_points_0=model.seed_points[0].cuda(),
-                #     optimized_camera_to_world=get_camera_pose_in_opencv_convention(interpolated_poses),
-                #     K=interpolated_cameras.get_intrinsics_matrices().to(device="cuda"),
-                #     W=W,
-                #     H=H,
-                #     boolean_mask=boolean_mask
-                # )
-                #restore img for wandb
                 # Project points to 2D image coordinates for all camera poses
-                u, v, z = get_points_projected_uv_and_depth(masked_seed_points, get_camera_pose_in_opencv_convention(interpolated_poses), K = interpolated_cameras.get_intrinsics_matrices().to(device="cuda"))
+                interpolated_poses_cv = get_camera_pose_in_opencv_convention(interpolated_poses)
+                u, v, z = get_points_projected_uv_and_depth(masked_seed_points, interpolated_poses_cv, K = interpolated_cameras.get_intrinsics_matrices().to(device="cuda"))
                 valid_points = (u >= 0) & (u < W) & (v >= 0) & (v < H) & (z > 0)  # shape (M, N_masked)
 
                 interpolated_images = []
@@ -324,7 +302,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                         # nvs_mask_img_label_map = None
                         if self.interpolate_n_rgb_camera > 0:
                             #Get output dimensions to validate bounding box
-                            nvs_img = model.get_outputs(camera)["rgb"]  # (H, W, 3)
+                            nvs_img = self.model.get_outputs(camera)["rgb"]  # (H, W, 3)
                             cropped_nvs_img = nvs_img[min_v:max_v, min_u:max_u]
                             cropped_nvs_img = cropped_nvs_img.permute(2, 0, 1) # (H, W, 3)
                             rgb_outputs.append(cropped_nvs_img)  # (C, H, W) ######################################################rgb##################################################################
@@ -332,23 +310,21 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                             # nvs_img_label_map = model.image_encoder.return_image_map(cropped_nvs_img)#for wandb
                             nvs_img_pil = transforms.ToPILImage()(cropped_nvs_img)#for wandb
                             #############debug################
-                            # Save the cropped image
-                            try:
-                                sparse_map = torch.zeros((H, W, 3), dtype=torch.float32, device="cuda")
-                                sparse_map[ v_i, u_i] = 1
-                                from nvsmask3d.utils.utils import save_img
-                                save_img(sparse_map, f"tests/sparse_map_object{i}nvs_image_{interpolation_index}.png")
-                                
-                                save_img(nvs_img, f"tests/object{i}nvs_image_{interpolation_index}.png")
-                                save_img(cropped_nvs_img.permute(1,2,0), f"tests/object{i}cropped_nvs_image_{interpolation_index}.png")
-                            except Exception as e:
-                                import pdb;pdb.set_trace()
-                                print(f"Failed to save image {interpolation_index}: {e}")
-                                continue  
+                            # try:
+                            #     sparse_map = torch.zeros((H, W, 3), dtype=torch.float32, device="cuda")
+                            #     sparse_map[ v_i, u_i] = 1
+                            #     from nvsmask3d.utils.utils import save_img
+                            #     save_img(nvs_img, f"tests/interp_object_{i}_camera_{interpolation_index}.png")
+                            #     save_img(sparse_map, f"tests/interp_sparse_map_object_{i}_camera_{interpolation_index}.png")
+                            #     save_img(cropped_nvs_img.permute(1,2,0), f"tests/interp_object_{i}_cropped_camera_{interpolation_index}.png")
+                            # except Exception as e:
+                            #     import pdb;pdb.set_trace()
+                            #     print(f"Failed to save image {interpolation_index}: {e}")
+                            #     continue  
                             ##################################
                         if self.interpolate_n_gaussian_camera > 0:
                             # # Process and crop the nvs mask image, seems will make inference worse
-                            nvs_mask_img = model.get_outputs(camera)["rgb_mask"]  # (H, W, 3)
+                            nvs_mask_img = self.model.get_outputs(camera)["rgb_mask"]  # (H, W, 3)
                             cropped_nvs_mask_image = nvs_mask_img[min_v:max_v, min_u:max_u].permute(2, 0, 1)  # (C, H, W)
                             masked_gaussian_outputs.append(cropped_nvs_mask_image)###########################################################################gaussian#####################################################################
                             cropped_nvs_mask_image = cropped_nvs_mask_image.cpu()
@@ -369,23 +345,21 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 # gt_images_label_map = []
                 
                 for index, pose_index in enumerate(best_camera_indices):
-                    torch.manual_seed(int(index))
-                    pose_index = pose_index.item()
-
-                    single_camera = model.cameras[pose_index : pose_index + 1]
-                    assert single_camera.shape[0] == 1, "Only one camera at a time"
-                    # img = model.get_outputs(single_camera)["rgb_mask"]#["rgb"]#
-                    with Image.open(model.image_file_names[pose_index]) as img:
-                        img = transforms.ToTensor()(img).cuda()  # (C,H,W)
                     if valid_u[index].shape[0] == 0 or valid_v[index].shape[0] == 0:
                         # print(f"Skipping inference for object {i} pose {index} due to no valid camera poses, assign")
                         continue
-                    proposal_points_coords_2d = torch.stack((valid_u[index].long(), valid_v[index].long()), dim=1)  # (N, 2)
+                    pose_index = pose_index.item()
+                    single_camera = self.model.cameras[pose_index : pose_index + 1]
+                    assert single_camera.shape[0] == 1, "Only one camera at a time"
+                    with Image.open(self.model.image_file_names[pose_index]) as img:
+                        img = transforms.ToTensor()(img).cuda()  # (C,H,W)
 
-
+                    proposal_points_coords_2d = torch.stack((valid_v[index], valid_u[index]), dim=1)  # (N, 2)
                     assert(len(proposal_points_coords_2d.shape) == 2)
                     sam_network.set_image(img)#3,H,W
+
                     mask_i = sam_network.get_best_mask(proposal_points_coords_2d)
+                    
                     if mask_i.sum() == 0:
                         # print(f"Skipping inference for object {i} pose {index} due to no valid camera poses, assign")
                         continue
@@ -404,7 +378,6 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                             gt_mask_img_pil = None
                             # gt_mask_img_label_map = None  
                             # gt_img_pil_label_map = None
-
                             # 如果有效，则裁剪图像
                             if self.gt_camera_rgb:
                                 cropped_image = img[:, min_v:max_v, min_u:max_u]
@@ -413,8 +386,8 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                                 # gt_img_pil_label_map = model.image_encoder.return_image_map(cropped_image) #for wandb
                                 gt_img_pil = transforms.ToPILImage()(cropped_image)#for wandb
                             if self.gt_camera_gaussian:
-                                nvs_mask_img = model.get_outputs(single_camera)["rgb_mask"]  # ["rgb_mask"]  # (H,W,3)
-                                cropped_nvs_mask_image = nvs_mask_img[min_v:max_v, min_u:max_u].permute(2, 0, 1)
+                                nvs_mask_img = self.model.get_outputs(single_camera)["rgb_mask"]  # ["rgb_mask"]  # (H,W,3)
+                                cropped_nvs_mask_image = nvs_mask_img[min_v:max_v, min_u:max_u,:].permute(2, 0, 1)#(C,H,W)
                                 masked_gaussian_outputs.append(cropped_nvs_mask_image)#############################################################################gaussian###################
                                 cropped_nvs_mask_image = cropped_nvs_mask_image.cpu()#for wandb
                                 # gt_mask_img_label_map = model.image_encoder.return_image_map(cropped_nvs_mask_image)#for wandb
@@ -424,6 +397,19 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                             # combined_gt_image_label_map = concat_images_vertically([gt_img_pil_label_map, gt_mask_img_label_map])
                             gt_images.append(combined_gt_image)
                             # gt_images_label_map.append(combined_gt_image_label_map)
+                            #############debug################
+                            # try:
+                            #     sparse_map = torch.zeros((H, W, 3), dtype=torch.float32, device="cuda")
+                            #     sparse_map[ valid_v[index], valid_u[index]] = 1
+                            #     from nvsmask3d.utils.utils import save_img
+                            #     save_img(img.permute(1,2,0), f"tests/gt_object_{i}_camera_{index}.png")
+                            #     save_img(sparse_map, f"tests/gt_sparse_map_object_{i}_camera_{index}.png")
+                            #     save_img(cropped_image.permute(1,2,0), f"tests/gt_object_{i}_cropped_camera_{index}.png")
+                            # except Exception as e:
+                            #     import pdb;pdb.set_trace()
+                            #     print(f"Failed to save image {interpolation_index}: {e}")
+                            #     continue  
+                            ##################################
 
             # Clear intermediate memory before encoding
             if 'img' in locals():
@@ -439,26 +425,25 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
             if len(rgb_outputs)+len(masked_gaussian_outputs) == 0:
                 print(f"Skipping inference for mask {i} due to no valid camera poses")
                 continue
-            # output is a list, which has tensors of the shape (C,H,W)
             
             
             with torch.no_grad():
                 T = 1.0# refer to temperature
                 if len(rgb_outputs) > 0:
-                    rgb_features = model.image_encoder.encode_batch_list_image(
+                    rgb_features = self.model.image_encoder.encode_batch_list_image(
                         rgb_outputs
                     )  
                     rgb_logits = torch.mm(
-                        rgb_features, model.image_encoder.pos_embeds.T
+                        rgb_features, self.model.image_encoder.pos_embeds.T
                     )  
                     #pretrained text prompt
                     rgb_logits_pretrain_text = torch.mm(rgb_features, self.pretrain_embeddings.T)
                 if len(masked_gaussian_outputs) > 0:
-                    mask_features = model.image_encoder.encode_batch_list_image(
+                    mask_features = self.model.image_encoder.encode_batch_list_image(
                         masked_gaussian_outputs
                     )  
                     mask_logits = torch.mm(
-                        mask_features, model.image_encoder.pos_embeds.T
+                        mask_features, self.model.image_encoder.pos_embeds.T
                     )  
                     mask_logits_pretrain_text = torch.mm(mask_features, self.pretrain_embeddings.T)
                 # if self.run_name_for_wandb == "test":
@@ -518,7 +503,6 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 # max_ind_remapped = model.image_encoder.label_mapper[max_ind], replica no need remapping
                 pred_classes[i] = max_ind  # max_ind_remapped
                 
-                
                 # Log interpolated images
                 if 'interpolated_images' in locals() and len(interpolated_images) > 0:
                     final_interpolated_image = concat_images_horizontally(interpolated_images)
@@ -530,20 +514,20 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     wandb.log({f"GT Scene: {scene_name}": wandb.Image(final_gt_image, caption=f"GT Camera Pose for object {i} predicted class: {REPLICA_CLASSES[max_ind]}")})
 
                 # del rgb_outputs, masked_gaussian_outputs, rgb_logits, mask_logits, rgb_logits_pretrain_text, mask_logits_pretrain_text, weights, all_logits, scores, weights_mask, weights_rgb, correction_mask, correction_rgb, weighted_logits
-                # if rgb_features in locals():
-                #     del rgb_features
-                # if mask_features in locals():
-                #     del mask_features
-                # torch.cuda.empty_cache()
+                if 'rgb_features' in locals():
+                    del rgb_features
+                if 'mask_features' in locals():
+                    del mask_features
+                torch.cuda.empty_cache()
                 
-                # if 'interpolated_images_label_map' in locals() and len(interpolated_images_label_map) > 0:
-                #     final_interpolated_image_label_map = concat_images_horizontally(interpolated_images_label_map)
-                #     wandb.log({f"Interpolated Scene: {scene_name}": wandb.Image(final_interpolated_image_label_map, caption=f"Interpolated Image Label Map for object {i} predicted class: {REPLICA_CLASSES[max_ind]}")})
+            #     if 'interpolated_images_label_map' in locals() and len(interpolated_images_label_map) > 0:
+            #         final_interpolated_image_label_map = concat_images_horizontally(interpolated_images_label_map)
+            #         wandb.log({f"Interpolated Scene: {scene_name}": wandb.Image(final_interpolated_image_label_map, caption=f"Interpolated Image Label Map for object {i} predicted class: {REPLICA_CLASSES[max_ind]}")})
                 
-                # if 'gt_images_label_map' in locals() and len(gt_images_label_map) > 0:
-                #     final_gt_image_label_map = concat_images_horizontally(gt_images_label_map)
-                #     wandb.log({f"GT Scene: {scene_name}": wandb.Image(final_gt_image_label_map, caption=f"GT Camera Pose Label Map for object {i} predicted class: {REPLICA_CLASSES[max_ind]}")})
-
+            #     if 'gt_images_label_map' in locals() and len(gt_images_label_map) > 0:
+            #         final_gt_image_label_map = concat_images_horizontally(gt_images_label_map)
+            #         wandb.log({f"GT Scene: {scene_name}": wandb.Image(final_gt_image_label_map, caption=f"GT Camera Pose Label Map for object {i} predicted class: {REPLICA_CLASSES[max_ind]}")})
+            # # import pdb;pdb.set_trace()
         return pred_classes
     
     def pred_classes(self, model, class_agnostic_3d_mask, seed_points_0, scene_name=""):

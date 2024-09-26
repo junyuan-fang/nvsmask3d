@@ -54,7 +54,6 @@ def get_camera_pose_in_opencv_convention(optimized_camera_to_world: torch.Tensor
     opengl_to_opencv = torch.tensor(
         OPENGL_TO_OPENCV, device=optimized_camera_to_world.device, dtype=optimized_camera_to_world.dtype
     )  # shape (4, 4)
-
     # Expand `opengl_to_opencv` to match batch size if necessary
     if optimized_camera_to_world.dim() == 3:
         opengl_to_opencv = opengl_to_opencv.unsqueeze(0).expand(optimized_camera_to_world.shape[0], -1, -1)
@@ -674,7 +673,7 @@ def get_points_projected_uv_and_depth(
 
     Args:
         masked_seed_points: Tensor of shape (N, 3) representing 3D points.
-        optimized_camera_to_world: Tensor of shape (M, 3, 4) representing camera poses for M cameras.
+        optimized_camera_to_world: Tensor of shape (M, 3, 4) representing camera poses for M cameras. in_opencv_convention
         K: Tensor of shape (M, 3, 3) representing camera intrinsics for M cameras.
 
     Returns:
@@ -686,13 +685,13 @@ def get_points_projected_uv_and_depth(
     points_cam = masked_seed_points.unsqueeze(0) - optimized_camera_to_world[:, :3, 3].unsqueeze(1)  # (M, N, 3)
     points_cam = torch.bmm(points_cam, optimized_camera_to_world[:, :3, :3])  # (M, N, 3)
     
-    # Extract depth
-    depth = points_cam[:, :, 2]  # (M, N)
+    # Extract depth, avoiding division by zero
+    epsilon = 1e-8  # To prevent divide by zero
+    depth = points_cam[:, :, 2].clamp(min=epsilon)  # (M, N)
 
     # Project to image plane
     u = (points_cam[:, :, 0] * K[:, 0, 0].unsqueeze(1) / depth) + K[:, 0, 2].unsqueeze(1)  # (M, N)
     v = (points_cam[:, :, 1] * K[:, 1, 1].unsqueeze(1) / depth) + K[:, 1, 2].unsqueeze(1)  # (M, N)
-
     return u, v, depth
 
 def interpolate_camera_poses_with_camera_trajectory(poses, masked_seed_points0, steps_per_transition=10, slerp=False):#, model=None, j=0):
