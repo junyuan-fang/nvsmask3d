@@ -693,6 +693,67 @@ def get_points_projected_uv_and_depth(
     u = (points_cam[:, :, 0] * K[:, 0, 0].unsqueeze(1) / depth) + K[:, 0, 2].unsqueeze(1)  # (M, N)
     v = (points_cam[:, :, 1] * K[:, 1, 1].unsqueeze(1) / depth) + K[:, 1, 2].unsqueeze(1)  # (M, N)
     return u, v, depth
+def geometric_median_pytorch_optimized(points, eps_ratio=1e-5, max_iter=1000, device=None):
+    """
+    计算3D点集的几何中位数，使用优化的Weiszfeld算法，并利用PyTorch的高效计算能力。
+
+    参数:
+    - points (torch.Tensor): 形状为 (N, 3) 的点集，dtype为 float32 或 float16。
+    - eps_ratio (float): eps与数据尺度的比例，用于自适应选择收敛阈值。
+    - max_iter (int): 最大迭代次数。
+    - device (torch.device, optional): 计算设备。如果为None，则与points相同。
+
+    返回:
+    - torch.Tensor: 形状为 (3,) 的几何中位数。
+    """
+    if device is None:
+        device = points.device
+    points = points.to(device).float()  # 使用float32确保数值稳定性
+
+    N, dim = points.shape
+    if dim != 3:
+        raise ValueError("输入点集必须是形状为 (N, 3) 的张量")
+
+    # 计算数据的尺度（标准差）
+    data_std = torch.std(points, dim=0).mean().item()
+    eps = eps_ratio * data_std
+
+    # 初始化：使用所有点的均值
+    median = points.mean(dim=0)
+
+    for _ in range(max_iter):
+        # 计算每个点与当前中位数的差值
+        diff = points - median  # (N, 3)
+
+        # 计算欧式距离
+        distances = torch.norm(diff, dim=1)  # (N,)
+
+        # 创建掩码，避免距离为零的点
+        mask = distances > 1e-10
+        if not mask.any():
+            break  # 所有点都与中位数重合
+
+        # 计算权重：距离的倒数
+        weights = 1.0 / distances[mask]  # (M,)
+        weights = weights.unsqueeze(1)  # (M, 1)
+
+        # 计算加权和
+        weighted_sum = torch.sum(points[mask] * weights, dim=0)  # (3,)
+        weights_sum = weights.sum()  # scalar
+
+        # 更新中位数
+        new_median = weighted_sum / weights_sum  # (3,)
+
+        # 检查收敛
+        move_distance = torch.norm(new_median - median)
+        if move_distance < eps:
+            median = new_median
+            break
+
+        median = new_median
+
+    return median
+
 
 def interpolate_camera_poses_with_camera_trajectory(poses, masked_seed_points0, steps_per_transition=10, slerp=False):#, model=None, j=0):
     """
@@ -707,10 +768,11 @@ def interpolate_camera_poses_with_camera_trajectory(poses, masked_seed_points0, 
     Returns:
         interpolated_camera_poses (torch.Tensor): (M * step_per_transition, 3, 4) interpolated camera-to-world matrices
     """
-
+       
     # prepare object center point (3, ) vector
-    v2 =  torch.median(masked_seed_points0, dim=0)[0] # openCV convention
-    
+    #v2 =  torch.median(masked_seed_points0, dim=0)[0] # openCV convention
+    v2 = geometric_median_pytorch_optimized(masked_seed_points0, eps_ratio=1e-5, device="cuda")
+
     # Interpolate camera poses
     num_poses = poses.shape[0]
     interpolated_camera_poses = []

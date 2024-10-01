@@ -43,7 +43,88 @@
 # print("\n插值结果 (steps=2):")
 # for i, pose in enumerate(result_2, 1):
 #     print(f"中间姿态 {i}:", pose)
+import torch
 
+def geometric_median_pytorch_optimized_adaptive_eps(points, eps_ratio=1e-5, max_iter=1000, device=None):
+    """
+    计算3D点集的几何中位数，使用优化的Weiszfeld算法，并根据输入数据自适应选择eps。
 
-import torch._dynamo
-torch._dynamo.config.suppress_errors = True
+    参数:
+    - points (torch.Tensor): 形状为 (N, 3) 的点集，dtype为 float32 或 float16。
+    - eps_ratio (float): eps与数据尺度的比例。
+    - max_iter (int): 最大迭代次数。
+    - device (torch.device, optional): 计算设备。如果为None，则与points相同。
+
+    返回:
+    - torch.Tensor: 形状为 (3,) 的几何中位数。
+    """
+    if device is None:
+        device = points.device
+    points = points.to(device).float()  # 使用float32确保数值稳定性
+
+    N, dim = points.shape
+    if dim != 3:
+        raise ValueError("输入点集必须是形状为 (N, 3) 的张量")
+
+    # 计算数据的尺度（标准差）
+    data_std = torch.std(points, dim=0).mean().item()
+    eps = eps_ratio * data_std
+
+    # 初始化：使用所有点的均值
+    median = points.mean(dim=0)
+
+    for _ in range(max_iter):
+        # 计算每个点与当前中位数的差值
+        diff = points - median  # (N, 3)
+
+        # 计算欧式距离
+        distances = torch.norm(diff, dim=1)  # (N,)
+
+        # 创建掩码，避免距离为零的点
+        mask = distances > 1e-10
+        if not mask.any():
+            break  # 所有点都与中位数重合
+
+        # 计算权重：距离的倒数
+        weights = 1.0 / distances[mask]  # (M,)
+        weights = weights.unsqueeze(1)  # (M, 1)
+
+        # 计算加权和
+        weighted_sum = torch.sum(points[mask] * weights, dim=0)  # (3,)
+        weights_sum = weights.sum()  # scalar
+
+        # 更新中位数
+        new_median = weighted_sum / weights_sum  # (3,)
+
+        # 检查收敛
+        move_distance = torch.norm(new_median - median)
+        if move_distance < eps:
+            median = new_median
+            break
+
+        median = new_median
+
+    return median
+
+# 示例用法
+if __name__ == "__main__":
+    import time
+
+    # 选择设备
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"使用设备: {device}")
+
+    # 生成大量随机3D点
+    N = 10**7  # 1000万点
+    points = torch.randn(N, 3, device=device) * 100  # 放大数据尺度
+
+    # 计算几何中位数
+    start_time = time.time()
+    median = geometric_median_pytorch_optimized_adaptive_eps(points, eps_ratio=1e-5, max_iter=1000, device=device)
+    # 如果使用GPU，确保所有计算完成
+    if device.type == 'cuda':
+        torch.cuda.synchronize()
+    end_time = time.time()
+
+    print(f"几何中位数: {median.cpu().numpy()}")
+    print(f"计算时间: {end_time - start_time:.4f} 秒")

@@ -36,6 +36,7 @@ class OpenCLIPNetworkConfig(BaseImageEncoderConfig):
     clip_model_type: str = "ViT-L-14-336"  # "ViT-B-16"
     clip_model_pretrained: str = "openai"  # "laion2b_s34b_b88k"
     clip_n_dims: int = 768  # 对应ViT-L-14-336px的输出维度
+    vit_width: int = 1024# 对应ViT-L-14-336px
     negatives: Tuple[str] = ("object", "things", "stuff", "texture")
 
 
@@ -50,9 +51,10 @@ class OpenCLIPNetwork(BaseImageEncoder):
         super().__init__()
         self.config = config
         self.testmode = test_mode
+        # 使用 super().__setattr__ 来绕过 @property
         self.process = torchvision.transforms.Compose(
             [
-                torchvision.transforms.Resize((336, 336)),
+                torchvision.transforms.Resize((336, 336), antialias=True),  # 添加 antialias=True
                 torchvision.transforms.Normalize(
                     mean=[0.48145466, 0.4578275, 0.40821073],
                     std=[0.26862954, 0.26130258, 0.27577711],
@@ -68,6 +70,8 @@ class OpenCLIPNetwork(BaseImageEncoder):
         self.tokenizer = open_clip.get_tokenizer(self.config.clip_model_type)
         self.model = model.to("cuda")
         self.clip_n_dims = self.config.clip_n_dims
+        self.vit_width = self.config.vit_width      # 1024, 中间层的宽度
+
         self.positives = (
             SCANNET200_CLASSES if "scannet" in self.testmode else REPLICA_CLASSES
         )
@@ -137,108 +141,6 @@ class OpenCLIPNetwork(BaseImageEncoder):
     @property
     def embedding_dim(self) -> int:
         return self.config.clip_n_dims
-    
-    @torch.no_grad()
-    def get_intermediate_layers(self, x: torch.Tensor, layers=[19, 20, 21, 22], reshape: bool = False):
-        outputs = []
-
-        # Pass input through model's visual transformer which handles patch embedding
-        x = self.model.visual(x)  # This includes the patch embedding process
-
-        # Now pass through transformer blocks
-        for i, blk in enumerate(self.model.visual.transformer.resblocks):
-            x = blk(x)
-            if i in layers:
-                outputs.append(x)
-
-        if reshape:
-            # Reshape to desired dimensions
-            B, N, C = x.shape
-            patch_size = self.model.visual.patch_size[0]
-            H = W = int(N ** 0.5)  # Assumes square patches
-            outputs = [out.reshape(B, C, H, W) for out in outputs]
-
-        return tuple(outputs)
-    
-    def kmeans_clustering(self, feats_map):
-        n_clusters=len(self.positives)
-        cmap = plt.get_cmap("tab20")
-
-        B, D, h, w = feats_map.shape
-        feats_map_flattened = feats_map.permute((0, 2, 3, 1)).reshape(B, -1, D)
-
-        kmeans_engine = KMeans(n_clusters=n_clusters, distance=CosineSimilarity)
-        kmeans_engine.fit(feats_map_flattened)
-        labels = kmeans_engine.predict(
-            feats_map_flattened
-            )
-        labels = labels.reshape(
-            B, h, w
-            ).float()
-        labels = labels[0].cpu().numpy()
-
-        label_map = cmap(labels / n_clusters)[..., :3]
-        label_map = np.uint8(label_map * 255)
-        label_map = Image.fromarray(label_map)
-
-        return label_map
-    def viz_feat(feat):
-
-        _, _, h, w = feat.shape
-        feat = feat.squeeze(0).permute((1,2,0))
-        projected_featmap = feat.reshape(-1, feat.shape[-1]).cpu()
-
-        pca = PCA(n_components=3)
-        pca.fit(projected_featmap)
-        pca_features = pca.transform(projected_featmap)
-        pca_features = (pca_features - pca_features.min()) / (pca_features.max() - pca_features.min())
-        pca_features = pca_features * 255
-        res_pred = Image.fromarray(pca_features.reshape(h, w, 3).astype(np.uint8))
-
-        return res_pred
-    @torch.no_grad()
-    def return_image_map(self, img, layers=[20,21,22,23], kmeans=True):#(C,H,W)
-        #
-        # Load and preprocess the image
-        image_resized = self.process_image_for_feature(img)
-
-        # Get intermediate layers
-        with torch.no_grad():
-            feats = self.get_intermediate_layers(image_resized, layers=layers, reshape=True)
-        
-        # Use the last layer for K-means or raw feature visualization
-        feats_map = feats[-1]
-
-        if kmeans:
-            label_map = self.kmeans_clustering(feats_map)
-        else:
-            label_map = self.viz_feat(feats_map)
-
-        return label_map    
-    
-    def process_image_for_feature(self, image_tensor):  # (C, H, W) input
-        stride = self.model.visual.patch_size[0]
-
-        MEAN = np.array([123.675, 116.280, 103.530]) / 255
-        STD = np.array([58.395, 57.120, 57.375]) / 255
-
-        # Use PyTorch normalization instead of Albumentations
-        transforms = torchvision.transforms.Compose(
-            [torchvision.transforms.Resize((336, 336)),
-            torchvision.transforms.Normalize(mean=MEAN, std=STD),
-             ])
-
-        # Apply normalization directly to the input tensor
-        image_tensor = transforms(image_tensor).half()
-        image_tensor = image_tensor.unsqueeze(0).to('cuda')  # Add batch dimension
-
-        h, w = image_tensor.shape[2:]
-        height_int = (h // stride) * stride
-        width_int = (w // stride) * stride
-
-        image_resized = torch.nn.functional.interpolate(image_tensor, size=(height_int, width_int), mode='bilinear')
-
-        return image_resized
 
 
     def updata_text_embedding(self):

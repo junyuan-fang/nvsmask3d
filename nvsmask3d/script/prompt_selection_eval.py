@@ -26,7 +26,7 @@ class Experiment:
                  interpolate_n_gaussian_camera: Optional[int] = 1,
                  gt_camera_rgb: Optional[bool] = True,
                  gt_camera_gaussian: Optional[bool] = True,
-                 project_name: str = "zeroshot_enhancement",#"nvsmask3d_evaluation",#
+                 project_name: str = "prompt selection",#"zeroshot_enhancement",
                  run_name_for_wandb: Optional[str] = None,
                  algorithm: int = 0):
         # 初始化实验配置
@@ -140,32 +140,32 @@ gaussian_experiment=[
         occlusion_aware=True,
         algorithm=0
     ),
-    #     Experiment(
-    #     load_config=Path("nvsmask3d/data/replica"),
-    #     top_k=15,
-    #     gt_camera_rgb=False,
-    #     gt_camera_gaussian=True,
-    #     interpolate_n_camera=3,
-    #     interpolate_n_rgb_camera=0,#based on interpolate_n_camera, this will only be used as 0 or 1 first.
-    #     interpolate_n_gaussian_camera=1,
-    #     visibility_score_key="visible_points",
-    #     occlusion_aware=True,
-    #     algorithm=0
+        Experiment(
+        load_config=Path("nvsmask3d/data/replica"),
+        top_k=15,
+        gt_camera_rgb=False,
+        gt_camera_gaussian=True,
+        interpolate_n_camera=3,
+        interpolate_n_rgb_camera=0,#based on interpolate_n_camera, this will only be used as 0 or 1 first.
+        interpolate_n_gaussian_camera=1,
+        visibility_score_key="visible_points",
+        occlusion_aware=True,
+        algorithm=0
 
-    # ),
-    #     Experiment(
-    #     load_config=Path("nvsmask3d/data/replica"),
-    #     top_k=15,
-    #     gt_camera_rgb=False,
-    #     gt_camera_gaussian=True,
-    #     interpolate_n_camera=4,
-    #     interpolate_n_rgb_camera=0,#based on interpolate_n_camera, this will only be used as 0 or 1 first.
-    #     interpolate_n_gaussian_camera=1,
-    #     visibility_score_key="visible_points",
-    #     occlusion_aware=True,
-    #     algorithm=0
+    ),
+        Experiment(
+        load_config=Path("nvsmask3d/data/replica"),
+        top_k=15,
+        gt_camera_rgb=False,
+        gt_camera_gaussian=True,
+        interpolate_n_camera=4,
+        interpolate_n_rgb_camera=0,#based on interpolate_n_camera, this will only be used as 0 or 1 first.
+        interpolate_n_gaussian_camera=1,
+        visibility_score_key="visible_points",
+        occlusion_aware=True,
+        algorithm=0
 
-    # ),
+    ),
             Experiment(
         load_config=Path("nvsmask3d/data/replica"),
         top_k=15,
@@ -475,6 +475,7 @@ mix_experiment=[
         interpolate_n_gaussian_camera=1,
         visibility_score_key="visible_points",
         occlusion_aware=True,
+        
         algorithm=1
     ),
 ]
@@ -489,3 +490,21 @@ def get_mix_experiment():
     return mix_experiment
 # def get_rgb_gaussian_experiment():
 #     return rgb_gaussian_experiment
+
+if __name__ == "__main__":
+    experiments = get_rgb_experiment()#get_gaussian_experiment()#get_rgb_experiment()
+    for experiment in experiments:
+        experiment.run()
+    
+    experiments = get_gaussian_experiment()#get_gaussian_experiment()#get_rgb_experiment()
+    for experiment in experiments:
+        experiment.run()
+    
+    experiments = get_mix_experiment()#get_gaussian_experiment()#get_rgb_experiment()
+    for experiment in experiments:
+        experiment.run()
+    
+    # test = experiments[1]
+    # print(test.run_name_for_wandb)
+    # test.run()
+

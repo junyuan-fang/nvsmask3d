@@ -110,6 +110,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
     run_name_for_wandb: Optional[str] = "test"
     algorithm: int = 0
     sam: bool = True
+    prompt_threshold: float = 0.1
     # inference
     inference_dataset: Literal["scannet200", "replica"] = "replica"
     num_levels: int = 3
@@ -303,59 +304,57 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                             continue
                         
                         #multilevel mask
-                        for level in range(self.num_levels):
-                            min_u, min_v, max_u, max_v = sam_network.mask2box_multi_level(mask_i, level, expansion_ratio = 0.1)
-                            H, W, _ = nvs_img.shape # (H, W, 3)
-                            min_u = max(0, min_u)
-                            min_v = max(0, min_v)
-                            max_u = min(W, max_u)
-                            max_v = min(H, max_v)
-                        ###############################################
-                    else:# 如果没有有效点，
-                        continue
-
-                    # Check if bounding box is valid
-                    if min_u < max_u and min_v < max_v:
-                        nvs_mask_img_pil = None
-                        nvs_img_pil = None
-                        # nvs_img_label_map = None
-                        # nvs_mask_img_label_map = None
-                        if self.interpolate_n_rgb_camera > 0:
-                            #Get output dimensions to validate bounding box
-                            cropped_nvs_img = nvs_img[min_v:max_v, min_u:max_u]# (H, W, 3)
-                            cropped_nvs_img = cropped_nvs_img.permute(2, 0, 1) # (C, H, W)
-                            rgb_outputs.append(cropped_nvs_img) # (C, H, W) ------->add to rgb_outputs
-                            cropped_nvs_img = cropped_nvs_img.cpu()#for wandb
-                            # nvs_img_label_map = model.image_encoder.return_image_map(cropped_nvs_img)#for wandb
-                            nvs_img_pil = transforms.ToPILImage()(cropped_nvs_img)#for wandb
-                            #############debug################
-                            # try:
-                            #     sparse_map = torch.zeros((H, W, 3), dtype=torch.float32, device="cuda")
-                            #     # sparse_map[ v_i, u_i] = 1
-                            #     sparse_map[mask_i] = 1
-                            #     from nvsmask3d.utils.utils import save_img
-                            #     save_img(nvs_img, f"tests/interp_object_{i}_camera_{interpolation_index}.png")
-                            #     save_img(sparse_map, f"tests/interp_sparse_map_object_{i}_camera_{interpolation_index}.png")
-                            #     save_img(cropped_nvs_img.permute(1,2,0), f"tests/interp_object_{i}_cropped_camera_{interpolation_index}.png")
-                            # except Exception as e:
-                            #     print(f"Failed to save image {interpolation_index}: {e}")
-                            #     continue  
-                            ##################################
-                        if self.interpolate_n_gaussian_camera > 0:
-                            # # Process and crop the nvs mask image, seems will make inference worse
-                            nvs_mask_img = self.model.get_outputs(camera)["rgb_mask"]  # (H, W, 3)
-                            cropped_nvs_mask_image = nvs_mask_img[min_v:max_v, min_u:max_u].permute(2, 0, 1)  # (C, H, W)
-                            masked_gaussian_outputs.append(cropped_nvs_mask_image) # (C, H, W)------->add to masked_gaussian_outputs
-                            #nvs_mask_img_label_map = model.image_encoder.return_image_map(cropped_nvs_mask_image)#for wandb
-                            nvs_mask_img_pil = transforms.ToPILImage()(cropped_nvs_mask_image)#for wandb
-                            # Combine GT image and mask horizontally
-                        combined_nvs_image = concat_images_vertically([nvs_img_pil, nvs_mask_img_pil])#for wandb
-                        # combined_nvs_image_label_map = concat_images_vertically([nvs_img_label_map, nvs_mask_img_label_map])#for wandb
-                        interpolated_images.append(combined_nvs_image)#for wandb
-                        # interpolated_images_label_map.append(combined_nvs_image_label_map)#for wandb
-                    else:
-                        print(f"Invalid bounding box for image {interpolation_index}: "
-                            f"min_u={min_u}, max_u={max_u}, min_v={min_v}, max_v={max_v}")
+                        #for level in range(self.num_levels):
+                        level = 0
+                        min_u, min_v, max_u, max_v = sam_network.mask2box_multi_level(mask_i, level, expansion_ratio = 0.1)
+                        H, W, _ = nvs_img.shape # (H, W, 3)
+                        min_u = max(0, min_u)
+                        min_v = max(0, min_v)
+                        max_u = min(W, max_u)
+                        max_v = min(H, max_v)
+                        
+                        # Check if bounding box is valid
+                        if min_u < max_u and min_v < max_v:
+                            nvs_mask_img_pil = None
+                            nvs_img_pil = None
+                            # nvs_img_label_map = None
+                            # nvs_mask_img_label_map = None
+                            if self.interpolate_n_rgb_camera > 0:
+                                #Get output dimensions to validate bounding box
+                                cropped_nvs_img = nvs_img[min_v:max_v, min_u:max_u]# (H, W, 3)
+                                cropped_nvs_img = cropped_nvs_img.permute(2, 0, 1) # (C, H, W)
+                                rgb_outputs.append(cropped_nvs_img) # (C, H, W) ------->add to rgb_outputs
+                                cropped_nvs_img = cropped_nvs_img.cpu()#for wandb
+                                # nvs_img_label_map = model.image_encoder.return_image_map(cropped_nvs_img)#for wandb
+                                nvs_img_pil = transforms.ToPILImage()(cropped_nvs_img)#for wandb
+                                #############debug################
+                                # try:
+                                #     sparse_map = torch.zeros((H, W, 3), dtype=torch.float32, device="cuda")
+                                #     # sparse_map[ v_i, u_i] = 1
+                                #     sparse_map[mask_i] = 1
+                                #     from nvsmask3d.utils.utils import save_img
+                                #     save_img(nvs_img, f"tests/interp_object_{i}_camera_{interpolation_index}.png")
+                                #     save_img(sparse_map, f"tests/interp_sparse_map_object_{i}_camera_{interpolation_index}.png")
+                                #     save_img(cropped_nvs_img.permute(1,2,0), f"tests/interp_object_{i}_cropped_camera_{interpolation_index}.png")
+                                # except Exception as e:
+                                #     print(f"Failed to save image {interpolation_index}: {e}")
+                                #     continue  
+                                ##################################
+                            if self.interpolate_n_gaussian_camera > 0:
+                                # # Process and crop the nvs mask image, seems will make inference worse
+                                nvs_mask_img = self.model.get_outputs(camera)["rgb_mask"]  # (H, W, 3)
+                                cropped_nvs_mask_image = nvs_mask_img[min_v:max_v, min_u:max_u].permute(2, 0, 1)  # (C, H, W)
+                                masked_gaussian_outputs.append(cropped_nvs_mask_image) # (C, H, W)------->add to masked_gaussian_outputs
+                                #nvs_mask_img_label_map = model.image_encoder.return_image_map(cropped_nvs_mask_image)#for wandb
+                                nvs_mask_img_pil = transforms.ToPILImage()(cropped_nvs_mask_image)#for wandb
+                                # Combine GT image and mask horizontally
+                            combined_nvs_image = concat_images_vertically([nvs_img_pil, nvs_mask_img_pil])#for wandb
+                            # combined_nvs_image_label_map = concat_images_vertically([nvs_img_label_map, nvs_mask_img_label_map])#for wandb
+                            interpolated_images.append(combined_nvs_image)#for wandb
+                            # interpolated_images_label_map.append(combined_nvs_image_label_map)#for wandb
+                        else:
+                            print(f"Invalid bounding box for image {interpolation_index}: "
+                                f"min_u={min_u}, max_u={max_u}, min_v={min_v}, max_v={max_v}")
             #################################################################################################GT################################################################################################
             #gt camera pose
             if self.gt_camera_rgb or self.gt_camera_gaussian:
@@ -444,6 +443,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 continue
             
             
+            #################################################################################################inference################################################################################################
             with torch.no_grad():
                 T = 1.0# refer to temperature
                 if len(rgb_outputs) > 0:
@@ -463,10 +463,14 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                         mask_features, self.model.image_encoder.pos_embeds.T
                     )  
                     mask_logits_pretrain_text = torch.mm(mask_features, self.pretrain_embeddings.T)
-                # if self.run_name_for_wandb == "test":
+                    
                 if self.algorithm == 0:
                 #aggregate similarity scores 你目前是将批次中的相似度分数进行求和（sum），这可能会导致信息丢失，尤其是在增强视图之间存在较大差异的情况下。
-                    scores = rgb_logits.sum(dim=0)  # Shape: (200,) for scannet200 
+                    if len(masked_gaussian_outputs) > 0:
+                        scores = mask_logits.sum(dim=0)  # Shape: (200,) for scannet200 
+                    if len(rgb_outputs) > 0:
+                        scores = rgb_logits.sum(dim=0)  # Shape: (200,) for scannet200 
+
                 if self.algorithm == 1:
                     weights_mask = None
                     weights_rgb = None
@@ -495,6 +499,11 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     weighted_logits = all_logits * weights
                     scores = torch.sum(weighted_logits, dim=0)
 
+                if self.algorithm == 2:
+                    med_weights = torch.median(weights)
+                    med_diffs = torch.median(torch.abs(weights - med_weights))
+                    scores = (weights - med_weights) / med_diffs
+                    
                 # if algorithm == 2:
                 #     E_pretrain_text = torch.mean(similarity_scores_pretrain_text, dim=1)  # (B,)
                 #     assert E_pretrain_text.shape == (B,)
@@ -889,4 +898,4 @@ if __name__ == "__main__":
     entrypoint()
 
 # For sphinx docs
-get_parser_fn = lambda: tyro.extras.get_parser(Commands)  # noqa
+get_parser_fn = lambda: tyro.extras.get_parser(Commands) 
