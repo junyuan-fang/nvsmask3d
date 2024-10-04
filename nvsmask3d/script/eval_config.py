@@ -18,7 +18,8 @@ VISIBILITY_SCORES = {
 class Experiment:
     def __init__(self,
                  load_config: Path,
-                 top_k: int = 15,
+                 top_k: int = 5,
+                 sam = False,
                  visibility_score_key: str = "visible_points",
                  occlusion_aware: Optional[bool] = True,
                  interpolate_n_camera: Optional[int] = 0,
@@ -32,6 +33,7 @@ class Experiment:
         # 初始化实验配置
         self.load_config = load_config
         self.top_k = top_k
+        self.sam = sam
         self.visibility_score_key = visibility_score_key
         self.visibility_score_fn = VISIBILITY_SCORES[visibility_score_key]["fn"]
         self.visibility_score_description = VISIBILITY_SCORES[visibility_score_key]["description"]
@@ -63,7 +65,7 @@ class Experiment:
     def run(self):
         # Initialize a new WandB run for each experiment
         wandb.init(
-            # mode="disabled",
+            mode="disabled",
             project=self.project_name,
             name=self.run_name_for_wandb,
             config={
@@ -118,7 +120,6 @@ gaussian_experiment=[
     ),
         Experiment(
         load_config=Path("nvsmask3d/data/replica"),
-        top_k=15,
         gt_camera_rgb=False,
         gt_camera_gaussian=True,
         interpolate_n_camera=1,
@@ -130,7 +131,6 @@ gaussian_experiment=[
     ),
         Experiment(
         load_config=Path("nvsmask3d/data/replica"),
-        top_k=15,
         gt_camera_rgb=False,
         gt_camera_gaussian=True,
         interpolate_n_camera=2,
@@ -140,35 +140,32 @@ gaussian_experiment=[
         occlusion_aware=True,
         algorithm=0
     ),
-    #     Experiment(
-    #     load_config=Path("nvsmask3d/data/replica"),
-    #     top_k=15,
-    #     gt_camera_rgb=False,
-    #     gt_camera_gaussian=True,
-    #     interpolate_n_camera=3,
-    #     interpolate_n_rgb_camera=0,#based on interpolate_n_camera, this will only be used as 0 or 1 first.
-    #     interpolate_n_gaussian_camera=1,
-    #     visibility_score_key="visible_points",
-    #     occlusion_aware=True,
-    #     algorithm=0
+        Experiment(
+        load_config=Path("nvsmask3d/data/replica"),
+        gt_camera_rgb=False,
+        gt_camera_gaussian=True,
+        interpolate_n_camera=3,
+        interpolate_n_rgb_camera=0,#based on interpolate_n_camera, this will only be used as 0 or 1 first.
+        interpolate_n_gaussian_camera=1,
+        visibility_score_key="visible_points",
+        occlusion_aware=True,
+        algorithm=0
 
-    # ),
-    #     Experiment(
-    #     load_config=Path("nvsmask3d/data/replica"),
-    #     top_k=15,
-    #     gt_camera_rgb=False,
-    #     gt_camera_gaussian=True,
-    #     interpolate_n_camera=4,
-    #     interpolate_n_rgb_camera=0,#based on interpolate_n_camera, this will only be used as 0 or 1 first.
-    #     interpolate_n_gaussian_camera=1,
-    #     visibility_score_key="visible_points",
-    #     occlusion_aware=True,
-    #     algorithm=0
+    ),
+        Experiment(
+        load_config=Path("nvsmask3d/data/replica"),
+        gt_camera_rgb=False,
+        gt_camera_gaussian=True,
+        interpolate_n_camera=4,
+        interpolate_n_rgb_camera=0,#based on interpolate_n_camera, this will only be used as 0 or 1 first.
+        interpolate_n_gaussian_camera=1,
+        visibility_score_key="visible_points",
+        occlusion_aware=True,
+        algorithm=0
 
-    # ),
+    ),
             Experiment(
         load_config=Path("nvsmask3d/data/replica"),
-        top_k=15,
         gt_camera_rgb=False,
         gt_camera_gaussian=True,
         interpolate_n_camera=0,
@@ -180,7 +177,6 @@ gaussian_experiment=[
     ),
         Experiment(
         load_config=Path("nvsmask3d/data/replica"),
-        top_k=15,
         gt_camera_rgb=False,
         gt_camera_gaussian=True,
         interpolate_n_camera=1,
@@ -192,7 +188,6 @@ gaussian_experiment=[
     ),
         Experiment(
         load_config=Path("nvsmask3d/data/replica"),
-        top_k=15,
         gt_camera_rgb=False,
         gt_camera_gaussian=True,
         interpolate_n_camera=2,
@@ -204,7 +199,6 @@ gaussian_experiment=[
     ),
         Experiment(
         load_config=Path("nvsmask3d/data/replica"),
-        top_k=15,
         gt_camera_rgb=False,
         gt_camera_gaussian=True,
         interpolate_n_camera=3,
@@ -217,7 +211,6 @@ gaussian_experiment=[
     ),
         Experiment(
         load_config=Path("nvsmask3d/data/replica"),
-        top_k=15,
         gt_camera_rgb=False,
         gt_camera_gaussian=True,
         interpolate_n_camera=4,
@@ -234,7 +227,6 @@ rgb_experiment=[
     
         Experiment(
         load_config=Path("nvsmask3d/data/replica"),
-        top_k=15,
         gt_camera_rgb=True,
         gt_camera_gaussian=False,
         interpolate_n_camera=0,
@@ -246,7 +238,6 @@ rgb_experiment=[
     ),
         Experiment(
         load_config=Path("nvsmask3d/data/replica"),
-        top_k=15,
         gt_camera_rgb=True,
         gt_camera_gaussian=False,
         interpolate_n_camera=1,
@@ -258,7 +249,6 @@ rgb_experiment=[
     ),
         Experiment(
         load_config=Path("nvsmask3d/data/replica"),
-        top_k=15,
         gt_camera_rgb=True,
         gt_camera_gaussian=False,
         interpolate_n_camera=2,
@@ -270,7 +260,6 @@ rgb_experiment=[
     ),
         Experiment(
         load_config=Path("nvsmask3d/data/replica"),
-        top_k=15,
         gt_camera_rgb=True,
         gt_camera_gaussian=False,
         interpolate_n_camera=3,
@@ -282,7 +271,6 @@ rgb_experiment=[
     ),
         Experiment(
         load_config=Path("nvsmask3d/data/replica"),
-        top_k=15,
         gt_camera_rgb=True,
         gt_camera_gaussian=False,
         interpolate_n_camera=4,
@@ -294,7 +282,6 @@ rgb_experiment=[
     ),
                 Experiment(
         load_config=Path("nvsmask3d/data/replica"),
-        top_k=15,
         gt_camera_rgb=True,
         gt_camera_gaussian=False,
         interpolate_n_camera=0,
@@ -306,7 +293,6 @@ rgb_experiment=[
     ),
         Experiment(
         load_config=Path("nvsmask3d/data/replica"),
-        top_k=15,
         gt_camera_rgb=True,
         gt_camera_gaussian=False,
         interpolate_n_camera=1,
@@ -318,7 +304,6 @@ rgb_experiment=[
     ),
         Experiment(
         load_config=Path("nvsmask3d/data/replica"),
-        top_k=15,
         gt_camera_rgb=True,
         gt_camera_gaussian=False,
         interpolate_n_camera=2,
@@ -330,7 +315,6 @@ rgb_experiment=[
     ),
         Experiment(
         load_config=Path("nvsmask3d/data/replica"),
-        top_k=15,
         gt_camera_rgb=True,
         gt_camera_gaussian=False,
         interpolate_n_camera=3,
@@ -342,7 +326,6 @@ rgb_experiment=[
     ),
         Experiment(
         load_config=Path("nvsmask3d/data/replica"),
-        top_k=15,
         gt_camera_rgb=True,
         gt_camera_gaussian=False,
         interpolate_n_camera=4,
@@ -358,7 +341,6 @@ mix_experiment=[
             
         Experiment(
         load_config=Path("nvsmask3d/data/replica"),
-        top_k=15,
         gt_camera_rgb=True,
         gt_camera_gaussian=True,
         interpolate_n_camera=0,
@@ -370,7 +352,6 @@ mix_experiment=[
     ),
         Experiment(
         load_config=Path("nvsmask3d/data/replica"),
-        top_k=15,
         gt_camera_rgb=True,
         gt_camera_gaussian=True,
         interpolate_n_camera=1,
@@ -382,7 +363,6 @@ mix_experiment=[
     ),
         Experiment(
         load_config=Path("nvsmask3d/data/replica"),
-        top_k=15,
         gt_camera_rgb=True,
         gt_camera_gaussian=True,
         interpolate_n_camera=2,
@@ -394,7 +374,6 @@ mix_experiment=[
     ),
         Experiment(
         load_config=Path("nvsmask3d/data/replica"),
-        top_k=15,
         gt_camera_rgb=True,
         gt_camera_gaussian=True,
         interpolate_n_camera=3,
@@ -406,7 +385,6 @@ mix_experiment=[
     ),
         Experiment(
         load_config=Path("nvsmask3d/data/replica"),
-        top_k=15,
         gt_camera_rgb=True,
         gt_camera_gaussian=True,
         interpolate_n_camera=4,
@@ -419,7 +397,6 @@ mix_experiment=[
                     
         Experiment(
         load_config=Path("nvsmask3d/data/replica"),
-        top_k=15,
         gt_camera_rgb=True,
         gt_camera_gaussian=True,
         interpolate_n_camera=0,
@@ -431,7 +408,6 @@ mix_experiment=[
     ),
         Experiment(
         load_config=Path("nvsmask3d/data/replica"),
-        top_k=15,
         gt_camera_rgb=True,
         gt_camera_gaussian=True,
         interpolate_n_camera=1,
@@ -443,7 +419,6 @@ mix_experiment=[
     ),
         Experiment(
         load_config=Path("nvsmask3d/data/replica"),
-        top_k=15,
         gt_camera_rgb=True,
         gt_camera_gaussian=True,
         interpolate_n_camera=2,
@@ -455,7 +430,6 @@ mix_experiment=[
     ),
         Experiment(
         load_config=Path("nvsmask3d/data/replica"),
-        top_k=15,
         gt_camera_rgb=True,
         gt_camera_gaussian=True,
         interpolate_n_camera=3,
@@ -467,7 +441,6 @@ mix_experiment=[
     ),
         Experiment(
         load_config=Path("nvsmask3d/data/replica"),
-        top_k=15,
         gt_camera_rgb=True,
         gt_camera_gaussian=True,
         interpolate_n_camera=4,

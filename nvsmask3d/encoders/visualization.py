@@ -1,14 +1,15 @@
+import matplotlib.pyplot as plt
+import numpy as np
+import os
+import requests
 import open_clip
 import torch
-from PIL import Image
-from sklearn.decomposition import PCA
-from sklearn.cluster import KMeans
-import numpy as np
-import matplotlib.pyplot as plt
 import types
 import albumentations as A
-import requests
-import torch.nn.functional as F
+
+from PIL import Image
+from sklearn.decomposition import PCA
+from torch_kmeans import KMeans, CosineSimilarity
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 cmap = plt.get_cmap("tab20")
@@ -16,8 +17,11 @@ MEAN = np.array([123.675, 116.280, 103.530]) / 255
 STD = np.array([58.395, 57.120, 57.375]) / 255
 
 transforms = A.Compose([
-    A.Normalize(mean=list(MEAN), std=list(STD)),
-])
+            A.Normalize(mean=list(MEAN), std=list(STD)),
+    ])
+
+
+import torch.nn.functional as F
 
 def interpolate_positional_embedding(model, x):
     # Extract the original positional embedding from the model
@@ -33,14 +37,13 @@ def interpolate_positional_embedding(model, x):
 
     # Calculate the original grid size (assume it's square)
     orig_num_patches = patch_pos_embed.shape[1]
-    orig_grid_size = int(np.sqrt(orig_num_patches))
+    orig_grid_size = int(orig_num_patches ** 0.5)
 
     # Reshape patch embeddings to 2D grid
     orig_pos_embed_2d = patch_pos_embed.reshape(1, orig_grid_size, orig_grid_size, -1).permute(0, 3, 1, 2)
 
     # Compute the new grid size based on the input image size
-    patch_size = model.visual.patch_size if isinstance(model.visual.patch_size, int) else model.visual.patch_size[0]
-    new_grid_size = (x.shape[2] // patch_size, x.shape[3] // patch_size)
+    new_grid_size = (x.shape[2] // model.visual.patch_size[0], x.shape[3] // model.visual.patch_size[0])
 
     # Interpolate the positional embeddings to match the new grid size
     new_pos_embed_2d = F.interpolate(orig_pos_embed_2d, size=new_grid_size, mode='bilinear', align_corners=False)
@@ -54,10 +57,12 @@ def interpolate_positional_embedding(model, x):
     # Update the model's positional embedding
     model.visual.positional_embedding = torch.nn.Parameter(new_pos_embed)
 
+
+
 def get_intermediate_layers(
     self,
     x: torch.Tensor,
-    n=[20, 21, 22, 23],
+    n=1,
     reshape: bool = False,
     return_prefix_tokens: bool = False,
     return_class_token: bool = False,
@@ -98,10 +103,10 @@ def get_intermediate_layers(
     # Reshape if necessary
     if reshape:
         B, C, H, W = x.shape
-        patch_size = self.visual.patch_size if isinstance(self.visual.patch_size, int) else self.visual.patch_size[0]
+        patch_size = self.visual.patch_size
         grid_size = (
-            (H // patch_size),
-            (W // patch_size),
+            (H - patch_size[0]) // patch_size[0] + 1,
+            (W - patch_size[0]) // patch_size[0] + 1,
         )
         outputs = [
             out.reshape(x.shape[0], grid_size[0], grid_size[1], -1)
@@ -115,80 +120,103 @@ def get_intermediate_layers(
     
     return tuple(outputs)
 
+
+
 def viz_feat(feat):
-    _, C, h, w = feat.shape
-    feat = feat.squeeze(0).permute((1,2,0))  # [C, H, W] -> [H, W, C]
-    projected_featmap = feat.reshape(-1, C).cpu().numpy()
+
+    _, _, h, w = feat.shape
+    feat = feat.squeeze(0).permute((1,2,0))
+    projected_featmap = feat.reshape(-1, feat.shape[-1]).cpu()
 
     pca = PCA(n_components=3)
-    pca_features = pca.fit_transform(projected_featmap)
+    pca.fit(projected_featmap)
+    pca_features = pca.transform(projected_featmap)
     pca_features = (pca_features - pca_features.min()) / (pca_features.max() - pca_features.min())
-    pca_features = (pca_features * 255).astype(np.uint8)
-    res_pred = pca_features.reshape(h, w, 3)
+    pca_features = pca_features * 255
+    res_pred = Image.fromarray(pca_features.reshape(h, w, 3).astype(np.uint8))
 
     return res_pred
 
+
 def plot_feats(image, ori_feats=None, ori_labels=None):
+
     ori_feats_map = viz_feat(ori_feats)
 
-    fig, axes = None, None
     if ori_labels is not None:
-        fig, ax = plt.subplots(1, 3, figsize=(18, 6))
-        ax[0].imshow(image)
-        ax[0].set_title("Input Image", fontsize=15)
-        ax[1].imshow(ori_feats_map)
-        ax[1].set_title("PCA Visualization", fontsize=15)
-        ax[2].imshow(ori_labels)
-        ax[2].set_title(f"KMeans Clustering" , fontsize=15)# (k={np.max(ori_labels)+1})", fontsize=15)
-    else:
-        fig, ax = plt.subplots(1, 2, figsize=(12, 6))
-        ax[0].imshow(image)
-        ax[0].set_title("Input Image", fontsize=15)
-        ax[1].imshow(ori_feats_map)
-        ax[1].set_title("PCA Visualization", fontsize=15)
+        fig, ax = plt.subplots(2, 3, figsize=(10, 5))
+        ax[0][0].imshow(image)
+        ax[0][0].set_title("Input image", fontsize=15)
+        ax[0][1].imshow(ori_feats_map)
+        ax[1][1].imshow(ori_labels)
+        for xx in ax:
+          for x in xx:
+            x.xaxis.set_major_formatter(plt.NullFormatter())
+            x.yaxis.set_major_formatter(plt.NullFormatter())
+            x.set_xticks([])
+            x.set_yticks([])
+            x.axis('off')
 
-    for axis in ax.flatten():
-        axis.axis('off')
+    else:
+        fig, ax = plt.subplots(1, 3, figsize=(10, 10))
+        ax[0].imshow(image)
+        ax[0].set_title("Input image", fontsize=15)
+        ax[1].imshow(ori_feats_map)
+        ax[2].set_title("Ours", fontsize=15)
+
+        for x in ax:
+          x.xaxis.set_major_formatter(plt.NullFormatter())
+          x.yaxis.set_major_formatter(plt.NullFormatter())
+          x.set_xticks([])
+          x.set_yticks([])
+          x.axis('off')
 
     plt.tight_layout()
-    plt.show()  # 显示图像
+    plt.close(fig)
+    return fig
 
 def download_image(url, save_path):
     response = requests.get(url)
     with open(save_path, 'wb') as file:
         file.write(response.content)
 
+
 def process_image(image, stride, transforms):
     transformed = transforms(image=np.array(image))
-    image_tensor = torch.tensor(transformed['image']).float()
+    image_tensor = torch.tensor(transformed['image'])
     image_tensor = image_tensor.permute(2,0,1)
-    image_tensor = image_tensor.unsqueeze(0).to(device)
+    image_tensor = image_tensor.unsqueeze(0).to("cuda")
 
     h, w = image_tensor.shape[2:]
 
-    height_int = (h // stride) * stride
-    width_int = (w // stride) * stride
+    height_int = (h // stride)*stride
+    width_int = (w // stride)*stride
 
     image_resized = torch.nn.functional.interpolate(image_tensor, size=(height_int, width_int), mode='bilinear')
 
     return image_resized
 
-def kmeans_clustering(feats_map, n_clusters=40):
+
+def kmeans_clustering(feats_map, n_clusters=20):
+
     B, D, h, w = feats_map.shape
-    feats_map_flattened = feats_map.permute((0, 2, 3, 1)).reshape(B, -1, D).cpu().numpy()
+    feats_map_flattened = feats_map.permute((0, 2, 3, 1)).reshape(B, -1, D)
 
-    # 使用 sklearn 的 KMeans
-    kmeans = KMeans(n_clusters=n_clusters, random_state=0)
-    kmeans.fit(feats_map_flattened[0])
-    labels = kmeans.predict(feats_map_flattened[0])
+    kmeans_engine = KMeans(n_clusters=n_clusters, distance=CosineSimilarity)
+    kmeans_engine.fit(feats_map_flattened)
+    labels = kmeans_engine.predict(
+        feats_map_flattened
+        )
+    labels = labels.reshape(
+        B, h, w
+        ).float()
+    labels = labels[0].cpu().numpy()
 
-    labels = labels.reshape(h, w)
-    
-    # 将标签映射到颜色
-    label_map = cmap(labels / n_clusters)[..., :3]  # [H, W, 3]
-    label_map = (label_map * 255).astype(np.uint8)
+    label_map = cmap(labels / n_clusters)[..., :3]
+    label_map = np.uint8(label_map * 255)
+    label_map = Image.fromarray(label_map)
 
     return label_map
+
 
 def run_demo(model, image_path, kmeans=20):
     """
@@ -198,22 +226,23 @@ def run_demo(model, image_path, kmeans=20):
     """
     p = model.visual.patch_size
     stride = p if isinstance(p, int) else p[0]
-    image = Image.open(image_path).convert("RGB")
+    image = Image.open(image_path)
     image_resized = process_image(image, stride, transforms)
     with torch.no_grad():
         ori_feats = model.get_intermediate_layers(image_resized, n=[20, 21, 22, 23], reshape=True, return_prefix_tokens=False,
                                     return_class_token=False, norm=True)
 
-    ori_feats = ori_feats[-1]  # 取最后一层的特征
+    ori_feats = ori_feats[-1]
 
     if kmeans != -1:
         ori_labels = kmeans_clustering(ori_feats, kmeans)
     else:
         ori_labels = None
 
-    plot_feats(image, ori_feats, ori_labels)
 
-# 加载 OpenCLIP 模型 (ViT-L/14)
+    return plot_feats(image, ori_feats, ori_labels)
+
+# Load OpenCLIP model (ViT-L/14)
 model_name = "ViT-L-14"
 pretrained_dataset = "openai"
 model, _, preprocess = open_clip.create_model_and_transforms(model_name, pretrained=pretrained_dataset)
@@ -223,12 +252,6 @@ model.get_intermediate_layers = types.MethodType(
         model
     )
 
-# 设置图像路径和 KMeans 聚类数
-example_dir = "/tmp/examples"
-import os
-image_path = os.path.join(example_dir, "library.jpg") 
 image_path = "/home/fangj1/Code/nerfstudio-nvsmask3d/nvsmask3d/data/replica/office0/color/0.jpg"
 kmeans = 20
-
-# 运行演示
 run_demo(model, image_path, kmeans)

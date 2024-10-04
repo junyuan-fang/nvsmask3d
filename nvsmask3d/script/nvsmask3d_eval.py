@@ -18,6 +18,8 @@ eval.py
 ns-eval for_ap --load_config nvsmask3d/data/replica
 """
 from __future__ import annotations
+import os
+from datetime import datetime
 import wandb
 from PIL import Image
 import torchvision.transforms as transforms
@@ -199,8 +201,19 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 inst_AP = evaluate_replica(
                     preds, gt_dir, output_file="output.txt", dataset="replica"
                 )
-                log_evaluation_results_to_wandb(inst_AP,self.run_name_for_wandb)
+                # Create folder if it doesn't exist
+                folder_name = "results"
+                if not os.path.exists(folder_name):
+                    os.makedirs(folder_name)
 
+                # Add date and time to the filename
+                timestamp = datetime.now().strftime("%m-%d_%H")
+                file_name = os.path.join(folder_name, f"{timestamp}_{self.run_name_for_wandb}.json")
+
+                # Write to the file
+                with open(file_name, "w") as f:
+                    json.dump(inst_AP, f, indent=4)
+                #log_evaluation_results_to_wandb(inst_AP,self.run_name_for_wandb)
     def pred_classes_with_sam(self, scene_name=""):
         """
         Args:
@@ -278,6 +291,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     camera = interpolated_cameras[interpolation_index:interpolation_index+1]
                     valid = valid_points[interpolation_index]  # 形状：(N,)
                     if valid_points[interpolation_index].any():
+                        nvs_img = self.model.get_outputs(camera)["rgb"]  # (H, W, 3)
                         u_i = u[interpolation_index][valid]#(N,)
                         v_i = v[interpolation_index][valid]
                         
@@ -289,29 +303,28 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                         u_i = torch.clamp(u_i, 0, W - 1)
                         v_i = torch.clamp(v_i, 0, H - 1)
                         #3DMask logic 
-                        # min_u = u_i.min()
-                        # max_u = u_i.max()
-                        # min_v = v_i.min()
-                        # max_v = v_i.max()
+                        min_u = u_i.min()
+                        max_u = u_i.max()
+                        min_v = v_i.min()
+                        max_v = v_i.max()
 
-                        ##################SAM logic#####################
-                        proposal_points_coords_2d = torch.stack((v_i, u_i), dim=1)  # (N, 2)
-                        nvs_img = self.model.get_outputs(camera)["rgb"]  # (H, W, 3)
-                        sam_network.set_image(nvs_img.permute(2,0,1))#3,H,W
-                        mask_i = sam_network.get_best_mask(proposal_points_coords_2d)
-                        if mask_i.sum() == 0:
-                            # print(f"Skipping inference for object {i} pose {index} due to no valid camera poses, assign")
-                            continue
+                        # ##################SAM logic#####################
+                        # proposal_points_coords_2d = torch.stack((v_i, u_i), dim=1)  # (N, 2)
+                        # sam_network.set_image(nvs_img.permute(2,0,1))#3,H,W
+                        # mask_i = sam_network.get_best_mask(proposal_points_coords_2d)
+                        # if mask_i.sum() == 0:
+                        #     # print(f"Skipping inference for object {i} pose {index} due to no valid camera poses, assign")
+                        #     continue
                         
-                        #multilevel mask
-                        #for level in range(self.num_levels):
-                        level = 0
-                        min_u, min_v, max_u, max_v = sam_network.mask2box_multi_level(mask_i, level, expansion_ratio = 0.1)
-                        H, W, _ = nvs_img.shape # (H, W, 3)
-                        min_u = max(0, min_u)
-                        min_v = max(0, min_v)
-                        max_u = min(W, max_u)
-                        max_v = min(H, max_v)
+                        # #multilevel mask
+                        # #for level in range(self.num_levels):
+                        # level = 0
+                        # min_u, min_v, max_u, max_v = sam_network.mask2box_multi_level(mask_i, level, expansion_ratio = 0.1)
+                        # H, W, _ = nvs_img.shape # (H, W, 3)
+                        # min_u = max(0, min_u)
+                        # min_v = max(0, min_v)
+                        # max_u = min(W, max_u)
+                        # max_v = min(H, max_v)
                         
                         # Check if bounding box is valid
                         if min_u < max_u and min_v < max_v:
@@ -382,6 +395,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     
                     #multilevel mask
                     for level in range(self.num_levels):
+                        #level = 0
                         min_u, min_v, max_u, max_v = sam_network.mask2box_multi_level(mask_i, level, expansion_ratio = 0.1)
                         _, H, W = img.shape
                         min_u = max(0, min_u)
@@ -499,10 +513,6 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     weighted_logits = all_logits * weights
                     scores = torch.sum(weighted_logits, dim=0)
 
-                if self.algorithm == 2:
-                    med_weights = torch.median(weights)
-                    med_diffs = torch.median(torch.abs(weights - med_weights))
-                    scores = (weights - med_weights) / med_diffs
                     
                 # if algorithm == 2:
                 #     E_pretrain_text = torch.mean(similarity_scores_pretrain_text, dim=1)  # (B,)
@@ -778,7 +788,9 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
             
             
             with torch.no_grad():
-                algorithm = 1
+                # algorithm = 1
+                # I AM CHANGING THIS
+                algorithm = self.algorithm
                 T = 1.0# refer to temperature
                 if len(rgb_outputs) > 0:
                     rgb_features = model.image_encoder.encode_batch_list_image(
@@ -825,6 +837,47 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
 
                     weighted_logits = all_logits * weights
                     scores = torch.sum(weighted_logits, dim=0)
+                    
+                if self.algorithm == 2:
+                    
+                    weights_mask = None
+                    weights_rgb = None
+                    # if self.run_name_for_wandb == "test":
+                    if len(masked_gaussian_outputs) > 0:
+                        correction_mask = mask_logits_pretrain_text.mean(dim=1, keepdim=True)
+                        weights_mask = mask_logits.max(dim=1, keepdim=True).values # accriss text prompt Mx1
+                        # weights_mask = torch.softmax((weights_mask - correction_mask) / T, dim=0) 
+                    
+                    if len(rgb_outputs) > 0:
+                        correction_rgb = rgb_logits_pretrain_text.mean(dim=1, keepdim=True)
+                        weights_rgb = rgb_logits.max(dim=1, keepdim=True).values  # accriss text prompt
+                        # weights_rgb = torch.softmax((weights_rgb - correction_rgb) / T, dim=0)
+                        
+                    #concat weights
+                    if weights_mask is not None and weights_rgb is not None:
+                        weights = torch.cat([weights_mask, weights_rgb], dim=0)
+                        correction = torch.cat([correction_mask, correction_rgb], dim=0)
+                        weights = torch.softmax((weights - correction) / T, dim=0)
+                        all_logits = torch.cat([mask_logits, rgb_logits], dim=0)
+                    elif weights_mask is not None:
+                        weights = torch.softmax((weights_mask - correction_mask) / T, dim=0)
+                        all_logits = mask_logits
+                    else:
+                        weights = torch.softmax((weights_rgb - correction_rgb) / T, dim=0)
+                        all_logits = rgb_logits    
+
+                    # weighted_logits = all_logits * weights
+                    # scores = torch.sum(weighted_logits, dim=0)
+                    
+                    med_weights = torch.median(weights)
+                    med_diffs = torch.median(torch.abs(weights - med_weights))
+                    scores = (weights - med_weights) / med_diffs
+                    chosen = scores > 0.5
+                    print(f"Choosen {len(chosen)} out of {len(weights)}")
+                    
+                    weighted_logits = all_logits[chosen] * weights[chosen]
+                    scores = torch.sum(weighted_logits, dim=0)
+                    
 
                 # if algorithm == 2:
                 #     E_pretrain_text = torch.mean(similarity_scores_pretrain_text, dim=1)  # (B,)

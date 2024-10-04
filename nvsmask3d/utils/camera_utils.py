@@ -178,7 +178,7 @@ def optimal_k_camera_poses_of_scene(
     return best_poses_per_mask
 
 @torch.no_grad()
-def object_optimal_k_camera_poses_2D_mask(
+def object_optimal_k_camera_poses_2D_mask(#no sam uses object_optimal_k_camera_poses_2D_mask
     seed_points_0,
     optimized_camera_to_world,
     K,
@@ -324,7 +324,7 @@ def process_depth_maps_in_chunks(depth_maps, u_valid, v_valid, z_valid, chunk_si
     return valid_depths  # Return a flattened tensor
 
 @torch.no_grad()
-def object_optimal_k_camera_poses_bounding_box(
+def object_optimal_k_camera_poses_bounding_box(#SAM uses object_optimal_k_camera_poses_2D_mask
     seed_points_0,
     optimized_camera_to_world,
     K,
@@ -387,6 +387,37 @@ def object_optimal_k_camera_poses_bounding_box(
     if not valid_points.any():
         print("No valid points found")
         return torch.tensor([]), torch.tensor([])
+    
+    # num_visible_points = valid_points.float().sum(dim=1)
+
+    # # valid_u = [ u[index][valid_points[index]].long() for index in best_poses_indices] # shape (k_poses, num_valid_points) 第二个维度不一定都是3900 全满, occlution原因
+    # # valid_v = [ v[index][valid_points[index]].long() for index in best_poses_indices] # shape (k_poses, num_valid_points)
+    
+    # valid_u = []
+    # valid_v = []
+    # bounding_box_area = []
+    # for index in best_poses_indices:
+    #     valid = valid_points[index]
+    #     u_i = u[index][valid].long()#(N,)
+    #     v_i = v[index][valid].long()
+
+    #     valid_u.append(u_i)
+    #     valid_v.append(v_i)
+    #     u_i = torch.clamp(u_i, 0, W - 1)
+    #     v_i = torch.clamp(v_i, 0, H - 1)
+
+    #     # Compute the bounding box
+    #     min_u = u_i.min().item()
+    #     max_u = u_i.max().item()
+    #     min_v = v_i.min().item()
+    #     max_v = v_i.max().item()
+    #     area = (max_u - min_u) * (max_v - min_v)
+    #     bounding_box_area.append(area)
+    # bounding_box_area = torch.tensor(bounding_box_area)  # Shape: (k_poses,)
+
+
+    # if num_visible_points == 0 or len(valid_u) == 0 or len(valid_v) == 0:
+    #     return torch.tensor([]), torch.tensor([])
 
     # Calculate min and max for u and v
     min_u, _ = u.masked_fill(~valid_points, float("inf")).min(dim=1)  # shape (M,)

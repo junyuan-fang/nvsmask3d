@@ -493,18 +493,18 @@ def get_mix_experiment():
 
 if __name__ == "__main__":
     experiments = get_rgb_experiment()#get_gaussian_experiment()#get_rgb_experiment()
-    for experiment in experiments:
-        experiment.run()
+    # for experiment in experiments:
+    #     experiment.run()
     
-    experiments = get_gaussian_experiment()#get_gaussian_experiment()#get_rgb_experiment()
-    for experiment in experiments:
-        experiment.run()
+    # experiments = get_gaussian_experiment()#get_gaussian_experiment()#get_rgb_experiment()
+    # for experiment in experiments:
+    #     experiment.run()
     
-    experiments = get_mix_experiment()#get_gaussian_experiment()#get_rgb_experiment()
-    for experiment in experiments:
-        experiment.run()
+    # experiments = get_mix_experiment()#get_gaussian_experiment()#get_rgb_experiment()
+    # for experiment in experiments:
+    #     experiment.run()
     
-    # test = experiments[1]
-    # print(test.run_name_for_wandb)
-    # test.run()
+    test = experiments[0]
+    print(test.run_name_for_wandb)
+    test.run()
 
