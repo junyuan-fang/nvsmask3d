@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Optional
 from typing import Literal, Optional, Tuple, Union, Callable
 import torch
+from nvsmask3d.utils.utils import blur_non_masked_areas
 from nvsmask3d.utils.camera_utils import (
     get_camera_pose_in_opencv_convention,
     object_optimal_k_camera_poses_bounding_box,
@@ -177,7 +178,6 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 self.model = pipeline.model
                 # scene_id = scene_name[5:]
                 #seed_points_0 = self.model.seed_points[0].cuda()  # shape (N, 3)
-
                 pred_classes =  self.pred_classes_with_sam(
                                     scene_name=scene_name,
                                 ) if self.sam  else self.pred_classes(
@@ -388,7 +388,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     proposal_points_coords_2d = torch.stack((valid_v[index], valid_u[index]), dim=1)  # (N, 2)
                     assert(len(proposal_points_coords_2d.shape) == 2)
                     sam_network.set_image(img)#3,H,W
-                    mask_i = sam_network.get_best_mask(proposal_points_coords_2d)
+                    mask_i = sam_network.get_best_mask(proposal_points_coords_2d)# [shape: (H, W)]
                     if mask_i.sum() == 0:
                         # print(f"Skipping inference for object {i} pose {index} due to no valid camera poses, assign")
                         continue
@@ -411,6 +411,24 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                             # 如果有效，则裁剪图像
                             if self.gt_camera_rgb:
                                 cropped_image = img[:, min_v:max_v, min_u:max_u]
+                                cropped_mask = mask_i[min_v:max_v, min_u:max_u]
+                                #blurred_image = blur_non_masked_areas(img, mask_i)
+                                #cropped_image = blur_non_masked_areas(cropped_image, cropped_mask)
+                                #############debug################
+                                # try:
+                                #     from nvsmask3d.utils.utils import save_img
+                                #     save_img(img.permute(1,2,0), f"tests/gt_object_{i}_camera_{index}.png")
+                                #     # save_img(cropped_image.permute(1,2,0), f"tests/gt_object_{i}_blurred_camera_{index}.png")
+                                #     save_img(cropped_image.permute(1,2,0), f"tests/gt_object_{i}_cropped_camera_{index}.png")
+                                #     import pdb;pdb.set_trace()
+                                # except Exception as e:
+                                #     import pdb;pdb.set_trace()
+                                #     print(f"Failed to save image {interpolation_index}: {e}")
+                                #     continue  
+                                # import pdb;pdb.set_trace()
+
+                                ##################################
+
                                 rgb_outputs.append(cropped_image)#######################################################################################rgb#####################
                                 cropped_image = cropped_image.cpu()#for wandb
                                 # gt_img_pil_label_map = model.image_encoder.return_image_map(cropped_image) #for wandb
@@ -810,6 +828,13 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     )  
                     mask_logits_pretrain_text = torch.mm(mask_features, self.pretrain_embeddings.T)
                 # if self.run_name_for_wandb == "test":
+                if algorithm == 0:  
+                #aggregate similarity scores 你目前是将批次中的相似度分数进行求和（sum），这可能会导致信息丢失，尤其是在增强视图之间存在较大差异的情况下。
+                    if len(masked_gaussian_outputs) > 0:
+                        scores = mask_logits.sum(dim=0)  # Shape: (200,) for scannet200 
+                    if len(rgb_outputs) > 0:
+                        scores = rgb_logits.sum(dim=0)  # Shape: (200,) for scannet200 
+
                 if algorithm == 1:
                     weights_mask = None
                     weights_rgb = None

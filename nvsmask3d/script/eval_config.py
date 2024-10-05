@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Callable, Optional
 from nvsmask3d.script.nvsmask3d_eval import ComputeForAP  # 导入你的 ComputeForAP 类
 import wandb
+from tqdm import tqdm
 VISIBILITY_SCORES = {
     "visible_points": {
         "fn": lambda num_visible_points, bounding_box_area: num_visible_points,
@@ -18,7 +19,7 @@ VISIBILITY_SCORES = {
 class Experiment:
     def __init__(self,
                  load_config: Path,
-                 top_k: int = 5,
+                 top_k: int = 15,
                  sam = False,
                  visibility_score_key: str = "visible_points",
                  occlusion_aware: Optional[bool] = True,
@@ -65,7 +66,7 @@ class Experiment:
     def run(self):
         # Initialize a new WandB run for each experiment
         wandb.init(
-            mode="disabled",
+            mode="disabled",################
             project=self.project_name,
             name=self.run_name_for_wandb,
             config={
@@ -86,6 +87,7 @@ class Experiment:
         # 初始化 ComputeForAP 实例
         compute_ap = ComputeForAP(
             load_config=self.load_config,
+            sam=self.sam,
             top_k=self.top_k,
             visibility_score=self.visibility_score_fn,
             occlusion_aware=self.occlusion_aware,
@@ -339,28 +341,28 @@ rgb_experiment=[
 
 mix_experiment=[
             
-        Experiment(
-        load_config=Path("nvsmask3d/data/replica"),
-        gt_camera_rgb=True,
-        gt_camera_gaussian=True,
-        interpolate_n_camera=0,
-        interpolate_n_rgb_camera=0,#based on interpolate_n_camera, this will only be used as 0 or 1 first.
-        interpolate_n_gaussian_camera=0,
-        visibility_score_key="visible_points",
-        occlusion_aware=True,
-        algorithm=0
-    ),
-        Experiment(
-        load_config=Path("nvsmask3d/data/replica"),
-        gt_camera_rgb=True,
-        gt_camera_gaussian=True,
-        interpolate_n_camera=1,
-        interpolate_n_rgb_camera=1,#based on interpolate_n_camera, this will only be used as 0 or 1 first.
-        interpolate_n_gaussian_camera=1,
-        visibility_score_key="visible_points",
-        occlusion_aware=True,
-        algorithm=0
-    ),
+    #     Experiment(
+    #     load_config=Path("nvsmask3d/data/replica"),
+    #     gt_camera_rgb=True,
+    #     gt_camera_gaussian=True,
+    #     interpolate_n_camera=0,
+    #     interpolate_n_rgb_camera=0,#based on interpolate_n_camera, this will only be used as 0 or 1 first.
+    #     interpolate_n_gaussian_camera=0,
+    #     visibility_score_key="visible_points",
+    #     occlusion_aware=True,
+    #     algorithm=0
+    # ),
+    #     Experiment(
+    #     load_config=Path("nvsmask3d/data/replica"),
+    #     gt_camera_rgb=True,
+    #     gt_camera_gaussian=True,
+    #     interpolate_n_camera=1,
+    #     interpolate_n_rgb_camera=1,#based on interpolate_n_camera, this will only be used as 0 or 1 first.
+    #     interpolate_n_gaussian_camera=1,
+    #     visibility_score_key="visible_points",
+    #     occlusion_aware=True,
+    #     algorithm=0
+    # ),
         Experiment(
         load_config=Path("nvsmask3d/data/replica"),
         gt_camera_rgb=True,
@@ -452,6 +454,8 @@ mix_experiment=[
     ),
 ]
 
+
+
 # def get_experiments():
 #     return experiments    
 def get_rgb_experiment():
@@ -462,3 +466,20 @@ def get_mix_experiment():
     return mix_experiment
 # def get_rgb_gaussian_experiment():
 #     return rgb_gaussian_experiment
+
+if __name__ == "__main__":  
+    experiments = get_rgb_experiment()#get_gaussian_experiment()#get_rgb_experiment()
+    # for experiment in tqdm(experiments):
+    #     experiment.run()
+    experiment = experiments[0]
+    experiment.run()
+
+    # experiments = get_gaussian_experiment()#get_gaussian_experiment()#get_rgb_experiment()
+    # for experiment in tqdm(experiments):
+    #     experiment.run()
+
+    # experiments = get_mix_experiment()
+
+    # # Iterate over the list using tqdm
+    # for experiment in tqdm(experiments):
+    #     experiment.run()

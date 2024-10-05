@@ -27,7 +27,7 @@ from nerfstudio.process_data.process_data_utils import (
 from nerfstudio.utils import colormaps
 from nerfstudio.utils.rich_utils import CONSOLE
 import matplotlib.pyplot as plt
-
+import torch.nn.functional as F
 
 SCANNET200_CLASSES = [
     "wall",
@@ -235,6 +235,34 @@ SCANNET200_CLASSES = [
 # Depth Scale Factor m to mm
 SCALE_FACTOR = 0.001
 
+def blur_non_masked_areas(img_tensor, mask, blur_kernel_size=15):
+    """
+    对输入图像的非掩码部分进行模糊处理。
+
+    Parameters:
+        img_tensor (torch.Tensor): 输入图像，形状为 (C, H, W)
+        mask (torch.Tensor): 二值掩码，形状为 (H, W)
+        blur_kernel_size (int): 高斯模糊核的大小
+
+    Returns:
+        torch.Tensor: 处理后的图像，形状为 (C, H, W)
+    """
+    # 将 mask 变为 (1, H, W) 以便与图像进行广播运算
+    mask = mask.unsqueeze(0).float()  # Convert mask to float and add channel dimension
+
+    # 生成模糊的图像
+    blurred_img = F.conv2d(
+        img_tensor.unsqueeze(0),  # 添加 batch 维度
+        weight=torch.ones((img_tensor.size(0), 1, blur_kernel_size, blur_kernel_size), device=img_tensor.device) / (blur_kernel_size ** 2),
+        stride=1,
+        padding=blur_kernel_size // 2,
+        groups=img_tensor.size(0)
+    ).squeeze(0)  # 去除 batch 维度
+
+    # 使用掩码合并模糊和原始图像
+    combined_img = img_tensor * mask + blurred_img * (1 - mask)
+
+    return combined_img  # 输出形状为 (C, H, W)
 
 def video_to_frames(
     video_path: Path, image_dir: Path("./data/frames"), force: bool = False
