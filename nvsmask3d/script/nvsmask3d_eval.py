@@ -19,6 +19,8 @@ ns-eval for_ap --load_config nvsmask3d/data/replica
 """
 from __future__ import annotations
 import os
+import matplotlib.pyplot as plt
+from matplotlib import cm
 from datetime import datetime
 import wandb
 from PIL import Image
@@ -26,6 +28,7 @@ import torchvision.transforms as transforms
 from nvsmask3d.utils.utils import save_img
 from nvsmask3d.encoders.sam_encoder import SAMNetworkConfig, SamNetWork
 import json
+from nvsmask3d.utils.utils import plot_images_and_logits
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -833,8 +836,17 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     if len(masked_gaussian_outputs) > 0:
                         scores = mask_logits.sum(dim=0)  # Shape: (200,) for scannet200 
                     if len(rgb_outputs) > 0:
-                        scores = rgb_logits.sum(dim=0)  # Shape: (200,) for scannet200 
+                        #scores = rgb_logits.sum(dim=0)  # Shape: (200,) for scannet200 
+                        probs = torch.softmax(rgb_logits, dim=-1)  # Shape: [num_views, num_classes]
+                        # Step 2: Calculate entropy for each class across views
+                        entropy = -torch.sum(probs * torch.log(probs + 1e-9), dim=0)  # Shape: [num_classes]
 
+                        # Step 3: Use inverse entropy to compute weights (lower entropy = higher weight)
+                        weights = 1 / (entropy + 1e-9)  # Add small constant to avoid division by zero
+                        weights = weights / weights.sum()  # Normalize the weights
+
+                        # Step 4: Compute the weighted sum of the logits
+                        scores = torch.sum(rgb_logits * weights, dim=0)  # Shape: [num_classes]
                 if algorithm == 1:
                     weights_mask = None
                     weights_rgb = None
@@ -897,10 +909,12 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     med_weights = torch.median(weights)
                     med_diffs = torch.median(torch.abs(weights - med_weights))
                     scores = (weights - med_weights) / med_diffs
-                    chosen = scores > 0.5
-                    print(f"Choosen {len(chosen)} out of {len(weights)}")
+                    chosen = (scores > 0.5).squeeze()
+                    print(f"Choosen {torch.sum(chosen)} out of {len(weights)}")
+                    # print(all_logits.shape, weights.shape)
                     
-                    weighted_logits = all_logits[chosen] * weights[chosen]
+                    weighted_logits = all_logits[chosen, :] * weights[chosen, :]
+                    # print(weighted_logits.shape)
                     scores = torch.sum(weighted_logits, dim=0)
                     
 
@@ -917,28 +931,28 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 #     scores = similarity_scores.sum(dim=0)  # Shape: (200,) for scannet200 
                 #     max_ind = torch.argmax(scores).item()
                 
-                #mean scores
-                # mean_scores = similarity_scores.mean(dim=0)  # Shape: (200,)
-                # max_ind = torch.argmax(mean_scores).item()
                 
-                #max pooling
-                # scores, _ = similarity_scores.max(dim=0)  # Shape: (200,)
-                # max_ind = torch.argmax(scores).item()
-
-                
-                # max_ind_remapped = model.image_encoder.label_mapper[max_ind], replica no need remapping
-                pred_classes[i] = max_ind  # max_ind_remapped
-                
-                
+                pred_classes[i] = max_ind  
                 # Log interpolated images
                 if 'interpolated_images' in locals() and len(interpolated_images) > 0:
-                    final_interpolated_image = concat_images_horizontally(interpolated_images)
-                    wandb.log({f"Interpolated Scene: {scene_name}": wandb.Image(final_interpolated_image, caption=f"Interpolated Image for object {i} predicted class: {REPLICA_CLASSES[max_ind]}")})
-
+                    plot_images_and_logits(
+                        i,
+                        interpolated_images, rgb_logits[:-self.top_k], 
+                        "Interpolated Scene", 'combined_image_with_logits_fixed_and_points.png', 
+                        scene_name, max_ind, REPLICA_CLASSES
+                    )
+                    
                 # Log GT images
                 if 'gt_images' in locals() and len(gt_images) > 0:
-                    final_gt_image = concat_images_horizontally(gt_images)
-                    wandb.log({f"GT Scene: {scene_name}": wandb.Image(final_gt_image, caption=f"GT Camera Pose for object {i} predicted class: {REPLICA_CLASSES[max_ind]}")})
+
+                    # Use the helper function for GT images
+                    plot_images_and_logits(
+                        i,
+                        gt_images, rgb_logits[-self.top_k:], 
+                        "GT Scene", 'combined_image_with_logits_fixed_and_points.png', 
+                        scene_name, max_ind, REPLICA_CLASSES
+                    )
+                    #wandb.log({f"GT Scene: {scene_name}": wandb.Image(final_gt_image, caption=f"GT Camera Pose for object {i} predicted class: {REPLICA_CLASSES[max_ind]}")})
 
                 # del rgb_outputs, masked_gaussian_outputs, rgb_logits, mask_logits, rgb_logits_pretrain_text, mask_logits_pretrain_text, weights, all_logits, scores, weights_mask, weights_rgb, correction_mask, correction_rgb, weighted_logits
                 # if rgb_features in locals():

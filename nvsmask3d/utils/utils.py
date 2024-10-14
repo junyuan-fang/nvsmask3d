@@ -24,6 +24,8 @@ from nerfstudio.process_data.process_data_utils import (
     convert_video_to_images,
     get_num_frames_in_video,
 )
+#import cm 
+from matplotlib import cm
 from nerfstudio.utils import colormaps
 from nerfstudio.utils.rich_utils import CONSOLE
 import matplotlib.pyplot as plt
@@ -956,6 +958,70 @@ def concat_images_horizontally(imgs):
         new_img.paste(img, (x_offset, 0))
         x_offset += img.size[0]
     return new_img
+
+def plot_images_and_logits(i, image_set, rgb_logits, title, filename, scene_name, max_ind, replica_classes):
+    """
+    Helper function to plot images and classification logits.
+    Adjusts horizontal axis based on number of views.
+    """
+    if image_set and len(image_set) > 0:
+        colormap = cm.get_cmap('viridis')
+        final_image = concat_images_horizontally(image_set)
+
+        # Adjust the figure width based on number of views
+        num_views = len(rgb_logits)
+        fig_width = 15 + num_views * 0.2  # Increase figure width with more views
+        fig = plt.figure(figsize=(fig_width, 12))  # Adjust width for more space between x-axis labels
+        gs = fig.add_gridspec(2, 1, height_ratios=[2, 1])
+
+        # 1. 上半部分：显示图片
+        ax_img = fig.add_subplot(gs[0])
+        ax_img.imshow(final_image)
+        ax_img.axis('off')  # 隐藏坐标轴
+
+        # 2. 下半部分：显示多视角的分类得分条形图
+        ax_bar = fig.add_subplot(gs[1])
+
+        rgb_logits = (100 * rgb_logits).softmax(dim=-1)
+        data = rgb_logits.cpu().numpy().tolist()
+
+        # Plot each view as a separate set of bars
+        bar_width = 0.05  # Reduce bar width
+        offset = bar_width * len(data)  # Adjust offset based on number of views
+
+        for view_i, logits in enumerate(data):
+            x = np.arange(len(logits))  # Class indices
+            color = colormap(view_i / len(data))  # Normalize the view index
+            ax_bar.bar(x + view_i * bar_width, logits, width=bar_width, alpha=0.7, label=f'View {view_i}', color=color)
+
+        # Sum the logits across all views and plot as scatter points
+        scores = rgb_logits.sum(dim=0)  # Shape: (200,)
+        scores_normalized = torch.nn.functional.softmax(scores, dim=0).cpu().numpy()  # Normalize and convert to numpy
+
+        # 绘制散点图，显示归一化后的logits分数
+        x_points = np.arange(len(scores_normalized))
+        ax_bar.scatter(x_points + offset / 2, scores_normalized, color='red', label='Normalized Summed Logits', zorder=5)
+
+        # Set x-ticks and labels
+        ax_bar.set_xticks(np.arange(len(replica_classes)) + offset / 2)  # Offset to center labels
+        ax_bar.set_xticklabels(replica_classes, rotation=45, ha='right')  # Rotate for better fit
+
+        # Set labels and title
+        ax_bar.set_xlabel('Class Index')
+        ax_bar.set_ylabel('Logit Value')
+        ax_bar.set_title(f"{title}. Scene: {scene_name}. Object {i} predicted class: {replica_classes[max_ind]}")
+        ax_bar.legend()
+
+        # Adjust layout and save
+        plt.tight_layout()
+        plt.savefig(filename)
+
+        # Log the combined figure to WandB
+        wandb.log({f"{title}: {scene_name}.": plt})
+
+        # Close the plot to avoid memory issues
+        plt.close()
+
 
 
 def concat_images_vertically(imgs):

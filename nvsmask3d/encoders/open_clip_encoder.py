@@ -116,6 +116,7 @@ class OpenCLIPNetwork(BaseImageEncoder):
         with torch.no_grad():
             tok_phrases = torch.cat(
                 [self.tokenizer(phrase) for phrase in self.positives]
+                #[self.tokenizer(f"an image of{phrase}") for phrase in self.positives]#########
             ).to("cuda")
             self.pos_embeds = model.encode_text(tok_phrases)
             tok_phrases = torch.cat(
@@ -213,7 +214,8 @@ class OpenCLIPNetwork(BaseImageEncoder):
         """list shape B, which has element (C,H,W) -> (B,512)"""
         processed_images = [self.process(img) for img in input]
         batch_tensor = torch.stack(processed_images).half()  # Shape (B, C, H, W)
-        return self.model.encode_image(batch_tensor)
+        image_features = self.model.encode_image(batch_tensor)
+        return image_features/image_features.norm(dim=-1, keepdim=True)
     @torch.no_grad()
     def classify_images(self, images: torch.Tensor, batch_size = 10) -> str:
         """

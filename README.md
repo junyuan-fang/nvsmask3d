@@ -8,9 +8,15 @@ pip install -e .
 ns-install-cli
 ```
 ## info
-20% images used in dataparser
 tran test split = 1
 test_mode = train
+
+for scannetpp:
+
+path of 3d mask proposals: ```/home/fangj1/Code/nerfstudio-nvsmask3d/nvsmask3d/data/mask3d_processed_first10``` corresponding scene's names are inside ```/home/fangj1/Code/nerfstudio-nvsmask3d/nvs_sub_val.txt```.
+
+path of scannetpp data: ```/data/scannetpp/ScannetPP/data```
+
 
 ## Running the new method
 ```
@@ -20,34 +26,21 @@ ns-train nvsmask3d replica --data nvsmask3d/data/Replica # train on replica data
 ns-train nvsmask3d --vis viewer replica --data nvsmask3d/data/Replica --sequence room0
 ns-train splatfacto --vis viewer+wandb colmap --data nvsmask3d/data/scene0011_00/colmap 
 ns-train nvsmask3d replica --data nvsmask3d/data/Replica --sequence room0
-
-
 ns-train nvsmask3d --vis viewer replica_nvsmask3d --data nvsmask3d/data/replica --sequence room0 #sometimes wandb error, so use this
 ```
+### train scannetpp
+```
+
+```
+
 ## View
 ```
-ns-viewer nvsmask3d --load_config outputs/nvsmask3d_whole_data_0.9_train_ratio/nvsmask3d/2024-08-01_144608/config.yml
-ns-viewer nvsmask3d --load_config outputs/scene0011_00/nvsmask3d/2024-08-07_220010/config.yml
-
-ns-viewer nvsmask3d --load_config outputs/unnamed/nvsmask3d/2024-08-09_214116/config.yml # replica without pointmask
-ns-viewer nvsmask3d --load_config outputs/unnamed/nvsmask3d/2024-08-10_121201/config.yml # replica able to segment
-
-
-ns-viewer nvsmask3d --load_config outputs/unnamed/nvsmask3d/2024-08-11_172308/config.yml
 ns-viewer nvsmask3d --load_config outputs/office1/nvsmask3d/2024-08-14_204330/config.yml # office 1
-
 
 ```
 
 ## Evaluation 
 ```
-ns-eval for_ap --load_config outputs/nvsmask3d_whole_data_0.9_train_ratio/nvsmask3d/2024-08-01_144608/config.yml # full
-ns-eval for_ap --load_config outputs/fast/nvsmask3d/2024-08-07_175651/config.yml  #2000
-ns-eval for_ap --load_config outputs/fast/nvsmask3d/2024-08-07_181023/config.yml #6000
-ns-eval for_ap --load_config outputs/scene0011_00/nvsmask3d/2024-08-07_220010/config.yml
-ns-eval for_ap --load_config outputs/scene0011_00/nvsmask3d/2024-08-08_132932/config.yml   #sparse point cloud initialization
-ns-eval for_ap --load_config outputs/scene0011_00/nvsmask3d/2024-08-08_165724/config.yml #sparse point cloud initialization+densify+culling  20000steps
-ns-eval for_ap --load_config outputs/unnamed/splatfacto/2024-08-08_210343/config.yml #colmap
 
 ns-eval for_ap --load_config nvsmask3d/data/replica
 

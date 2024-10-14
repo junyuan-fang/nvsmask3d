@@ -212,7 +212,7 @@ class ReplicaNvsmask3D(DataParser):
             mask_path = (
                 self.config.data / "replica_masks" / (self.config.sequence + ".pt")
             )
-            #load gt masks for amblation study
+            # #load gt masks for amblation study
             # current_dir = os.getcwd()
             # mask_path = (
             #     Path(current_dir) / "nvsmask3d/data/Replica/replica_ground_truth_masks" / (self.config.sequence + ".pt")

@@ -57,7 +57,7 @@ class NvsMask3dPipeline(VanillaPipeline):
         config: NvsMask3dPipelineConfig,
         device: str,
         test_mode: Literal[
-            "test", "val", "inference", "train", "all_replica", "all_scannet"
+            "test", "val", "inference", "train", "all_replica", "all_scannet", "all_scannetpp"
         ] = "val",
         world_size: int = 1,
         local_rank: int = 0,

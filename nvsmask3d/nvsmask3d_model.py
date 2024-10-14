@@ -98,7 +98,7 @@ class NVSMask3dModel(SplatfactoModel):
         metadata: Optional[Dict] = None,
         cameras: Optional[Cameras] = None,
         test_mode: Literal[
-            "test", "val", "inference", "train", "all_replica", "all_scannet"
+            "test", "val", "inference", "train", "all_replica", "all_scannet", "all_scannetpp"
         ] = "val",
         image_file_names,  # test
         **kwargs,
@@ -121,6 +121,8 @@ class NVSMask3dModel(SplatfactoModel):
         )
         if "replica" in self.test_mode:#assumed scannet200 and replica.
             self.depth_scale = 6553.5
+        elif "scannetpp" in self.test_mode:
+            self.depth_scale = 1000.0
         else: 
             self.depth_scale = 1000.0
         # Initialize cache

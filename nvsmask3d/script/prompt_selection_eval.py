@@ -28,6 +28,7 @@ class Experiment:
                  gt_camera_gaussian: Optional[bool] = True,
                  project_name: str = "prompt selection",#"zeroshot_enhancement",
                  run_name_for_wandb: Optional[str] = None,
+                 sam = False,
                  algorithm: int = 0):
         # 初始化实验配置
         self.load_config = load_config
@@ -42,6 +43,7 @@ class Experiment:
         self.gt_camera_rgb = gt_camera_rgb
         self.gt_camera_gaussian = gt_camera_gaussian
         self.project_name = project_name
+        self.sam = sam  
         self.algorithm = algorithm
         self.run_name_for_wandb = self.generate_run_name() if run_name_for_wandb is None else run_name_for_wandb
     def generate_run_name(self) -> str:
@@ -95,6 +97,8 @@ class Experiment:
             project_name=self.project_name,
             run_name_for_wandb=self.run_name_for_wandb,
             inference_dataset = "replica",
+            sam = self.sam,
+            algorithm=self.algorithm,
         )
 
         # 运行 ComputeForAP 的 main 方法
@@ -352,6 +356,19 @@ rgb_experiment=[
         occlusion_aware=True,
         algorithm=1
     ),
+        Experiment(
+        load_config=Path("nvsmask3d/data/replica"),
+        top_k=15,
+        gt_camera_rgb=True,
+        gt_camera_gaussian=False,
+        interpolate_n_camera=0,
+        interpolate_n_rgb_camera=0,#based on interpolate_n_camera, this will only be used as 0 or 1 first.
+        interpolate_n_gaussian_camera=0,
+        visibility_score_key="visible_points",
+        occlusion_aware=True,
+        algorithm=2,
+        sam=False,
+    ),
 ]
 
 mix_experiment=[
@@ -504,7 +521,7 @@ if __name__ == "__main__":
     # for experiment in experiments:
     #     experiment.run()
     
-    test = experiments[0]
+    test = experiments[-1]
     print(test.run_name_for_wandb)
     test.run()
 
