@@ -35,7 +35,7 @@ ns-train nvsmask3d --vis viewer replica_nvsmask3d --data nvsmask3d/data/replica 
 
 ## View
 ```
-ns-viewer nvsmask3d --load_config outputs/office1/nvsmask3d/2024-08-14_204330/config.yml # office 1
+ns-viewer nvsmask3d --load_config outputs/office0/nvsmask3d/2024-08-14_204330/config.yml # office 0
 
 ```
 
