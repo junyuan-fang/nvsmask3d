@@ -4,20 +4,22 @@ Template Model File
 Currently this subclasses the splacfacto model. Consider subclassing from the base Model.
 """
 
-from nvsmask3d.utils.utils import save_img
+import os
 from dataclasses import dataclass, field
 from typing import Type
+
 import torch
-import os
-from PIL import Image
 import torchvision.transforms as transforms
+from PIL import Image
+
+from nvsmask3d.utils.utils import save_img
 
 # 设置 TORCH_CUDA_ARCH_LIST 环境变量
 os.environ["TORCH_CUDA_ARCH_LIST"] = "7.5;8.0"
 
 # 启用 TensorFloat32
 torch.set_float32_matmul_precision("high")
-from typing import Dict, List, Literal, Optional, Tuple, Type, Union
+from typing import Dict, List, Literal, Optional, Tuple, Union
 
 try:
     from gsplat.rendering import rasterization
@@ -25,37 +27,25 @@ except ImportError:
     print("Please install gsplat>=1.0.0")
 
 from torch.nn import Parameter
-from nerfstudio.cameras.camera_optimizers import CameraOptimizer
-from nvsmask3d.encoders.image_encoder import BaseImageEncoder
-
-from nerfstudio.utils.colors import get_color
-import math
-from nerfstudio.utils.rich_utils import CONSOLE
-from nerfstudio.data.scene_box import OrientedBox
-from nerfstudio.cameras.cameras import Cameras
 
 # from nvsmask3d.utils.camera_utils import Cameras
-
-
-from nerfstudio.cameras.camera_optimizers import CameraOptimizer, CameraOptimizerConfig
+from nerfstudio.cameras.camera_optimizers import CameraOptimizerConfig
+from nerfstudio.cameras.cameras import Cameras
 from nerfstudio.engine.optimizers import Optimizers
-from nerfstudio.models.base_model import Model, ModelConfig  # for custom Model
 from nerfstudio.models.splatfacto import (
-    RGB2SH,
     SplatfactoModel,
     SplatfactoModelConfig,
     get_viewmat,
 )
+from nerfstudio.utils.rich_utils import CONSOLE
 from nerfstudio.viewer.viewer_elements import *
+from nvsmask3d.encoders.image_encoder import BaseImageEncoder
 from nvsmask3d.utils.camera_utils import (
-    object_optimal_k_camera_poses_2D_mask,
+    compute_camera_pose_bounding_boxes,
     get_camera_pose_in_opencv_convention,
+    interpolate_camera_poses_with_camera_trajectory,
     make_cameras,
     object_optimal_k_camera_poses_bounding_box,
-    interpolate_camera_poses_with_camera_trajectory,
-    get_interpolated_poses,
-    rotate_vector_to_vector,
-    compute_camera_pose_bounding_boxes
 )
 
 
@@ -543,7 +533,7 @@ class NVSMask3dModel(SplatfactoModel):
             rasterize_mode=self.config.rasterize_mode,
         )
 
-        render_masked, alpha_masked, info_masked = rasterization(
+        render_masked, alpha_masked, self.info_masked = rasterization(
             means=means_masked,
             quats=quats_masked / quats_masked.norm(dim=-1, keepdim=True),
             scales=torch.exp(scales_masked),
