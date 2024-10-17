@@ -40,7 +40,7 @@ class NVSmask3dDataManager(FullImageDatamanager):
         self,
         config: NVSMask3dDataManagerConfig,
         device: Union[torch.device, str] = "gpu",
-        test_mode: Literal["test", "val", "inference", "train", "all"] = "val",
+        test_mode: Literal["test", "val", "inference", "train", "all"] = "train",
         world_size: int = 1,
         local_rank: int = 0,
         **kwargs,  # pylint: disable=unused-argument

@@ -1,115 +1,89 @@
-# Copyright 2022 the Regents of the University of California, Nerfstudio Team and contributors. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Data parser for ScanNet++ datasets."""
+"""Dataparser for ScanNet++ dataset.
+
+adapted form: https://github.com/nerfstudio-project/nerfstudio/blob/main/nerfstudio/data/dataparsers/scannetpp_dataparser.py
+"""
 
 from __future__ import annotations
 
+import glob
+import json
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, Type
-import json
-import math
 
 import numpy as np
+import open3d as o3d
 import torch
-from nerfstudio.plugins.registry_dataparser import DataParserSpecification
+from dn_splatter.data.scannetpp_utils.pointcloud_utils import generate_iPhone_pointcloud
+from dn_splatter.scripts.align_depth import ColmapToAlignedMonoDepths
+from dn_splatter.scripts.depth_from_pretrain import depth_from_pretrain
+from dn_splatter.scripts.normals_from_pretrain import (
+    NormalsFromPretrained,
+    normals_from_depths,
+)
+from natsort import natsorted
 
 from nerfstudio.cameras import camera_utils
 from nerfstudio.cameras.cameras import CAMERA_MODEL_TO_TYPE, Cameras, CameraType
-from nerfstudio.data.dataparsers.base_dataparser import DataParser, DataParserConfig, DataparserOutputs
+from nerfstudio.data.dataparsers.base_dataparser import DataparserOutputs
 from nerfstudio.data.dataparsers.colmap_dataparser import (
     ColmapDataParser,
     ColmapDataParserConfig,
 )
 from nerfstudio.data.scene_box import SceneBox
-from nerfstudio.utils.io import load_from_json
+from nerfstudio.plugins.registry_dataparser import DataParserSpecification
 from nerfstudio.utils.rich_utils import CONSOLE
 
 
 @dataclass
 class ScanNetppDataParserConfig(ColmapDataParserConfig):
-    """ScanNet++ dataset config.
-    ScanNet++ dataset (https://kaldir.vc.in.tum.de/scannetpp/) is a real-world 3D indoor dataset for semantics understanding and novel view synthesis.
-    This dataparser follow the file structure of the dataset.
-    Expected structure of the directory:
-
-    .. code-block:: text
-
-        root/
-        |── scannetpp_masks/
-            ├── {SCENE_ID}.pt/
-            ...
-        ├── SCENE_ID0
-            ├── dslr
-                ├── resized_images
-                ├── resized_anon_masks
-                ├── nerfstudio/transforms.json
-            ├── scans
-                ├── mesh_aligned_0.05.ply
-        ├── SCENE_ID1/
-        ...
-    """
-
     _target: Type = field(default_factory=lambda: ScanNetpp)
     """target class to instantiate"""
-    data: Path = Path("/data/scannetpp/ScannetPP/data")
+    data: Path = Path("datasets/scannetpp/data")
     """Directory to the root of the data."""
-    scale_factor: float = 1.0
-    """How much to scale the camera origins by."""
+    sequence: Literal["8b5caf3398", "b20a261fdf"] = "b20a261fdf"
+    """room name"""
     mode: Literal["dslr", "iphone"] = "iphone"
     """Which camera to use"""
+    depth_mode: Literal["mono", "sensor", "none", "all"] = "sensor"
+    """Which depth data to load"""
+    is_euclidean_depth: bool = False
+    """Whether input depth maps are Euclidean distances (or z-distances)."""
+    load_depths: bool = True
+    """Whether to load depth maps"""
+    mono_pretrain: Literal["zoe"] = "zoe"
+    """Which mono depth pretrain model to use."""
+    load_normals: bool = True
+    """Set to true to use ground truth normal maps"""
+    normal_format: Literal["opencv", "opengl"] = "opengl"
+    """Which format the normal maps in camera frame are saved in."""
+    normals_from: Literal["pretrained", "none"] = "pretrained"
+    """If no ground truth normals, generate normals either from sensor depths or from pretrained model."""
+    load_pcd_normals: bool = False
+    """Whether to load pcd normals for normal initialisation"""
+    initialisation_type: Literal["mesh", "rgbd"] = "rgbd"
+    """Which method to generate initial point clouds from"""
+
+    scale_factor: float = 1.0
+    """How much to scale the camera origins by."""
     scene_scale: float = 1.5
     """How much to scale the region of interest by. Default is 1.5 since the cameras are inside the rooms."""
-    orientation_method: Literal["pca", "up", "vertical", "none"] = "up"
+    orientation_method: Literal["pca", "up", "vertical", "none"] = "none"
     """The method to use for orientation."""
-    center_method: Literal["poses", "focus", "none"] = "poses"
+    center_method: Literal["poses", "focus", "none"] = "none"
     """The method to use to center the poses."""
     auto_scale_poses: bool = False
     """Whether to automatically scale the poses to fit in +/- 1 bounding box."""
-    images_dir: Path = Path("dslr/resized_images")
-    """Relative path to the images directory (default: resized_images)"""
-    masks_dir: Path = Path("dslr/resized_anon_masks")
-    """Relative path to the masks directory (default: resized_anon_masks)"""
-    transforms_path: Path = Path("dslr/nerfstudio/transforms.json")
-    """Relative path to the transforms.json file"""
-    load_3D_points: bool = True
-    """Whether to load the 3D points from the .ply"""
+    load_every: int = 5
+    """load every n'th frame from the dense trajectory"""
     skip_every_for_val_split: int = 10
     """sub sampling validation images"""
-    train_split_fraction: float = 1
-    """The fraction of images to use for training. The remaining images are for eval."""
-    depth_unit_scale_factor: float = 1e-3
-    """Scales the depth values to meters. Default value is 0.001 for a millimeter to meter conversion."""
-    point_cloud_color: bool = True
-    # """read point cloud colors from .ply files or not """
-    # ply_file_path: Path = data / (data.name + ".ply")
-    """path to the .ply file containing the 3D points"""
-    load_every: int = 1
-    """load every n'th frame from the dense trajectory"""
-    load_masks: bool = True
-    #validation set of scannetpp
-    sequence: Literal[
-    '7b6477cb95', 'c50d2d1d42', 'cc5237fd77', 'acd95847c5', 'fb5a96b1a2', 'a24f64f7fb',
-    '1ada7a0617', '5eb31827b7', '3e8bba0176', '3f15a9266d', '21d970d8de', '5748ce6f01',
-    'c4c04e6d6c', '7831862f02', 'bde1e479ad', '38d58a7a31', '5ee7c22ba0', 'f9f95681fd',
-    '3864514494', '40aec5fffa', '13c3e046d7', 'e398684d27', 'a8bf42d646', '45b0dac5e3',
-    '31a2c91c43', 'e7af285f7d', '286b55a2bf', '7bc286c1b6', 'f3685d06a9', 'b0a08200c9',
-    '825d228aec', 'a980334473', 'f2dc06b1d2', '5942004064', '25f3b7a318', 'bcd2436daf',
-    'f3d64c30f8', '0d2ee665be', '3db0a1c8f3', 'ac48a9b736', 'c5439f4607', '578511c8a9',
-    'd755b3d9d8', '99fa5c25e1', '09c1414f1b', '5f99900f09', '9071e139d9', '6115eddb86',
-    '27dd4da69e', 'c49a8c6cff'
-] = "7b6477cb95"
+    load_3D_points: bool = True
+    """Whether to load the 3D points from the colmap reconstruction."""
+    num_sfm_points: int = 100_000
+    """Num points to load"""
+    assume_colmap_world_coordinate_convention: bool = True
 
 
 @dataclass
@@ -118,33 +92,30 @@ class ScanNetpp(ColmapDataParser):
 
     config: ScanNetppDataParserConfig
 
-    def _generate_dataparser_outputs(self, split="train"):
-        print("split is: ", split)
-        self.input_folder = self.config.data / "data" / self.config.sequence / self.config.mode
+    def _generate_dataparser_outputs(self, split="train", **kwargs):
+        self.input_folder = self.config.data / self.config.sequence / self.config.mode
         assert (
             self.input_folder.exists()
         ), f"Data directory {self.input_folder} does not exist."
+
         if self.config.mode == "dslr":
             self.input_folder = (
                 self.input_folder / "undistort_colmap" / self.config.sequence
             )
             colmap_path = self.input_folder / "colmap"
-            image_dir = self.input_folder / "images"
+            data_dir = self.input_folder / "images"
             mask_dir = self.input_folder / "masks"
 
             if (colmap_path / "cameras.txt").exists():
                 meta = self._get_all_images_and_cameras(colmap_path)
         elif self.config.mode == "iphone":
             colmap_path = self.input_folder / "colmap"
-            image_dir = self.input_folder / "rgb"
+            data_dir = self.input_folder / "rgb"
             mask_dir = self.input_folder / "rgb_masks"
 
             if (colmap_path / "cameras.txt").exists():
                 meta = self._get_all_images_and_cameras(colmap_path)
                 depth_dir = self.input_folder / "depth"
-                
-        self.ply_file_path = self.config.data/ "data" / self.config.sequence / "scans" / "mesh_aligned_0.05.ply"
-                
         image_filenames = []
         mask_filenames = []
         depth_filenames = []
@@ -166,7 +137,6 @@ class ScanNetpp(ColmapDataParser):
             train_test_split = json.load(
                 open(
                     self.config.data
-                    /"data"
                     / self.config.sequence
                     / self.config.mode
                     / "train_test_lists.json",
@@ -182,7 +152,7 @@ class ScanNetpp(ColmapDataParser):
 
         for idx, frame in enumerate(frames):
             filepath = Path(frame["file_path"]).name
-            fname = image_dir / filepath
+            fname = data_dir / filepath
 
             image_filenames.append(fname)
             poses.append(np.array(frame["transform_matrix"]))
@@ -356,137 +326,207 @@ class ScanNetpp(ColmapDataParser):
             camera_type=camera_type,
         )
 
-        metadata = {
-            "depth_filenames": depth_filenames if len(depth_filenames) > 0 else None,
-            "depth_unit_scale_factor": self.config.depth_unit_scale_factor,
-        }
-
-        if self.config.load_3D_points:
-            point_color = self.config.point_cloud_color
-            ply_file_path = self.ply_file_path
-            point_cloud_data = self._load_3D_points(
-                ply_file_path, transform_matrix, scale_factor, point_color
+        if "applied_transform" in meta:
+            applied_transform = torch.tensor(
+                meta["applied_transform"], dtype=transform_matrix.dtype
             )
-            if point_cloud_data is not None:
-                metadata.update(point_cloud_data)
-
-        if self.config.load_masks:
-            mask_path = (
-                self.config.data / "mask3d_processed_first10" / (self.config.sequence + ".pt")
+            transform_matrix = transform_matrix @ torch.cat(
+                [
+                    applied_transform,
+                    torch.tensor([[0, 0, 0, 1]], dtype=transform_matrix.dtype),
+                ],
+                0,
             )
-            # #load gt masks for amblation study
-            # current_dir = os.getcwd()
-            # mask_path = (
-            #     Path(current_dir) / "nvsmask3d/data/Replica/replica_ground_truth_masks" / (self.config.sequence + ".pt")
-            # )
-            mask_data = self._load_mask(mask_path)
-            if mask_data is not None:
-                metadata.update(mask_data)
-        ### test######################################################
-        # from nvsmask3d.utils.camera_utils import project_pix
-        # p = metadata["points3D_xyz"]#torch.Size([237360, 3])
-        # colors = metadata["points3D_rgb"] / 255 #torch.Size([237360, 3])
-        # fx=intrinsics[0, 0, 0].to(torch.device('cuda'))
-        # fy=intrinsics[0, 1, 1].to(torch.device('cuda'))
-        # cx=intrinsics[0, 0, 2].to(torch.device('cuda'))
-        # cy=intrinsics[0, 1, 2].to(torch.device('cuda'))
-        # c2w = poses[0, :3, :4].to(torch.device('cuda'))
-        # device = torch.device('cuda')
+        if "applied_scale" in meta:
+            applied_scale = float(meta["applied_scale"])
+            scale_factor *= applied_scale
 
-        # colors = colors.to(device)
-        # uv_coords = project_pix(p, fx, fy, cx, cy, c2w, device, return_z_depths=True) # returns uv -> (pix_x,pix_y,z_depth)
-        # sparse_map = torch.zeros((h, w, 3), dtype=torch.float32, device=device)
-        # valid_points = (uv_coords[..., 0] >= 0) & (uv_coords[..., 0] < w) & (uv_coords[..., 1] >= 0) & (uv_coords[..., 1] < h ) &  (uv_coords[..., 2] > 0)
-        # sparse_map[[uv_coords[valid_points,1].long(), uv_coords[valid_points,0].long()]] = colors[valid_points][None,:].float()
+        # Load 3D points
+        if self.config.load_3D_points and split == "train":
+            if self.config.mode == "dslr":
+                metadata.update(
+                    self._load_3D_points(colmap_path, transform_matrix, scale_factor)
+                )
 
-        # print("Projected UV coordinates's shape:", uv_coords.shape)#Projected UV coordinates's shape: torch.Size([237360, 3])
-        # print(sparse_map.min(), sparse_map.max())
-        # from  nvsmask3d.utils.utils import save_img, image_path_to_tensor
-        # gt_img = image_path_to_tensor(image_filenames[0])
-        # save_img(gt_img, "/home/wangs9/junyuan/nerfstudio-nvsmask3d/nvsmask3d/data/scene0000_00/gt_img.png")
-        # save_img(sparse_map, "/home/wangs9/junyuan/nerfstudio-nvsmask3d/nvsmask3d/data/scene0000_00/rendered.png",)
-        # quit()
-        ###################################################################
+            elif self.config.mode == "iphone":
+                # iphone doesn't have sparse colmap points, need to build init point clouds from dense reconstruction
+                self.path_to_point_cloud = self.input_folder / "point_cloud.ply"
+                if not self.path_to_point_cloud.exists():
+                    generate_iPhone_pointcloud(self.input_folder, meta, i_train)
+                out, selected_indices = self._load_iphone_3D_points(
+                    self.path_to_point_cloud, transform_matrix, scale_factor
+                )
+                metadata.update(out)
+
+            if self.config.load_pcd_normals:
+                metadata.update(
+                    self._load_points3D_normals(
+                        ply_file_path=self.path_to_point_cloud,
+                        selected_indices=selected_indices,
+                    )
+                )
+
+        metadata.update({"depth_unit_scale_factor": 1e-3})
+
+        # process normal
+        if self.config.normals_from == "depth":
+            self.normal_save_dir = self.input_folder / Path("normals_from_depth")
+        else:
+            self.normal_save_dir = self.input_folder / Path("normals_from_pretrain")
+
+        if self.config.load_normals and (
+            not self.normal_save_dir.exists()
+            or len(os.listdir(self.normal_save_dir)) == 0
+        ):
+            CONSOLE.print(
+                f"[bold yellow]Could not find normals, generating them into {str(self.normal_save_dir)}"
+            )
+            (self.normal_save_dir).mkdir(exist_ok=True, parents=True)
+
+            if self.config.normals_from == "pretrained":
+                if self.config.mode == "dslr":
+                    NormalsFromPretrained(data_dir=self.input_folder).main()
+                elif self.config.mode == "iphone":
+                    NormalsFromPretrained(data_dir=self.input_folder).main()
+            else:
+                normals_from_depths(
+                    path_to_transforms=self.input_folder / self.config.transforms_path,
+                    save_path=self.normal_save_dir,
+                    normal_format=self.config.normal_format,
+                )
+
+        # update metadata with normals
+        if self.config.load_normals and split == "train":
+            normal_filenames = self.get_normal_filepaths()
+            normal_filenames = [
+                Path(filename)
+                for filename in normal_filenames
+                if Path(filename).stem in [n.stem for n in image_filenames]
+            ]
+            assert len(normal_filenames) == len(image_filenames)
+            metadata.update({"normal_filenames": normal_filenames})
+            metadata.update({"normal_format": self.config.normal_format})
+
+        if split == "train":
+            metadata.update({"load_normals": self.config.load_normals})
+        else:
+            metadata.update({"load_normals": False})
+
+        # process depth
+        metadata.update({"depth_mode": self.config.depth_mode})
+        metadata.update({"is_euclidean_depth": self.config.is_euclidean_depth})
+        metadata.update({"load_depths": self.config.load_depths})
+
+        if self.config.depth_mode in ["mono", "all"]:
+            self.depth_save_dir = self.input_folder / Path("mono_depth")
+            if (
+                not self.depth_save_dir.exists()
+                or len(os.listdir(self.depth_save_dir)) == 0
+            ):
+                if self.config.mode == "dslr":
+                    ColmapToAlignedMonoDepths(
+                        data=self.input_folder,
+                        sparse_path=Path("colmap"),
+                        mono_depth_network=self.config.mono_pretrain,
+                        img_dir_name="images",
+                    ).main()
+                elif self.config.mode == "iphone":
+                    depth_from_pretrain(
+                        input_folder=self.input_folder,
+                        img_dir_name="rgb",
+                        path_to_transforms=None,
+                        save_path=self.depth_save_dir,
+                        create_new_transforms=False,
+                        return_mode="mono-aligned",
+                    )
+
+            self.mono_depth_filenames = self.get_depth_filepaths()
+            if split == "train":
+                metadata.update(
+                    {
+                        "mono_depth_filenames": (
+                            self.mono_depth_filenames
+                            if len(self.mono_depth_filenames) == len(image_filenames)
+                            else (
+                                [
+                                    Path(self.mono_depth_filenames[idx])
+                                    for idx in indices
+                                ]
+                                if len(self.mono_depth_filenames) > 0
+                                else None
+                            )
+                        )
+                    }
+                )
+            else:
+                # dummy data
+                metadata.update(
+                    {
+                        "mono_depth_filenames": (
+                            [
+                                Path(idx)
+                                for idx in self.mono_depth_filenames[
+                                    : len(image_filenames)
+                                ]
+                            ]
+                            if len(self.mono_depth_filenames) > 0
+                            else None
+                        )
+                    }
+                )
+        if self.config.depth_mode in ["sensor", "all"]:
+            metadata.update(
+                {
+                    "sensor_depth_filenames": (
+                        depth_filenames if len(depth_filenames) > 0 else None
+                    )
+                }
+            )
+
         dataparser_outputs = DataparserOutputs(
             image_filenames=image_filenames,
             cameras=cameras,
             scene_box=scene_box,
+            mask_filenames=None,
             dataparser_scale=scale_factor,
             dataparser_transform=transform_matrix,
             metadata=metadata,
         )
+
         return dataparser_outputs
 
-    def _load_3D_points(
-        self,
-        ply_file_path: Path,
-        transform_matrix: torch.Tensor,
-        scale_factor: float,
-        points_color: bool,
-        sample_rate=1,
-    ) -> dict:
-        """Loads point clouds positions and colors from .ply
+    def get_normal_filepaths(self):
+        """Helper to load normal paths"""
+        return natsorted(glob.glob(f"{self.normal_save_dir}/*.png"))
 
-        Args:
-            ply_file_path: Path to .ply file
-            transform_matrix: Matrix to transform world coordinates
-            scale_factor: How much to scale the camera origins by.
-            points_color: Whether to load the point cloud colors or not
+    def get_depth_filepaths(self):
+        """Helper to load depth paths"""
+        depth_list = natsorted(glob.glob(f"{self.depth_save_dir}/*_aligned.npy"))
+        return depth_list
 
-        Returns:
-            A dictionary of points: points3D_xyz and colors: points3D_rgb
-            or
-            A dictionary of points: points3D_xyz if points_color is False
-        """
-        import open3d as o3d  # Importing open3d is slow, so we only do it if we need it.
-
+    def _load_iphone_3D_points(
+        self, ply_file_path: Path, transform_matrix: torch.Tensor, scale_factor: float
+    ):
+        """load pointcloud from ply file"""
         pcd = o3d.io.read_point_cloud(str(ply_file_path))
-
-        # if no points found don't read in an initial point cloud
-        if len(pcd.points) == 0:
-            return None
-
-        num_points = len(pcd.points)
-        sampled_indices = np.random.choice(
-            num_points, int(num_points * sample_rate), replace=False
-        )
-
         points3D = torch.from_numpy(np.asarray(pcd.points, dtype=np.float32))
-        # points3D = torch.from_numpy(np.asarray(pcd.points)[sampled_indices].astype(np.float32))
 
         points3D = (
-            torch.cat(
-                (
-                    points3D,
-                    torch.ones_like(points3D[..., :1]),
-                ),
-                -1,
-            )
-            @ transform_matrix.T
+            torch.cat((points3D, torch.ones_like(points3D[..., :1])), -1)
+            @ self.orient_transform.T
         )
+        points3D = points3D[..., :3]
         points3D *= scale_factor
+        points3D_rgb = torch.from_numpy((np.asarray(pcd.colors) * 255).astype(np.uint8))
+        selected_indices = torch.randperm(points3D.shape[0])[
+            : self.config.num_sfm_points
+        ]
         out = {
-            "points3D_xyz": points3D,
-            "points3D_num": points3D.shape[0],
+            "points3D_xyz": points3D[selected_indices],
+            "points3D_rgb": points3D_rgb[selected_indices],
         }
+        return out, selected_indices
 
-        if points_color:
-            # points3D_rgb = torch.from_numpy((np.asarray(pcd.colors) * 255).astype(np.uint8))
-            points3D_rgb = torch.from_numpy(
-                (np.asarray(pcd.colors)[sampled_indices] * 255).astype(np.uint8)
-            )
-            out["points3D_rgb"] = points3D_rgb
-
-        return out
-
-    def _load_mask(self, mask_path: Path):
-        # mask[0] torch.Size([points_num, class_num]) mask
-        # mask[1] torch.Size([36]) confidence of the mask
-        masks = torch.load(mask_path)
-        cls_num = masks[0].shape[1]
-        out = {"points3D_mask": masks[0], "points3D_cls_num": cls_num}
-        return out
-    
     def _write_json(
         self,
         image_filenames,
@@ -526,8 +566,17 @@ class ScanNetpp(ColmapDataParser):
         out["frames"] = frames
         with open(base_dir / name, "w", encoding="utf-8") as f:
             json.dump(out, f, indent=4)
-    
-ScanNetppNvsmask3DParserSpecification = DataParserSpecification(
-    config=ScanNetppDataParserConfig(load_3D_points=True),
-    description="scannet dataparser",
+
+    def _load_points3D_normals(self, ply_file_path: Path, selected_indices):
+        pcd = o3d.io.read_point_cloud(str(ply_file_path))
+        pcd.estimate_normals(
+            search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30)
+        )
+        pcd.normalize_normals()
+        points3D_normals = torch.from_numpy(np.asarray(pcd.normals, dtype=np.float32))
+        return {"points3D_normals": points3D_normals[selected_indices]}
+
+
+ScanNetppDataParserSpecification = DataParserSpecification(
+    config=ScanNetppDataParserConfig(), description="Scannet++ dataparser"
 )

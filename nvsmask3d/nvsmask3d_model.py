@@ -74,6 +74,9 @@ class NVSMask3dModelConfig(SplatfactoModelConfig):
     )  # off #SO3xR3 #SE3
     """Config of the camera optimizer to use"""
     add_means: bool = True
+    test_mode: Literal[
+            "test", "val", "inference", "train", "all_replica", "all_scannet", "all_scannetpp"
+    ] = "train"
     # use_scale_regularization: bool = true
     # max_gauss_ratio: float = 1.5
     # refine_every: int = 100 # we don't cull or densify gaussians
@@ -99,10 +102,11 @@ class NVSMask3dModel(SplatfactoModel):
         cameras: Optional[Cameras] = None,
         test_mode: Literal[
             "test", "val", "inference", "train", "all_replica", "all_scannet", "all_scannetpp"
-        ] = "val",
+        ] = "train",
         image_file_names,  # test
         **kwargs,
-    ):
+    ):  
+        print("On model side test_mode is", test_mode)
         self.metadata = metadata
         self.cameras = cameras
         self.cls_index = 0

@@ -65,6 +65,7 @@ NvsMask3d = MethodSpecification(
             # network=CLIPNetworkConfig(
             #     clip_model_type="ViT-B/16", clip_n_dims=512
             # )
+            test_mode="train",
         ),
         optimizers={
             "means": {

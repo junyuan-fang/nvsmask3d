@@ -17,8 +17,11 @@ path of 3d mask proposals: ```/home/fangj1/Code/nerfstudio-nvsmask3d/nvsmask3d/d
 
 path of scannetpp data: ```/data/scannetpp/ScannetPP/data```
 
-
-## Running the new method
+### train scannetpp scene
+```
+ns-train nvsmask3d --experiment-name 7b6477cb95 --timestamp ""  --vis viewer scannetpp_nvsmask3d --data nvsmask3d/data/ScannetPP   --sequence 7b6477cb95 
+```
+## train Replica scene
 ```
 ns-train splatfacto scannet-data --data nvsmask3d/data/scene0000_00_  # this is old scannet dataparser
 ns-train nvsmask3d scannet --data nvsmask3d/data/scene_example # this is new scannet dataparser modified in this repo
@@ -28,10 +31,7 @@ ns-train splatfacto --vis viewer+wandb colmap --data nvsmask3d/data/scene0011_00
 ns-train nvsmask3d replica --data nvsmask3d/data/Replica --sequence room0
 ns-train nvsmask3d --vis viewer replica_nvsmask3d --data nvsmask3d/data/replica --sequence room0 #sometimes wandb error, so use this
 ```
-### train scannetpp
-```
 
-```
 
 ## View
 ```

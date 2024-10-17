@@ -45,7 +45,7 @@ class OpenCLIPNetwork(BaseImageEncoder):
         self,
         config: OpenCLIPNetworkConfig,
         test_mode: Literal[
-            "test", "val", "inference", "train", "all_replica", "all_scannet"
+            "test", "val", "inference", "train", "all_replica", "all_scannet", "all_scannetpp"
         ] = "val",
     ):
         super().__init__()
@@ -80,7 +80,7 @@ class OpenCLIPNetwork(BaseImageEncoder):
             if "scannet" in self.testmode
             else torch.tensor(VALID_CLASS_IDS_REPLICA).cuda()
         )
-        print("the test mode is", test_mode)
+        print("On encoder the test mode is", test_mode)
         ############viewers############
         self.scannet_checkbox = ViewerCheckbox(
             name="Use ScanNet200",

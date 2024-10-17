@@ -396,6 +396,8 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                         # print(f"Skipping inference for object {i} pose {index} due to no valid camera poses, assign")
                         continue
                     
+                    original = True
+                    
                     #multilevel mask
                     for level in range(self.num_levels):
                         #level = 0
@@ -412,37 +414,56 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                             # gt_mask_img_label_map = None  
                             # gt_img_pil_label_map = None
                             # 如果有效，则裁剪图像
-                            if self.gt_camera_rgb:
-                                cropped_image = img[:, min_v:max_v, min_u:max_u]
-                                cropped_mask = mask_i[min_v:max_v, min_u:max_u]
-                                #blurred_image = blur_non_masked_areas(img, mask_i)
-                                #cropped_image = blur_non_masked_areas(cropped_image, cropped_mask)
-                                #############debug################
-                                # try:
-                                #     from nvsmask3d.utils.utils import save_img
-                                #     save_img(img.permute(1,2,0), f"tests/gt_object_{i}_camera_{index}.png")
-                                #     # save_img(cropped_image.permute(1,2,0), f"tests/gt_object_{i}_blurred_camera_{index}.png")
-                                #     save_img(cropped_image.permute(1,2,0), f"tests/gt_object_{i}_cropped_camera_{index}.png")
-                                #     import pdb;pdb.set_trace()
-                                # except Exception as e:
-                                #     import pdb;pdb.set_trace()
-                                #     print(f"Failed to save image {interpolation_index}: {e}")
-                                #     continue  
-                                # import pdb;pdb.set_trace()
+                            if original:
+                                if self.gt_camera_rgb:
+                                    cropped_image = img[:, min_v:max_v, min_u:max_u]
+                                    cropped_mask = mask_i[min_v:max_v, min_u:max_u]
+                                    #blurred_image = blur_non_masked_areas(img, mask_i)
+                                    #cropped_image = blur_non_masked_areas(cropped_image, cropped_mask)
+                                    #############debug################
+                                    # try:
+                                    #     from nvsmask3d.utils.utils import save_img
+                                    #     save_img(img.permute(1,2,0), f"tests/gt_object_{i}_camera_{index}.png")
+                                    #     # save_img(cropped_image.permute(1,2,0), f"tests/gt_object_{i}_blurred_camera_{index}.png")
+                                    #     save_img(cropped_image.permute(1,2,0), f"tests/gt_object_{i}_cropped_camera_{index}.png")
+                                    #     import pdb;pdb.set_trace()
+                                    # except Exception as e:
+                                    #     import pdb;pdb.set_trace()
+                                    #     print(f"Failed to save image {interpolation_index}: {e}")
+                                    #     continue  
+                                    # import pdb;pdb.set_trace()
 
-                                ##################################
+                                    ##################################
 
-                                rgb_outputs.append(cropped_image)#######################################################################################rgb#####################
-                                cropped_image = cropped_image.cpu()#for wandb
-                                # gt_img_pil_label_map = model.image_encoder.return_image_map(cropped_image) #for wandb
-                                gt_img_pil = transforms.ToPILImage()(cropped_image)#for wandb
-                            if self.gt_camera_gaussian:
-                                nvs_mask_img = self.model.get_outputs(single_camera)["rgb_mask"]  # ["rgb_mask"]  # (H,W,3)
-                                cropped_nvs_mask_image = nvs_mask_img[min_v:max_v, min_u:max_u,:].permute(2, 0, 1)#(C,H,W)
-                                masked_gaussian_outputs.append(cropped_nvs_mask_image)#############################################################################gaussian###################
-                                cropped_nvs_mask_image = cropped_nvs_mask_image.cpu()#for wandb
-                                # gt_mask_img_label_map = model.image_encoder.return_image_map(cropped_nvs_mask_image)#for wandb
-                                gt_mask_img_pil = transforms.ToPILImage()(cropped_nvs_mask_image) #for wandb
+                                    rgb_outputs.append(cropped_image)#######################################################################################rgb#####################
+                                    cropped_image = cropped_image.cpu()#for wandb
+                                    # gt_img_pil_label_map = model.image_encoder.return_image_map(cropped_image) #for wandb
+                                    gt_img_pil = transforms.ToPILImage()(cropped_image)#for wandb
+                                if self.gt_camera_gaussian:
+                                    nvs_mask_img = self.model.get_outputs(single_camera)["rgb_mask"]  # ["rgb_mask"]  # (H,W,3)
+                                    cropped_nvs_mask_image = nvs_mask_img[min_v:max_v, min_u:max_u,:].permute(2, 0, 1)#(C,H,W)
+                                    masked_gaussian_outputs.append(cropped_nvs_mask_image)#############################################################################gaussian###################
+                                    cropped_nvs_mask_image = cropped_nvs_mask_image.cpu()#for wandb
+                                    # gt_mask_img_label_map = model.image_encoder.return_image_map(cropped_nvs_mask_image)#for wandb
+                                    gt_mask_img_pil = transforms.ToPILImage()(cropped_nvs_mask_image) #for wandb
+                                    
+                            else:
+                                # TODO
+                                if self.gt_camera_rgb:
+                                    cropped_image = img[:, min_v:max_v, min_u:max_u]
+                                    
+                                    rgb_outputs.append(cropped_image)#######################################################################################rgb#####################
+                                    cropped_image = cropped_image.cpu()#for wandb
+                                    # gt_img_pil_label_map = model.image_encoder.return_image_map(cropped_image) #for wandb
+                                    gt_img_pil = transforms.ToPILImage()(cropped_image)#for wandb
+                                if self.gt_camera_gaussian:
+                                    nvs_mask_img = self.model.get_outputs(single_camera)["rgb_mask"]  # ["rgb_mask"]  # (H,W,3)
+                                    cropped_nvs_mask_image = nvs_mask_img[min_v:max_v, min_u:max_u,:].permute(2, 0, 1)#(C,H,W)
+                                    masked_gaussian_outputs.append(cropped_nvs_mask_image)#############################################################################gaussian###################
+                                    cropped_nvs_mask_image = cropped_nvs_mask_image.cpu()#for wandb
+                                    # gt_mask_img_label_map = model.image_encoder.return_image_map(cropped_nvs_mask_image)#for wandb
+                                    gt_mask_img_pil = transforms.ToPILImage()(cropped_nvs_mask_image) #for wandb
+                                    
                             # Combine GT image and mask horizontally
                             combined_gt_image = concat_images_vertically([gt_img_pil, gt_mask_img_pil])
                             # combined_gt_image_label_map = concat_images_vertically([gt_img_pil_label_map, gt_mask_img_label_map])
