@@ -20,6 +20,8 @@ path of scannetpp data: ```/data/scannetpp/ScannetPP/data```
 ### train scannetpp scene
 ```
 ns-train nvsmask3d --experiment-name 7b6477cb95 --timestamp ""  --vis viewer scannetpp_nvsmask3d --data nvsmask3d/data/ScannetPP   --sequence 7b6477cb95 
+
+
 ```
 ## train Replica scene
 ```
@@ -36,6 +38,7 @@ ns-train nvsmask3d --vis viewer replica_nvsmask3d --data nvsmask3d/data/replica 
 ## View
 ```
 ns-viewer nvsmask3d --load_config outputs/office0/nvsmask3d/2024-08-14_204330/config.yml # office 0
+ns-viewer nvsmask3d --load_config outputs/7b6477cb95/nvsmask3d/config.yml  #scannetpp
 
 ```
 

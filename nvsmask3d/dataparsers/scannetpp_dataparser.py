@@ -14,7 +14,7 @@
 """Data parser for ScanNet++ datasets."""
 
 from __future__ import annotations
-
+import cv2
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, Type
@@ -38,7 +38,7 @@ from nerfstudio.utils.rich_utils import CONSOLE
 
 
 @dataclass
-class ScanNetppDataParserConfig(ColmapDataParserConfig):
+class ScanNetppDataParserConfig(DataParserConfig):
     """ScanNet++ dataset config.
     ScanNet++ dataset (https://kaldir.vc.in.tum.de/scannetpp/) is a real-world 3D indoor dataset for semantics understanding and novel view synthesis.
     This dataparser follow the file structure of the dataset.
@@ -95,7 +95,7 @@ class ScanNetppDataParserConfig(ColmapDataParserConfig):
     # """read point cloud colors from .ply files or not """
     # ply_file_path: Path = data / (data.name + ".ply")
     """path to the .ply file containing the 3D points"""
-    load_every: int = 1
+    load_every: int = 5
     """load every n'th frame from the dense trajectory"""
     load_masks: bool = True
     #validation set of scannetpp
@@ -124,114 +124,54 @@ class ScanNetpp(ColmapDataParser):
         assert (
             self.input_folder.exists()
         ), f"Data directory {self.input_folder} does not exist."
-        if self.config.mode == "dslr":
-            self.input_folder = (
-                self.input_folder / "undistort_colmap" / self.config.sequence
-            )
-            colmap_path = self.input_folder / "colmap"
-            image_dir = self.input_folder / "images"
-            mask_dir = self.input_folder / "masks"
-
-            if (colmap_path / "cameras.txt").exists():
-                meta = self._get_all_images_and_cameras(colmap_path)
-        elif self.config.mode == "iphone":
-            colmap_path = self.input_folder / "colmap"
+        if self.config.mode == "iphone":
             image_dir = self.input_folder / "rgb"
-            mask_dir = self.input_folder / "rgb_masks"
-
-            if (colmap_path / "cameras.txt").exists():
-                meta = self._get_all_images_and_cameras(colmap_path)
-                depth_dir = self.input_folder / "depth"
+            # mask_dir = self.input_folder / "rgb_masks"
+            depth_dir = self.input_folder / "depth"
+            pose_path = self.input_folder / "pose_intrinsic_imu.json"
+        else:
+            KeyError(f"Unknown mode {self.config.mode}, we don't support it yet.")
                 
         self.ply_file_path = self.config.data/ "data" / self.config.sequence / "scans" / "mesh_aligned_0.05.ply"
                 
-        image_filenames = []
-        mask_filenames = []
-        depth_filenames = []
         poses = []
+        intrinsics = []
 
-        fx = []
-        fy = []
-        cx = []
-        cy = []
-        height = []
-        width = []
-        distort = []
+        image_filenames = list(
+            sorted(image_dir.iterdir(), key=lambda x: int(x.name.split("_")[1].split(".")[0]))
+        )
+        depth_filenames = list(
+            sorted(depth_dir.iterdir(), key=lambda x: int(x.name.split("_")[1].split(".")[0]))
 
-        i_train = []
-        i_eval = []
-        # sort the frames by fname
-        if self.config.mode == "dslr":
-            frames = meta["frames"]
-            train_test_split = json.load(
-                open(
-                    self.config.data
-                    /"data"
-                    / self.config.sequence
-                    / self.config.mode
-                    / "train_test_lists.json",
-                    "r",
-                )
-            )
-            file_names = [f["file_path"].split("/")[-1] for f in frames]
-            test_frames = [f for f in file_names if f in train_test_split["test"]]
+        )
+        # mask_filenames = list(
+        #     sorted(mask_dir.iterdir(), key=lambda x: int(x.name.split(".")[0]))
+        # )
+        with  open(pose_path) as f:
+            data = json.load(f) 
+            
+        
+        for _, frame_data in data.items():
 
-        elif self.config.mode == "iphone":
-            frames = meta["frames"]
-        frames.sort(key=lambda x: x["file_path"])
-
-        for idx, frame in enumerate(frames):
-            filepath = Path(frame["file_path"]).name
-            fname = image_dir / filepath
-
-            image_filenames.append(fname)
-            poses.append(np.array(frame["transform_matrix"]))
-
-            fx.append(float(frame["fl_x"]))
-            fy.append(float(frame["fl_y"]))
-            cx.append(float(frame["cx"]))
-            cy.append(float(frame["cy"]))
-            height.append(int(frame["h"]))
-            width.append(int(frame["w"]))
-            distort.append(
-                camera_utils.get_distortion_params(
-                    k1=float(frame["k1"]) if "k1" in frame else 0.0,
-                    k2=float(frame["k2"]) if "k2" in frame else 0.0,
-                    k3=float(frame["k3"]) if "k3" in frame else 0.0,
-                    k4=float(frame["k4"]) if "k4" in frame else 0.0,
-                    p1=float(frame["p1"]) if "p1" in frame else 0.0,
-                    p2=float(frame["p2"]) if "p2" in frame else 0.0,
-                )
-            )
-
-            if meta.get("has_mask", True) and "mask_path" in frame:
-                mask_filepath = Path(frame["mask_path"]).name
-                mask_fname = mask_dir / mask_filepath
-                mask_filenames.append(mask_fname)
-
-            if self.config.mode == "dslr":
-                if filepath in test_frames:
-                    i_eval.append(idx)
-                else:
-                    i_train.append(idx)
-            elif self.config.mode == "iphone":
-                depth_filepath = filepath.replace("jpg", "png")
-                depth_fname = depth_dir / depth_filepath
-                depth_filenames.append(depth_fname)
-        assert len(mask_filenames) == 0 or (
-            len(mask_filenames) == len(image_filenames)
+            intrinsics.append(np.array(frame_data['intrinsic']))
+            pose  = np.array(frame_data['aligned_pose'])
+            pose[:3, 1] *= -1
+            pose[:3, 2] *= -1
+            poses.append(pose)#maybeaready opengl
+        
+        assert len(depth_filenames) == 0 or (
+            len(depth_filenames) == len(image_filenames)
         ), """
-        Different number of image and mask filenames.
+        Different number of image and depth filenames.
         You should check that mask_path is specified for every frame (or zero frames) in transforms.json.
         """
 
-        if self.config.mode == "iphone":
-            num_imgs = len(image_filenames)
-            indices = list(range(num_imgs))
-            assert self.config.skip_every_for_val_split >= 1
-            eval_indices = indices[:: self.config.skip_every_for_val_split]
-            i_eval = [i for i in indices if i in eval_indices]
-            i_train = [i for i in indices if i not in eval_indices]
+        num_imgs = len(image_filenames)
+        indices = list(range(num_imgs))
+        assert self.config.skip_every_for_val_split >= 1
+        eval_indices = indices[:: self.config.skip_every_for_val_split]
+        i_eval = [i for i in indices if i in eval_indices]
+        i_train = [i for i in indices if i not in eval_indices]
 
         if split == "train":
             indices = i_train
@@ -239,19 +179,17 @@ class ScanNetpp(ColmapDataParser):
                 indices = indices[:: self.config.load_every]
         elif split in ["val", "test"]:
             indices = i_eval
+        elif split == "all":
+            indices = indices
         else:
             raise ValueError(f"Unknown dataparser split {split}")
         print(indices)
 
-        if "orientation_override" in meta:
-            orientation_method = meta["orientation_override"]
-            CONSOLE.log(
-                f"[yellow] Dataset is overriding orientation method to {orientation_method}"
-            )
-        else:
-            orientation_method = self.config.orientation_method
+        orientation_method = self.config.orientation_method
 
         poses = torch.from_numpy(np.array(poses).astype(np.float32))
+        intrinsics = torch.from_numpy(np.stack(intrinsics).astype(np.float32))
+
         poses, transform_matrix = camera_utils.auto_orient_and_center_poses(
             poses, method=orientation_method, center_method=self.config.center_method
         )
@@ -267,26 +205,31 @@ class ScanNetpp(ColmapDataParser):
 
         # Choose image_filenames and poses based on split, but after auto orient and scaling the poses.
         image_filenames = [image_filenames[i] for i in indices]
-        mask_filenames = (
-            [mask_filenames[i] for i in indices] if len(mask_filenames) > 0 else []
-        )
+        # mask_filenames = (
+        #     [mask_filenames[i] for i in indices] if len(mask_filenames) > 0 else []
+        # )
         depth_filenames = (
             [depth_filenames[i] for i in indices] if len(depth_filenames) > 0 else []
         )
         idx_tensor = torch.tensor(indices, dtype=torch.long)
         poses = poses[idx_tensor]
+        intrinsics = intrinsics[idx_tensor]
+
         self.poses = poses
         self.camera_to_worlds = poses[:, :3, :4]
+
+        first_img = cv2.imread(str(image_filenames[0].absolute()))  # type: ignore
+        h, w, _ = first_img.shape
         if split == "train":
             self._write_json(
                 image_filenames,
                 depth_filenames,
-                fx[0],
-                fy[0],
-                cx[0],
-                cy[0],
-                width[0],
-                height[0],
+                intrinsics[0][0, 0], #fx
+                intrinsics[0][1, 1], #fy
+                intrinsics[0][0, 2], #cx
+                intrinsics[0][1, 2], #cy
+                w,
+                h,
                 poses[:, :3, :4],
                 "transforms.json",
             )
@@ -294,12 +237,12 @@ class ScanNetpp(ColmapDataParser):
             self._write_json(
                 image_filenames,
                 depth_filenames,
-                fx[0],
-                fy[0],
-                cx[0],
-                cy[0],
-                width[0],
-                height[0],
+                intrinsics[0][0, 0], #fx
+                intrinsics[0][1, 1], #fy
+                intrinsics[0][0, 2], #cx
+                intrinsics[0][1, 2], #cy
+                w,
+                h,
                 poses[:, :3, :4],
                 "transforms_test.json",
             )
@@ -325,33 +268,14 @@ class ScanNetpp(ColmapDataParser):
             )
         )
 
-        if "camera_model" in meta:
-            camera_type = CAMERA_MODEL_TO_TYPE[meta["camera_model"]]
-        else:
-            camera_type = CameraType.PERSPECTIVE
-
-        fx = torch.tensor(fx, dtype=torch.float32)[idx_tensor]
-        fy = torch.tensor(fy, dtype=torch.float32)[idx_tensor]
-        cx = torch.tensor(cx, dtype=torch.float32)[idx_tensor]
-        cy = torch.tensor(cy, dtype=torch.float32)[idx_tensor]
-        height = torch.tensor(height, dtype=torch.int32)[idx_tensor]
-        width = torch.tensor(width, dtype=torch.int32)[idx_tensor]
-        distortion_params = torch.stack(distort, dim=0)[idx_tensor]
-        self.width = width[0]
-        self.height = height[0]
-        self.fx = fx[0]
-        self.fy = fy[0]
-        self.cx = cx[0]
-        self.cy = cy[0]
-
+        camera_type = CameraType.PERSPECTIVE
         cameras = Cameras(
-            fx=fx,
-            fy=fy,
-            cx=cx,
-            cy=cy,
-            distortion_params=distortion_params,
-            height=height,
-            width=width,
+            fx=intrinsics[:, 0, 0],
+            fy=intrinsics[:, 1, 1],
+            cx=intrinsics[:, 0, 2],
+            cy=intrinsics[:, 1, 2],
+            height=h,
+            width=w,
             camera_to_worlds=poses[:, :3, :4],
             camera_type=camera_type,
         )
@@ -416,7 +340,7 @@ class ScanNetpp(ColmapDataParser):
             metadata=metadata,
         )
         return dataparser_outputs
-
+    
     def _load_3D_points(
         self,
         ply_file_path: Path,
@@ -502,28 +426,45 @@ class ScanNetpp(ColmapDataParser):
     ):
         frames = []
         base_dir = Path(image_filenames[0]).parent.parent
+        
+        # 确保数值是Python原生类型
+        fx = float(fx.cpu().item() if torch.is_tensor(fx) else fx)
+        fy = float(fy.cpu().item() if torch.is_tensor(fy) else fy)
+        cx = float(cx.cpu().item() if torch.is_tensor(cx) else cx)
+        cy = float(cy.cpu().item() if torch.is_tensor(cy) else cy)
+        width = int(width.cpu().item() if torch.is_tensor(width) else width)
+        height = int(height.cpu().item() if torch.is_tensor(height) else height)
+
         for img, depth, c2w in zip(image_filenames, depth_filenames, camera_to_worlds):
             img = Path(img)
             file_path = img.relative_to(base_dir)
             depth_path = depth.relative_to(base_dir)
+            
+            # 确保c2w是Python list类型
+            if torch.is_tensor(c2w):
+                c2w = c2w.cpu().numpy().tolist()
+                
             frame = {
                 "file_path": file_path.as_posix(),
                 "depth_file_path": depth_path.as_posix(),
-                "transform_matrix": c2w.cpu().numpy().tolist(),
+                "transform_matrix": c2w,
             }
             frames.append(frame)
-        out = {}
-        out["fl_x"] = fx
-        out["fl_y"] = fy
-        out["k1"] = 0
-        out["k2"] = 0
-        out["p1"] = 0
-        out["p2"] = 0
-        out["cx"] = cx
-        out["cy"] = cy
-        out["w"] = width
-        out["h"] = height
-        out["frames"] = frames
+
+        out = {
+            "fl_x": fx,
+            "fl_y": fy,
+            "k1": 0,
+            "k2": 0,
+            "p1": 0,
+            "p2": 0,
+            "cx": cx,
+            "cy": cy,
+            "w": width,
+            "h": height,
+            "frames": frames
+        }
+
         with open(base_dir / name, "w", encoding="utf-8") as f:
             json.dump(out, f, indent=4)
     
