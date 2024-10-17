@@ -522,7 +522,7 @@ class NVSMask3dModel(SplatfactoModel):
             )  # [N, 1, 3] -> [N, 3]
             sh_degree_to_use = None
 
-        render, alpha, info = rasterization(
+        render, alpha, self.info = rasterization(
             means=means_crop,
             quats=quats_crop / quats_crop.norm(dim=-1, keepdim=True),
             scales=torch.exp(scales_crop),
@@ -564,10 +564,10 @@ class NVSMask3dModel(SplatfactoModel):
             rasterize_mode=self.config.rasterize_mode,
         )
 
-        if self.training and info["means2d"].requires_grad:
-            info["means2d"].retain_grad()
-        self.xys = info["means2d"]  # [1, N, 2]
-        self.radii = info["radii"][0]  # [N]
+        if self.training and self.info["means2d"].requires_grad:
+            self.info["means2d"].retain_grad()
+        self.xys = self.info["means2d"]  # [1, N, 2]
+        self.radii = self.info["radii"][0]  # [N]
         alpha = alpha[:, ...]
 
         background = self._get_background_color()
