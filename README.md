@@ -17,12 +17,32 @@ path of 3d mask proposals: ```/home/fangj1/Code/nerfstudio-nvsmask3d/nvsmask3d/d
 
 path of scannetpp data: ```/data/scannetpp/ScannetPP/data```
 
+### SSH Port Forwarding (Tunneling)
+``` 
+ssh -L 7007:localhost:7007 <username>@<remote_machine_ip>
+```
+
 ### train scannetpp scene
 ```
+#iphone 
 ns-train nvsmask3d --experiment-name 7b6477cb95 --timestamp ""  --vis viewer scannetpp_nvsmask3d --data nvsmask3d/data/ScannetPP   --sequence 7b6477cb95 
 
+#iphone no pointcloud
+ns-train nvsmask3d --experiment-name 7b6477cb95 --timestamp "no_pointcloud"  --vis viewer scannetpp_nvsmask3d --data nvsmask3d/data/ScannetPP --load_3D_points False  --sequence 7b6477cb95
+
+#iphone eval
+ns-eval psnr --load_config /home/fangj1/Code/nerfstudio-nvsmask3d/outputs/7b6477cb95/nvsmask3d/config.yml
+
+#dslr
+ns-train nvsmask3d --experiment-name 7b6477cb95_dslr --timestamp ""  --vis viewer scannetpp_nvsmask3d --data nvsmask3d/data/ScannetPP   --sequence 7b6477cb95 --mode dslr
+```
+### view scannetpp scene
+```
+ns-viewer nvsmask3d --load_config /home/fangj1/Code/nerfstudio-nvsmask3d/outputs/7b6477cb95/nvsmask3d/config.yml
+ns-viewer nvsmask3d --load_config /home/fangj1/Code/nerfstudio-nvsmask3d/outputs/7b6477cb95_dslr/nvsmask3d/config.yml
 
 ```
+
 ## train Replica scene
 ```
 ns-train splatfacto scannet-data --data nvsmask3d/data/scene0000_00_  # this is old scannet dataparser

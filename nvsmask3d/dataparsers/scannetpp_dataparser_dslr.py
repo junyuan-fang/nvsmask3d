@@ -36,36 +36,8 @@ from nerfstudio.data.dataparsers.colmap_dataparser import (
 from nerfstudio.data.scene_box import SceneBox
 from nerfstudio.utils.io import load_from_json
 from nerfstudio.utils.rich_utils import CONSOLE
-def camera_to_world_from_wc(world_to_camera):
-    """
-    Convert a world-to-camera matrix to camera-to-world transformation without matrix inversion.
 
-    Args:
-        world_to_camera (np.ndarray): A 4x4 world-to-camera matrix.
-    
-    Returns:
-        camera_to_world (np.ndarray): The corresponding camera-to-world matrix.
-    """
-    # Extract the rotation part (R_wc) and translation part (T_wc)
-    R_wc = world_to_camera[:3, :3]  # 3x3 rotation matrix
-    T_wc = world_to_camera[:3, 3]   # 3x1 translation vector
 
-    # Transpose the rotation matrix (this is equivalent to inverting it)
-    R_cw = R_wc.T  # The transpose of the rotation matrix (equivalent to inverse for orthogonal matrices)
-    
-    # Compute the camera translation in world coordinates
-    T_cw = -R_cw @ T_wc
-
-    # Construct the camera-to-world transformation matrix
-    camera_to_world = np.eye(4)
-    camera_to_world[:3, :3] = R_cw
-    camera_to_world[:3, 3] = T_cw
-    
-    return camera_to_world
-OPENGL_TO_OPENCV = np.float32([[1, 0, 0, 0],
-                               [0, -1, 0, 0],
-                               [0, 0, -1, 0],
-                               [0, 0, 0, 1]])
 @dataclass
 class ScanNetppDataParserConfig(DataParserConfig):
     """ScanNet++ dataset config.
@@ -96,13 +68,13 @@ class ScanNetppDataParserConfig(DataParserConfig):
     """Directory to the root of the data."""
     scale_factor: float = 1.0
     """How much to scale the camera origins by."""
-    mode: Literal["dslr", "iphone", "dslr_colmap"] = "iphone"
+    mode: Literal["dslr", "iphone"] = "iphone"
     """Which camera to use"""
     scene_scale: float = 1.5
     """How much to scale the region of interest by. Default is 1.5 since the cameras are inside the rooms."""
-    orientation_method: Literal["pca", "up", "vertical", "none"] = "none"
+    orientation_method: Literal["pca", "up", "vertical", "none"] = "up"
     """The method to use for orientation."""
-    center_method: Literal["poses", "focus", "none"] = "none"
+    center_method: Literal["poses", "focus", "none"] = "poses"
     """The method to use to center the poses."""
     auto_scale_poses: bool = False
     """Whether to automatically scale the poses to fit in +/- 1 bounding box."""
@@ -140,14 +112,7 @@ class ScanNetppDataParserConfig(DataParserConfig):
     '27dd4da69e', 'c49a8c6cff'
 ] = "7b6477cb95"
 
-transform = np.array(
-    [
-        [1, 0, 0, 0],
-        [0, 0, -1, 0],
-        [0, 1, 0, 0],
-        [0, 0, 0, 1],
-    ]
-)
+
 @dataclass
 class ScanNetpp(ColmapDataParser):
     """ScanNet++ DatasetParser"""
@@ -156,10 +121,7 @@ class ScanNetpp(ColmapDataParser):
 
     def _generate_dataparser_outputs(self, split="train"):
         print("split is: ", split)
-        if self.config.mode == "dslr_colmap":
-            self.input_folder = self.config.data / "data" / self.config.sequence / "dslr"
-        else:
-            self.input_folder = self.config.data / "data" / self.config.sequence / self.config.mode
+        self.input_folder = self.config.data / "data" / self.config.sequence / self.config.mode
         assert (
             self.input_folder.exists()
         ), f"Data directory {self.input_folder} does not exist."
@@ -173,11 +135,7 @@ class ScanNetpp(ColmapDataParser):
             # mask_dir = self.input_folder / self.config.masks_dir
             depth_dir = self.input_folder / "depth"
             pose_path = self.input_folder / "nerfstudio" /"transforms_undistorted.json"
-        elif self.config.mode == "dslr_colmap":
-            image_dir = self.input_folder / "undistorted_images"
-            # mask_dir = self.input_folder / self.config.masks_dir
-            intrinsics_path = self.input_folder / "colmap" / "cameras.txt"
-            pose_path = self.input_folder / "colmap" / "images.txt"
+        
         else:
             KeyError(f"Unknown mode {self.config.mode}, we don't support it yet.")
                 
@@ -185,11 +143,10 @@ class ScanNetpp(ColmapDataParser):
                 
         poses = []
         
-
+        with  open(pose_path) as f:
+            data = json.load(f) 
             
         if self.config.mode == "iphone":
-            with  open(pose_path) as f:
-                data = json.load(f) 
             intrinsics = []
             image_filenames = list(
                 sorted(image_dir.iterdir(), key=lambda x: int(x.name.split("_")[1].split(".")[0]))
@@ -210,8 +167,6 @@ class ScanNetpp(ColmapDataParser):
                 poses.append(pose)#maybeaready opengl
                 
         if self.config.mode == "dslr":
-            with  open(pose_path) as f:
-                data = json.load(f) 
             image_filenames = []
             depth_filenames = [] 
             if split == "train":
@@ -222,10 +177,7 @@ class ScanNetpp(ColmapDataParser):
                     img_path = image_dir / frame['file_path']
                     image_filenames.append(img_path)
                     #mask_path = frame['mask_path']
-                    pose = np.array(frame['transform_matrix'])
-                    pose = camera_to_world_from_wc(pose)
-                    pose = pose @ OPENGL_TO_OPENCV
-                    poses.append(pose)
+                    poses.append(frame['transform_matrix'])
             elif split in ["val", "test"]:
                 for frame in data['test_frames']:
                     is_bad = frame['is_bad'] 
@@ -234,16 +186,8 @@ class ScanNetpp(ColmapDataParser):
                     img_path = image_dir / frame['file_path']
                     image_filenames.append(img_path)
                     #mask_path = frame['mask_path']
-                    pose = np.array(frame['transform_matrix'])
-                    pose = camera_to_world_from_wc(pose)
-                    pose = pose @ OPENGL_TO_OPENCV
-                    poses.append(pose)
+                    poses.append(frame['transform_matrix'])
         
-        if self.config.mode == "dslr_colmap":
-            image_filenames = []
-            self._read_images_txt(image_dir,pose_path, image_filenames, poses)
-            
-
         # assert len(depth_filenames) == 0 or (
         #     len(depth_filenames) == len(image_filenames)
         # ), """
@@ -278,8 +222,6 @@ class ScanNetpp(ColmapDataParser):
             poses, method=orientation_method, center_method=self.config.center_method
         )
         self.orient_transform = transform_matrix
-        # if self.config.mode == "dslr_colmap" or self.config.mode == "dslr":
-        #     self.orient_transform = torch.from_numpy(transform)
 
         # Scale poses
         scale_factor = 1.0
@@ -288,15 +230,6 @@ class ScanNetpp(ColmapDataParser):
         scale_factor *= self.config.scale_factor
 
         poses[:, :3, 3] *= scale_factor
-        # if self.config.mode == "dslr":
-            # poses[:, :3, 2] *= -1
-            # poses[:, :3, 1] *= -1
-            # 对平移向量的 Y 和 Z 轴进行反转
-
-        #if self.config.mode == "dslr_colmap":   
-            # poses[:, :3, 2] *= -1
-            # poses[:, :3, 1] *= -1
-            #对平移向量的 Y 和 Z 轴进行反转
 
         if self.config.mode == "iphone":
             # Choose image_filenames and poses based on split, but after auto orient and scaling the poses.
@@ -387,22 +320,9 @@ class ScanNetpp(ColmapDataParser):
                 camera_to_worlds=poses[:, :3, :4],
                 camera_type=camera_type,
             )
-        
-        elif self.config.mode == "dslr_colmap":
-            width, height, fx, fy, cx, cy = self._read_cameras(intrinsics_path)
-            cameras = Cameras(
-                fx=fx,
-                fy=fy,
-                cx=cx,
-                cy=cy,
-                height=height,
-                width=width,
-                camera_to_worlds=poses[:, :3, :4],
-                camera_type=camera_type,
-            )
 
         metadata = {
-            #"depth_filenames": depth_filenames if len(depth_filenames) > 0 else None,
+            "depth_filenames": depth_filenames if len(depth_filenames) > 0 else None,
             "depth_unit_scale_factor": self.config.depth_unit_scale_factor,
         }
 
@@ -589,7 +509,8 @@ class ScanNetpp(ColmapDataParser):
         with open(base_dir / name, "w", encoding="utf-8") as f:
             json.dump(out, f, indent=4)
     
-    def _read_cameras(self, file_path):
+    def read_cameras(file_path):
+        cameras = {}
         with open(file_path, 'r') as f:
             for line in f:
                 if line.startswith('#') or line.strip() == '':
@@ -599,47 +520,29 @@ class ScanNetpp(ColmapDataParser):
                 model = parts[1]
                 width = int(parts[2])
                 height = int(parts[3])
-                #params = list(map(float, parts[4:]))
-                fx = float(parts[4])
-                fy = float(parts[5])
-                cx = float(parts[6])
-                cy = float(parts[7])
-        return width, height, fx, fy, cx, cy
+                params = list(map(float, parts[4:]))
+                cameras[camera_id] = {'model': model, 'width': width, 'height': height, 'params': params}
+        return cameras
 
-    def _read_images_txt(self,image_dir,pose_path, image_filenames, poses):
-        with open(pose_path, 'r') as file:
-            lines = file.readlines()
-            for i in range(4, len(lines), 2):  # 从第4行开始，每两行代表一张图像的数据
-                line = lines[i].strip().split()
-                
-                image_id = int(line[0])
-                qw, qx, qy, qz = map(float, line[1:5])  # 四元数
-                tx, ty, tz = map(float, line[5:8])  # 平移向量
-                camera_id = int(line[8])
-                image_name = line[9]
-                
-                # 将四元数转换为旋转矩阵
-                R = self._quaternion_to_rotation_matrix(qw, qx, qy, qz)
-                T = np.array([tx, ty, tz])
-                
-                # 构建位姿矩阵 P
-                P = np.eye(4)
-                P[:3, :3] = R
-                P[:3, 3] = T
-                
-                image_filenames.append(image_dir/image_name)
-                P = camera_to_world_from_wc(P)@OPENGL_TO_OPENCV#important
-                poses.append(P)
-        return 
+    def read_images(file_path):
+        images = {}
+        with open(file_path, 'r') as f:
+            for line in f:
+                if line.startswith('#') or line.strip() == '':
+                    continue
+                parts = line.split()
+                image_id = int(parts[0])
+                qvec = list(map(float, parts[1:5]))
+                tvec = list(map(float, parts[5:8]))
+                camera_id = int(parts[8])
+                image_name = parts[9]
+                images[image_id] = {'qvec': qvec, 'tvec': tvec, 'camera_id': camera_id, 'image_name': image_name}
+        return images
 
-    def _quaternion_to_rotation_matrix(self,qw, qx, qy, qz):
-        # 使用四元数构造旋转矩阵
-        R = np.array([
-            [1 - 2*qy**2 - 2*qz**2, 2*qx*qy - 2*qz*qw, 2*qx*qz + 2*qy*qw],
-            [2*qx*qy + 2*qz*qw, 1 - 2*qx**2 - 2*qz**2, 2*qy*qz - 2*qx*qw],
-            [2*qx*qz - 2*qy*qw, 2*qy*qz + 2*qx*qw, 1 - 2*qx**2 - 2*qy**2]
-        ])
-        return R
+    def quaternion_to_rotation_matrix(qvec):
+        # Convert quaternion to rotation matrix
+        r = R.from_quat(qvec)
+        return r.as_matrix()
     
 ScanNetppNvsmask3DParserSpecification = DataParserSpecification(
     config=ScanNetppDataParserConfig(load_3D_points=True),
