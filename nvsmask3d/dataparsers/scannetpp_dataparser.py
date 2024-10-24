@@ -175,8 +175,9 @@ class ScanNetpp(ColmapDataParser):
             pose_path = self.input_folder / "nerfstudio" /"transforms_undistorted.json"
         elif self.config.mode == "dslr_colmap":
             image_dir = self.input_folder / "undistorted_images"
+            depth_dir = self.input_folder / "render_depth"
             # mask_dir = self.input_folder / self.config.masks_dir
-            intrinsics_path = self.input_folder / "colmap" / "cameras.txt"
+            intrinsics_path = self.input_folder / "nerfstudio" /"transforms_undistorted.json"#self.input_folder / "colmap" / "cameras.txt"
             pose_path = self.input_folder / "colmap" / "images.txt"
         else:
             KeyError(f"Unknown mode {self.config.mode}, we don't support it yet.")
@@ -241,7 +242,8 @@ class ScanNetpp(ColmapDataParser):
         
         if self.config.mode == "dslr_colmap":
             image_filenames = []
-            self._read_images_txt(image_dir,pose_path, image_filenames, poses)
+            depth_filenames = []
+            self._read_images_txt(image_dir,depth_dir,pose_path, image_filenames, poses, depth_filenames)
             
 
         # assert len(depth_filenames) == 0 or (
@@ -389,7 +391,16 @@ class ScanNetpp(ColmapDataParser):
             )
         
         elif self.config.mode == "dslr_colmap":
-            width, height, fx, fy, cx, cy = self._read_cameras(intrinsics_path)
+            #width, height, fx, fy, cx, cy = self._read_cameras(intrinsics_path)
+            with open(intrinsics_path, 'r') as f:
+                data = json.load(f)
+                fx = data["fl_x"]
+                fy = data["fl_y"]
+                cx = data["cx"]
+                cy = data["cy"]
+                height = data["h"]
+                width = data["w"] 
+            
             cameras = Cameras(
                 fx=fx,
                 fy=fy,
@@ -402,7 +413,7 @@ class ScanNetpp(ColmapDataParser):
             )
 
         metadata = {
-            #"depth_filenames": depth_filenames if len(depth_filenames) > 0 else None,
+            "depth_filenames": depth_filenames if len(depth_filenames) > 0 else None,
             "depth_unit_scale_factor": self.config.depth_unit_scale_factor,
         }
 
@@ -606,7 +617,7 @@ class ScanNetpp(ColmapDataParser):
                 cy = float(parts[7])
         return width, height, fx, fy, cx, cy
 
-    def _read_images_txt(self,image_dir,pose_path, image_filenames, poses):
+    def _read_images_txt(self,image_dir,depth_dir, pose_path, image_filenames, poses, depth_filenames):
         with open(pose_path, 'r') as file:
             lines = file.readlines()
             for i in range(4, len(lines), 2):  # 从第4行开始，每两行代表一张图像的数据
@@ -628,6 +639,7 @@ class ScanNetpp(ColmapDataParser):
                 P[:3, 3] = T
                 
                 image_filenames.append(image_dir/image_name)
+                depth_filenames.append(depth_dir / (image_name.strip('.JPG') + '.png'))
                 P = camera_to_world_from_wc(P)@OPENGL_TO_OPENCV#important
                 poses.append(P)
         return 

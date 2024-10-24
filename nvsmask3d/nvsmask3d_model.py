@@ -324,7 +324,6 @@ class NVSMask3dModel(SplatfactoModel):
     def _segment_gaussians(self,element):
         self.output_text.value = "Segmenting Gaussians..."
         # get optimal cameraposes use mask proposal and poses
-        
         camera = self.cameras
         optimized_camera_to_world = camera.camera_to_worlds.to(
             "cuda"
@@ -334,20 +333,35 @@ class NVSMask3dModel(SplatfactoModel):
         # Move intrinsics to the GPU
         K = camera.get_intrinsics_matrices().to("cuda")  # shape (M, 3, 3)
         W, H = int(camera.width[0].item()), int(camera.height[0].item())
-        (
-            optimal_camera_indices,
-            bounding_boxes,
-        ) = object_optimal_k_camera_poses_bounding_box(  # object_optimal_k_camera_poses(
+        # (
+        #     optimal_camera_indices,
+        #     bounding_boxes,
+        # ) = object_optimal_k_camera_poses_bounding_box(  # object_optimal_k_camera_poses(
+        #     seed_points_0=self.seed_points[0].cuda(),
+        #     optimized_camera_to_world=optimized_camera_to_world,
+        #     K=K,
+        #     W=W,
+        #     H=H,
+        #     boolean_mask=self.points3D_mask[:, self.cls_index],
+        #     depth_filenames = self.metadata["depth_filenames"],
+        #     depth_scale = self.depth_scale,
+        #     k_poses=2,
+        #     vis_depth_threshold=0.05 if self.image_encoder.scannet_checkbox.value == True else 0.4,
+            
+        # )  # image_file_names= self.image_file_names)#seedpoints, mask -> cuda, numpy
+        
+        optimal_camera_indices, valid_u, valid_v = object_optimal_k_camera_poses_2D_mask(#no sam uses object_optimal_k_camera_poses_2D_mask
             seed_points_0=self.seed_points[0].cuda(),
             optimized_camera_to_world=optimized_camera_to_world,
             K=K,
             W=W,
             H=H,
-            boolean_mask=self.points3D_mask[:, self.cls_index],
-            depth_filenames = self.metadata["depth_filenames"],
-            depth_scale = self.depth_scale,
-            k_poses=2,
-        )  # image_file_names= self.image_file_names)#seedpoints, mask -> cuda, numpy
+            boolean_mask=self.points3D_mask[:, self.cls_index],  # select i_th mask
+            depth_filenames=self.metadata["depth_filenames"],
+            depth_scale=self.depth_scale,
+            k_poses=5,
+            vis_depth_threshold=0.05 if self.image_encoder.scannet_checkbox.value == True else 0.4,
+        )
         outputs = []
         print("optimal_camera_indices", optimal_camera_indices)
         for index, pose_index in enumerate(optimal_camera_indices):
@@ -359,7 +373,11 @@ class NVSMask3dModel(SplatfactoModel):
             with Image.open(self.image_file_names[pose_index]) as img:
                 img = transforms.ToTensor()(img).cuda()  # (C,H,W)
             # crop images with bounding box
-            min_u, min_v, max_u, max_v = bounding_boxes[index]
+            #min_u, min_v, max_u, max_v = bounding_boxes[index]
+            min_u = min(torch.clamp(valid_u[index], 0, W-1))
+            min_v = min(torch.clamp(valid_v[index], 0, H-1))
+            max_u = max(torch.clamp(valid_u[index], 0, W-1))
+            max_v = max(torch.clamp(valid_v[index], 0, H-1))
             if any(
                 map(lambda x: torch.isinf(x) or x < 0, [min_u, min_v, max_u, max_v])
             ):
@@ -368,12 +386,12 @@ class NVSMask3dModel(SplatfactoModel):
                 outputs.append(cropped_image)
 
             else:
-                # Convert to integers for slicing
-                min_u, min_v, max_u, max_v = map(int, [min_u, min_v, max_u, max_v])
-                C, H, W = img.shape
-                # Ensure the indices are within image bounds
-                min_u, min_v = max(0, min_u), max(0, min_v)
-                max_u, max_v = min(W, max_u), min(H, max_v)
+                # # Convert to integers for slicing
+                # min_u, min_v, max_u, max_v = map(int, [min_u, min_v, max_u, max_v])
+                # C, H, W = img.shape
+                # # Ensure the indices are within image bounds
+                # min_u, min_v = max(0, min_u), max(0, min_v)
+                # max_u, max_v = min(W, max_u), min(H, max_v)
 
                 # Crop the image using valid indices
                 cropped_image = img[:, min_v:max_v, min_u:max_u]

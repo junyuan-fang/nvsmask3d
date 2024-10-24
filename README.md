@@ -35,11 +35,13 @@ ns-eval psnr --load_config /home/fangj1/Code/nerfstudio-nvsmask3d/outputs/7b6477
 
 #dslr
 ns-train nvsmask3d --experiment-name 7b6477cb95_dslr --timestamp ""  --vis viewer scannetpp_nvsmask3d --data nvsmask3d/data/ScannetPP   --sequence 7b6477cb95 --mode dslr
+#dslr colmap
+ns-train nvsmask3d --experiment-name 7b6477cb95_dslr_colmap --timestamp ""  --vis viewer scannetpp_nvsmask3d --data nvsmask3d/data/ScannetPP   --sequence 7b6477cb95 --mode dslr_colmap
 ```
 ### view scannetpp scene
 ```
-ns-viewer nvsmask3d --load_config /home/fangj1/Code/nerfstudio-nvsmask3d/outputs/7b6477cb95/nvsmask3d/config.yml
-ns-viewer nvsmask3d --load_config /home/fangj1/Code/nerfstudio-nvsmask3d/outputs/7b6477cb95_dslr/nvsmask3d/config.yml
+ns-viewer nvsmask3d --load_config /home/fangj1/Code/nerfstudio-nvsmask3d/outputs/7b6477cb95/nvsmask3d/config.yml #iphone
+ns-viewer nvsmask3d --load_config /home/fangj1/Code/nerfstudio-nvsmask3d/outputs/7b6477cb95_dslr_colmap/nvsmask3d/config.yml #dslr better pnsr. poses are from colmap
 
 ```
 
@@ -67,6 +69,7 @@ ns-viewer nvsmask3d --load_config outputs/7b6477cb95/nvsmask3d/config.yml  #scan
 
 ns-eval for_ap --load_config nvsmask3d/data/replica
 
+
 ```
 # Run evaluation in script
 ```
@@ -79,21 +82,14 @@ ns-eval for_ap --load_config nvsmask3d/data/replica
 ## NVS quality eval
 ```
 ns-eval psnr --load_config outputs/unnamed/nvsmask3d/2024-08-11_124613/config.yml
+ns-eval psnr --load_config outputs/7b6477cb95_dslr_colmap/nvsmask3d/config.yml   # colmap eval
+
 ```
 ## Single scene predction path
 ```
 /home/wangs9/junyuan/openmask3d/output/2024-07-23-11-44-44-scene0000_00_/scene0000_00__masks.pt
 ```
 
-[INFO] Shape of instance masks: (1990518, 166)
-
-1) Start local server: 
-    cd /home/wangs9/junyuan/openmask3d/openmask3d/saved/scene0000_00_/visualizations/scene0000_00_; python -m http.server 6008
-2) Open in browser:
-    http://0.0.0.0:6008
-      File "/home/wangs9/junyuan/nerfstudio-nvsmask3d/nvsmask3d/nvsmask3d_model.py", line 236, in get_outputs
-    opacities_masked = opacities_crop[mask_indices]
-IndexError: The shape of the mask [1990518] at index 0 does not match the shape of the indexed tensor [739790, 1] at index 0
 
 # Datasets
 ### Replica

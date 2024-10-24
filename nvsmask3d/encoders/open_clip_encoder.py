@@ -20,14 +20,15 @@ except ImportError:
 
 from nvsmask3d.encoders.image_encoder import BaseImageEncoder, BaseImageEncoderConfig
 from nerfstudio.viewer.viewer_elements import *
-from nvsmask3d.utils.utils import SCANNET200_CLASSES
-from nvsmask3d.eval.scannet200.scannet_constants import VALID_CLASS_IDS_200
+# from nvsmask3d.utils.utils import SCANNET200_CLASSES
+# from nvsmask3d.eval.scannet200.scannet_constants import VALID_CLASS_IDS_200
 from nvsmask3d.eval.replica.eval_semantic_instance import (
     VALID_CLASS_IDS as VALID_CLASS_IDS_REPLICA,
 )
 from nvsmask3d.eval.replica.eval_semantic_instance import (
     CLASS_LABELS as REPLICA_CLASSES,
 )
+from nvsmask3d.eval.scannetpp.eval_semantic_instance import SCANNETPP_CLASSES
 
 
 @dataclass
@@ -73,17 +74,17 @@ class OpenCLIPNetwork(BaseImageEncoder):
         self.vit_width = self.config.vit_width      # 1024, 中间层的宽度
 
         self.positives = (
-            SCANNET200_CLASSES if "scannet" in self.testmode else REPLICA_CLASSES
+            SCANNETPP_CLASSES if "scannet" in self.testmode else REPLICA_CLASSES
         )
-        self.label_mapper = (
-            torch.tensor(VALID_CLASS_IDS_200).cuda()
-            if "scannet" in self.testmode
-            else torch.tensor(VALID_CLASS_IDS_REPLICA).cuda()
-        )
+        # self.label_mapper = (
+        #     torch.tensor(VALID_CLASS_IDS_200).cuda()
+        #     if "scannet" in self.testmode
+        #     else torch.tensor(VALID_CLASS_IDS_REPLICA).cuda()
+        # )
         print("On encoder the test mode is", test_mode)
         ############viewers############
         self.scannet_checkbox = ViewerCheckbox(
-            name="Use ScanNet200",
+            name="Use ScanNetpp",
             default_value=False,
             cb_hook=self._scannet_checkbox_update,
             visible=(
@@ -155,13 +156,14 @@ class OpenCLIPNetwork(BaseImageEncoder):
     def _scannet_checkbox_update(self, element):
         self.positive_input.set_disabled(element.value)
         if element.value:
-            self.positives = SCANNET200_CLASSES
+            self.positives = SCANNETPP_CLASSES
             self.positive_input.disable = False
             self.replica_checkbox.value = False
             self.updata_text_embedding()
         else:
             self.positive_input.disable = True
-            self.positives = ""
+            if self.replica_checkbox.value == False and self.scannet_checkbox.value == False:
+                self.positives = ""
 
     def _replica_checkbox_update(self, element):
         self.positive_input.set_disabled(element.value)
@@ -172,7 +174,8 @@ class OpenCLIPNetwork(BaseImageEncoder):
             self.updata_text_embedding()
         else:
             self.positive_input.disable = True
-            self.positives = ""
+            if self.replica_checkbox.value == False and self.scannet_checkbox.value == False:
+                self.positives = ""
 
     def _set_positives(self, element):
         self.positives = element.value.split(";")
@@ -247,7 +250,10 @@ class OpenCLIPNetwork(BaseImageEncoder):
                 probs = F.softmax(output[i], dim=-1)
                 highest_score_index = probs.argmax(dim=-1).item()
                 highest_score_value = probs[highest_score_index].item()
-                results.append((self.positives[highest_score_index], highest_score_value))
+                try:
+                    results.append((self.positives[highest_score_index], highest_score_value))
+                except:
+                    import pdb; pdb.set_trace() 
 
             # Clear processed tensors to free memory
             del embed, output
