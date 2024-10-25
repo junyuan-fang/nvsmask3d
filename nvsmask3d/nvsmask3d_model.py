@@ -364,6 +364,9 @@ class NVSMask3dModel(SplatfactoModel):
         )
         outputs = []
         print("optimal_camera_indices", optimal_camera_indices)
+        optimal_camera_indices, pose_sorted_index = torch.sort(optimal_camera_indices)
+        print("Sorted optimal_camera_indices", optimal_camera_indices)
+
         for index, pose_index in enumerate(optimal_camera_indices):
             pose_index = pose_index.item()
             single_camera = self.cameras[pose_index : pose_index + 1]
@@ -374,10 +377,10 @@ class NVSMask3dModel(SplatfactoModel):
                 img = transforms.ToTensor()(img).cuda()  # (C,H,W)
             # crop images with bounding box
             #min_u, min_v, max_u, max_v = bounding_boxes[index]
-            min_u = min(torch.clamp(valid_u[index], 0, W-1))
-            min_v = min(torch.clamp(valid_v[index], 0, H-1))
-            max_u = max(torch.clamp(valid_u[index], 0, W-1))
-            max_v = max(torch.clamp(valid_v[index], 0, H-1))
+            min_u = min(torch.clamp(valid_u[pose_sorted_index[index]], 0, W-1))
+            min_v = min(torch.clamp(valid_v[pose_sorted_index[index]], 0, H-1))
+            max_u = max(torch.clamp(valid_u[pose_sorted_index[index]], 0, W-1))
+            max_v = max(torch.clamp(valid_v[pose_sorted_index[index]], 0, H-1))
             if any(
                 map(lambda x: torch.isinf(x) or x < 0, [min_u, min_v, max_u, max_v])
             ):
@@ -403,13 +406,13 @@ class NVSMask3dModel(SplatfactoModel):
             ###################save rendered image#################
             from nvsmask3d.utils.utils import save_img
             save_img(
-                img.permute(1, 2, 0), f"tests/output_{index}.png"
+                img.permute(1, 2, 0), f"tests/output_{pose_sorted_index[index]}.png"
             )  # function need (H,W,3)
-            save_img(cropped_image.permute(1, 2, 0), f"tests/cropped_image_{index}.png")
-            save_img(nvs_mask_img, f"tests/nvs_mask_img_{index}.png")
+            save_img(cropped_image.permute(1, 2, 0), f"tests/cropped_image_{pose_sorted_index[index]}.png")
+            save_img(nvs_mask_img, f"tests/nvs_mask_img_{pose_sorted_index[index]}.png")
             save_img(
                 cropped_nvs_mask_image.permute(1, 2, 0),
-                f"tests/cropped_nvs_mask_image_{index}.png",
+                f"tests/cropped_nvs_mask_image_{pose_sorted_index[index]}.png",
             )
             ######################################################
         # output = torch.stack(outputs)
