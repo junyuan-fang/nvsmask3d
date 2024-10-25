@@ -35,6 +35,7 @@ ns-eval psnr --load_config /home/fangj1/Code/nerfstudio-nvsmask3d/outputs/7b6477
 
 #dslr
 ns-train nvsmask3d --experiment-name 7b6477cb95_dslr --timestamp ""  --vis viewer scannetpp_nvsmask3d --data nvsmask3d/data/ScannetPP   --sequence 7b6477cb95 --mode dslr
+
 ##dslr colmap (Use this, dump scenes to bash)
 ns-train nvsmask3d --experiment-name 7b6477cb95_dslr_colmap --timestamp ""  --vis viewer scannetpp_nvsmask3d --data nvsmask3d/data/ScannetPP   --sequence 7b6477cb95 --mode dslr_colmap
 ```

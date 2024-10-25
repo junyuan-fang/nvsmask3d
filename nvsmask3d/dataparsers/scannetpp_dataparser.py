@@ -75,7 +75,7 @@ class ScanNetppDataParserConfig(DataParserConfig):
 
     .. code-block:: text
 
-        ScannetPP/
+        root/
         |── mask3d_processed/
             ├── {SCENE_ID}.pt/
             ...

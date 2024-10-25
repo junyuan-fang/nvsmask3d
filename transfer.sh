@@ -20,7 +20,19 @@ remote_dir="/scratch/project_2003267/junyuan/scannetpp"
 # Loop through each ID and rsync matching folders/files
 for id in "${ids[@]}"; do
   # Find folders matching the ID and rsync them to remote server
-  rsync -avz "$local_dir/$id" "$remote_user@$remote_host:$remote_dir/"
+  rsync -avzc "$local_dir/$id" "$remote_user@$remote_host:$remote_dir/"
 done
+
+# Delete folders on remote that are not in the ID list
+ssh "$remote_user@$remote_host" bash << EOF
+  cd "$remote_dir"
+  for dir in */; do
+    dir_id=\${dir%/}
+    if [[ ! " ${ids[*]} " =~ " \$dir_id " ]]; then
+      echo "Deleting remote directory: \$dir_id"
+      rm -rf "\$dir_id"
+    fi
+  done
+EOF
 
 echo "Sync complete!"

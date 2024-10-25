@@ -37,12 +37,12 @@ import torch
 from nvsmask3d.utils.utils import blur_non_masked_areas
 from nvsmask3d.utils.camera_utils import (
     get_camera_pose_in_opencv_convention,
-    object_optimal_k_camera_poses_bounding_box,
     object_optimal_k_camera_poses_2D_mask,
     interpolate_camera_poses_with_camera_trajectory,
     make_cameras,
     compute_camera_pose_bounding_boxes,
     compute_camera_pose_2D_masks,
+    object_optimal_k_camera_poses_bounding_box,
     get_points_projected_uv_and_depth
     
 )
@@ -122,15 +122,29 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
     inference_dataset: Literal["scannet200", "replica"] = "replica"
     num_levels: int = 3
     #if run_name_for_wandb == "test":
-    pretrain_embeddings = torch.load("../../hanlin/pretrain_embeddings.pt", map_location="cuda")#20000,768
+    #pretrain_embeddings = torch.load("../../hanlin/pretrain_embeddings.pt", map_location="cuda")#20000,768
 
 
     def main(self) -> None:
         if self.run_name_for_wandb == "test":
             wandb.init(project=self.project_name, name=self.run_name_for_wandb)
         # 假设从配置或命令行参数中读取 project_name 和 run_name
-
-        gt_dir = self.load_config / "ground_truth"
+        if self.inference_dataset == "replica":
+            gt_dir = self.load_config / "ground_truth"
+        if self.inference_dataset == "scannetpp":
+            scene_names = ['7b6477cb95', 'c50d2d1d42', 'cc5237fd77', 'acd95847c5', 'fb5a96b1a2', 'a24f64f7fb',
+            '1ada7a0617', '5eb31827b7', '3e8bba0176', '3f15a9266d', '21d970d8de', '5748ce6f01',
+            'c4c04e6d6c', '7831862f02', 'bde1e479ad', '38d58a7a31', '5ee7c22ba0', 'f9f95681fd',
+            '3864514494', '40aec5fffa', '13c3e046d7', 'e398684d27', 'a8bf42d646', '45b0dac5e3',
+            '31a2c91c43', 'e7af285f7d', '286b55a2bf', '7bc286c1b6', 'f3685d06a9', 'b0a08200c9',
+            '825d228aec', 'a980334473', 'f2dc06b1d2', '5942004064', '25f3b7a318', 'bcd2436daf',
+            'f3d64c30f8', '0d2ee665be', '3db0a1c8f3', 'ac48a9b736', 'c5439f4607', '578511c8a9',
+            'd755b3d9d8', '99fa5c25e1', '09c1414f1b', '5f99900f09', '9071e139d9', '6115eddb86',
+            '27dd4da69e', 'c49a8c6cff']
+            test_mode = "all scannetpp"
+            load_configs = [
+                "/home/fangj1/Code/nerfstudio-nvsmask3d/outputs/7b6477cb95_dslr_colmap/nvsmask3d/config.yml"
+            ]#TODO
         if self.inference_dataset == "replica":
             scene_names = [
 
@@ -158,15 +172,6 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 "outputs/room0/nvsmask3d/2024-08-14_210501/config.yml",
 
             ]
-
-            # ["outputs/office0/nvsmask3d/2024-08-12_215616/config.yml",
-            # "outputs/office1/nvsmask3d/2024-08-12_170536/config.yml",
-            # "outputs/office2/nvsmask3d/2024-08-12_173744/config.yml",
-            # "outputs/office3/nvsmask3d/2024-08-12_173744/config.yml",
-            # "outputs/office4/nvsmask3d/2024-08-12_180405/config.yml",
-            # "outputs/room0/nvsmask3d/2024-08-12_180418/config.yml",
-            # "outputs/room1/nvsmask3d/2024-08-12_182825/config.yml",
-            # "outputs/room2/nvsmask3d/2024-08-12_182844/config.yml"]
 
         preds = {}
         # scene_names = ["scene0011_00"]  # hard coded for now
@@ -415,105 +420,107 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     with Image.open(self.model.image_file_names[pose_index]) as img:
                         img = transforms.ToTensor()(img).cuda()  # (C,H,W)
 
-                    #SAM logic
-                    proposal_points_coords_2d = torch.stack((valid_v[index], valid_u[index]), dim=1)  # (N, 2)
-                    assert(len(proposal_points_coords_2d.shape) == 2)
-                    sam_network.set_image(img)#3,H,W
-                    mask_i = sam_network.get_best_mask(proposal_points_coords_2d)# [shape: (H, W)]
-                    if mask_i.sum() == 0:
-                        # print(f"Skipping inference for object {i} pose {index} due to no valid camera poses, assign")
-                        continue
-                    
-                    #multilevel mask
-                    for level in range(self.num_levels):
-                        #level = 0
-                        min_u, min_v, max_u, max_v = sam_network.mask2box_multi_level(mask_i, level, expansion_ratio = 0.1)
-                        _, H, W = img.shape
-                        min_u = max(0, min_u)
-                        min_v = max(0, min_v)
-                        max_u = min(W, max_u)
-                        max_v = min(H, max_v)
+                    if self.sam==False:#no SAM
+                        pass
+                    else:#SAM logic
+                        proposal_points_coords_2d = torch.stack((valid_v[index], valid_u[index]), dim=1)  # (N, 2)
+                        assert(len(proposal_points_coords_2d.shape) == 2)
+                        sam_network.set_image(img)#3,H,W
+                        mask_i = sam_network.get_best_mask(proposal_points_coords_2d)# [shape: (H, W)]
+                        if mask_i.sum() == 0:
+                            # print(f"Skipping inference for object {i} pose {index} due to no valid camera poses, assign")
+                            continue
                         
-                        if min_u < max_u and min_v < max_v:
-                            gt_img_pil = None
-                            gt_mask_img_pil = None
-                            # gt_mask_img_label_map = None  
-                            # gt_img_pil_label_map = None
-                            # 如果有效，则裁剪图像
-                            if self.gt_camera_rgb:
-                                if kind == "crop":
-                                    cropped_image = img[:, min_v:max_v, min_u:max_u]
-                                    cropped_mask = mask_i[min_v:max_v, min_u:max_u]
-                                    #blurred_image = blur_non_masked_areas(img, mask_i)
-                                    #cropped_image = blur_non_masked_areas(cropped_image, cropped_mask)
-                                    #############debug################
-                                    # try:
-                                    #     from nvsmask3d.utils.utils import save_img
-                                    #     save_img(img.permute(1,2,0), f"tests/gt_object_{i}_camera_{index}.png")
-                                    #     # save_img(cropped_image.permute(1,2,0), f"tests/gt_object_{i}_blurred_camera_{index}.png")
-                                    #     save_img(cropped_image.permute(1,2,0), f"tests/gt_object_{i}_cropped_camera_{index}.png")
-                                    #     import pdb;pdb.set_trace()
-                                    # except Exception as e:
-                                    #     import pdb;pdb.set_trace()
-                                    #     print(f"Failed to save image {interpolation_index}: {e}")
-                                    #     continue  
-                                    # import pdb;pdb.set_trace()
+                        #multilevel mask
+                        for level in range(self.num_levels):
+                            #level = 0
+                            min_u, min_v, max_u, max_v = sam_network.mask2box_multi_level(mask_i, level, expansion_ratio = 0.1)
+                            _, H, W = img.shape
+                            min_u = max(0, min_u)
+                            min_v = max(0, min_v)
+                            max_u = min(W, max_u)
+                            max_v = min(H, max_v)
+                            
+                            if min_u < max_u and min_v < max_v:
+                                gt_img_pil = None
+                                gt_mask_img_pil = None
+                                # gt_mask_img_label_map = None  
+                                # gt_img_pil_label_map = None
+                                # 如果有效，则裁剪图像
+                                if self.gt_camera_rgb:
+                                    if kind == "crop":
+                                        cropped_image = img[:, min_v:max_v, min_u:max_u]
+                                        cropped_mask = mask_i[min_v:max_v, min_u:max_u]
+                                        #blurred_image = blur_non_masked_areas(img, mask_i)
+                                        #cropped_image = blur_non_masked_areas(cropped_image, cropped_mask)
+                                        #############debug################
+                                        # try:
+                                        #     from nvsmask3d.utils.utils import save_img
+                                        #     save_img(img.permute(1,2,0), f"tests/gt_object_{i}_camera_{index}.png")
+                                        #     # save_img(cropped_image.permute(1,2,0), f"tests/gt_object_{i}_blurred_camera_{index}.png")
+                                        #     save_img(cropped_image.permute(1,2,0), f"tests/gt_object_{i}_cropped_camera_{index}.png")
+                                        #     import pdb;pdb.set_trace()
+                                        # except Exception as e:
+                                        #     import pdb;pdb.set_trace()
+                                        #     print(f"Failed to save image {interpolation_index}: {e}")
+                                        #     continue  
+                                        # import pdb;pdb.set_trace()
 
-                                    ##################################
+                                        ##################################
 
-                                    rgb_outputs.append(cropped_image)#######################################################################################rgb#####################
-                                    cropped_image = cropped_image.cpu()#for wandb
-                                    # gt_img_pil_label_map = model.image_encoder.return_image_map(cropped_image) #for wandb
-                                    gt_img_pil = transforms.ToPILImage()(cropped_image)#for wandb
-                                    
-                                elif kind == "blur":
-                                    temp = transforms.ToPILImage()(nvs_img.permute(2, 0, 1).cpu())
-                                    
-                                    # test
-                                    # assert torch.allclose(nvs_img.permute(2, 0, 1).cpu(), transforms.ToTensor()(img))
-                                    
-                                    result = temp.copy()
-                                    result = result.filter(ImageFilter.GaussianBlur(blur_std_dev))
-                                    # result.paste(temp, mask=transforms.ToPILImage()(mask_i.cpu()))
-                                    
-                                    width, height = temp.size
-                                    mask = Image.new("L", (width, height), 0)
-                                    draw = ImageDraw.Draw(mask)
-                                    draw.rectangle((min_u, min_v, max_u, max_v), fill=255)
-                                    
-                                    result.paste(temp, mask=mask)
-                                    
-                                    result_tensor = transforms.ToTensor()(result)
-                                    rgb_outputs.append(result_tensor.to(device="cuda"))
-                                    
-                                    gt_img_pil = result
-                                    
-                            if self.gt_camera_gaussian:
-                                nvs_mask_img = self.model.get_outputs(single_camera)["rgb_mask"]  # ["rgb_mask"]  # (H,W,3)
-                                cropped_nvs_mask_image = nvs_mask_img[min_v:max_v, min_u:max_u,:].permute(2, 0, 1)#(C,H,W)
-                                masked_gaussian_outputs.append(cropped_nvs_mask_image)#############################################################################gaussian###################
-                                cropped_nvs_mask_image = cropped_nvs_mask_image.cpu()#for wandb
-                                # gt_mask_img_label_map = model.image_encoder.return_image_map(cropped_nvs_mask_image)#for wandb
-                                gt_mask_img_pil = transforms.ToPILImage()(cropped_nvs_mask_image) #for wandb
-                                    
-                            # Combine GT image and mask horizontally
-                            combined_gt_image = concat_images_vertically([gt_img_pil, gt_mask_img_pil])
-                            # combined_gt_image_label_map = concat_images_vertically([gt_img_pil_label_map, gt_mask_img_label_map])
-                            gt_images.append(combined_gt_image)
-                            # gt_images_label_map.append(combined_gt_image_label_map)
-                            #############debug################
-                            # try:
-                            #     sparse_map = torch.zeros((H, W, 3), dtype=torch.float32, device="cuda")
-                            #     sparse_map[ valid_v[index], valid_u[index]] = 1
-                            #     from nvsmask3d.utils.utils import save_img
-                            #     save_img(img.permute(1,2,0), f"tests/gt_object_{i}_camera_{index}.png")
-                            #     save_img(sparse_map, f"tests/gt_sparse_map_object_{i}_camera_{index}.png")
-                            #     save_img(cropped_image.permute(1,2,0), f"tests/gt_object_{i}_cropped_camera_{index}.png")
-                            # except Exception as e:
-                            #     import pdb;pdb.set_trace()
-                            #     print(f"Failed to save image {interpolation_index}: {e}")
-                            #     continue  
-                            ##################################
+                                        rgb_outputs.append(cropped_image)#######################################################################################rgb#####################
+                                        cropped_image = cropped_image.cpu()#for wandb
+                                        # gt_img_pil_label_map = model.image_encoder.return_image_map(cropped_image) #for wandb
+                                        gt_img_pil = transforms.ToPILImage()(cropped_image)#for wandb
+                                        
+                                    elif kind == "blur":
+                                        temp = transforms.ToPILImage()(nvs_img.permute(2, 0, 1).cpu())
+                                        
+                                        # test
+                                        # assert torch.allclose(nvs_img.permute(2, 0, 1).cpu(), transforms.ToTensor()(img))
+                                        
+                                        result = temp.copy()
+                                        result = result.filter(ImageFilter.GaussianBlur(blur_std_dev))
+                                        # result.paste(temp, mask=transforms.ToPILImage()(mask_i.cpu()))
+                                        
+                                        width, height = temp.size
+                                        mask = Image.new("L", (width, height), 0)
+                                        draw = ImageDraw.Draw(mask)
+                                        draw.rectangle((min_u, min_v, max_u, max_v), fill=255)
+                                        
+                                        result.paste(temp, mask=mask)
+                                        
+                                        result_tensor = transforms.ToTensor()(result)
+                                        rgb_outputs.append(result_tensor.to(device="cuda"))
+                                        
+                                        gt_img_pil = result
+                                        
+                                if self.gt_camera_gaussian:
+                                    nvs_mask_img = self.model.get_outputs(single_camera)["rgb_mask"]  # ["rgb_mask"]  # (H,W,3)
+                                    cropped_nvs_mask_image = nvs_mask_img[min_v:max_v, min_u:max_u,:].permute(2, 0, 1)#(C,H,W)
+                                    masked_gaussian_outputs.append(cropped_nvs_mask_image)#############################################################################gaussian###################
+                                    cropped_nvs_mask_image = cropped_nvs_mask_image.cpu()#for wandb
+                                    # gt_mask_img_label_map = model.image_encoder.return_image_map(cropped_nvs_mask_image)#for wandb
+                                    gt_mask_img_pil = transforms.ToPILImage()(cropped_nvs_mask_image) #for wandb
+                                        
+                                # Combine GT image and mask horizontally
+                                combined_gt_image = concat_images_vertically([gt_img_pil, gt_mask_img_pil])
+                                # combined_gt_image_label_map = concat_images_vertically([gt_img_pil_label_map, gt_mask_img_label_map])
+                                gt_images.append(combined_gt_image)
+                                # gt_images_label_map.append(combined_gt_image_label_map)
+                                #############debug################
+                                # try:
+                                #     sparse_map = torch.zeros((H, W, 3), dtype=torch.float32, device="cuda")
+                                #     sparse_map[ valid_v[index], valid_u[index]] = 1
+                                #     from nvsmask3d.utils.utils import save_img
+                                #     save_img(img.permute(1,2,0), f"tests/gt_object_{i}_camera_{index}.png")
+                                #     save_img(sparse_map, f"tests/gt_sparse_map_object_{i}_camera_{index}.png")
+                                #     save_img(cropped_image.permute(1,2,0), f"tests/gt_object_{i}_cropped_camera_{index}.png")
+                                # except Exception as e:
+                                #     import pdb;pdb.set_trace()
+                                #     print(f"Failed to save image {interpolation_index}: {e}")
+                                #     continue  
+                                ##################################
 
             # Clear intermediate memory before encoding
             if 'img' in locals():
@@ -542,7 +549,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                         rgb_features, self.model.image_encoder.pos_embeds.T
                     )  
                     #pretrained text prompt
-                    rgb_logits_pretrain_text = torch.mm(rgb_features, self.pretrain_embeddings.T)
+                    #rgb_logits_pretrain_text = torch.mm(rgb_features, self.pretrain_embeddings.T)
                 if len(masked_gaussian_outputs) > 0:
                     mask_features = self.model.image_encoder.encode_batch_list_image(
                         masked_gaussian_outputs
@@ -550,7 +557,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     mask_logits = torch.mm(
                         mask_features, self.model.image_encoder.pos_embeds.T
                     )  
-                    mask_logits_pretrain_text = torch.mm(mask_features, self.pretrain_embeddings.T)
+                    #mask_logits_pretrain_text = torch.mm(mask_features, self.pretrain_embeddings.T)
                     
                 if self.algorithm == 0:
                 #aggregate similarity scores 你目前是将批次中的相似度分数进行求和（sum），这可能会导致信息丢失，尤其是在增强视图之间存在较大差异的情况下。
@@ -559,33 +566,33 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     if len(rgb_outputs) > 0:
                         scores = rgb_logits.sum(dim=0)  # Shape: (200,) for scannet200 
 
-                if self.algorithm == 1:
-                    weights_mask = None
-                    weights_rgb = None
-                    # if self.run_name_for_wandb == "test":
-                    if len(masked_gaussian_outputs) > 0:
-                        correction_mask = mask_logits_pretrain_text.mean(dim=1, keepdim=True)
-                        weights_mask = mask_logits.max(dim=1, keepdim=True).values # accriss text prompt Mx1
-                        weights_mask = torch.softmax((weights_mask - correction_mask) / T, dim=0) 
+                # if self.algorithm == 1:
+                #     weights_mask = None
+                #     weights_rgb = None
+                #     # if self.run_name_for_wandb == "test":
+                #     if len(masked_gaussian_outputs) > 0:
+                #         correction_mask = mask_logits_pretrain_text.mean(dim=1, keepdim=True)
+                #         weights_mask = mask_logits.max(dim=1, keepdim=True).values # accriss text prompt Mx1
+                #         weights_mask = torch.softmax((weights_mask - correction_mask) / T, dim=0) 
                     
-                    if len(rgb_outputs) > 0:
-                        correction_rgb = rgb_logits_pretrain_text.mean(dim=1, keepdim=True)
-                        weights_rgb = rgb_logits.max(dim=1, keepdim=True).values  # accriss text prompt
-                        weights_rgb = torch.softmax((weights_rgb - correction_rgb) / T, dim=0)
+                #     if len(rgb_outputs) > 0:
+                #         correction_rgb = rgb_logits_pretrain_text.mean(dim=1, keepdim=True)
+                #         weights_rgb = rgb_logits.max(dim=1, keepdim=True).values  # accriss text prompt
+                #         weights_rgb = torch.softmax((weights_rgb - correction_rgb) / T, dim=0)
                         
-                    #concat weights
-                    if weights_mask is not None and weights_rgb is not None:
-                        weights = torch.cat([weights_mask, weights_rgb], dim=0) 
-                        all_logits = torch.cat([mask_logits, rgb_logits], dim=0)
-                    elif weights_mask is not None:
-                        weights = weights_mask
-                        all_logits = mask_logits
-                    else:
-                        weights = weights_rgb
-                        all_logits = rgb_logits    
+                #     #concat weights
+                #     if weights_mask is not None and weights_rgb is not None:
+                #         weights = torch.cat([weights_mask, weights_rgb], dim=0) 
+                #         all_logits = torch.cat([mask_logits, rgb_logits], dim=0)
+                #     elif weights_mask is not None:
+                #         weights = weights_mask
+                #         all_logits = mask_logits
+                #     else:
+                #         weights = weights_rgb
+                #         all_logits = rgb_logits    
 
-                    weighted_logits = all_logits * weights
-                    scores = torch.sum(weighted_logits, dim=0)
+                #     weighted_logits = all_logits * weights
+                #     scores = torch.sum(weighted_logits, dim=0)
 
                     
                 # if algorithm == 2:
@@ -671,9 +678,9 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
             model.cls_index = i
             boolean_mask = class_agnostic_3d_mask[:, i]
             (
-                best_camera_indices,
-                bounding_boxes,
-            ) = object_optimal_k_camera_poses_bounding_box(
+                best_camera_indices, valid_u, valid_v
+                # bounding_boxes,
+            ) = object_optimal_k_camera_poses_2D_mask(#object_optimal_k_camera_poses_bounding_box(
                 seed_points_0=seed_points_0,
                 optimized_camera_to_world=camera_to_world_opencv,
                 K=K,
@@ -683,9 +690,13 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 depth_filenames=model.metadata["depth_filenames"] if self.occlusion_aware else None,
                 depth_scale=model.depth_scale,
                 k_poses=self.top_k,
-                score_fn=self.visibility_score
+                score_fn=self.visibility_score,
+                vis_depth_threshold=0.05 if self.inference_dataset != "replica" else 0.4,
+
             )
-            if best_camera_indices.shape[0] == 0:
+            best_camera_indices, pose_sorted_index = torch.sort(best_camera_indices)
+
+            if best_camera_indices.shape[0] == 0 or len(valid_u) == 0 or len(valid_v) == 0:
                 print(
                     f"Skipping inference for mask {i} due to no valid camera poses, assign",
                 )
@@ -753,7 +764,8 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                             #############debug################
                             # Save the cropped image
                             # try:
-                            #     save_img(cropped_nvs_img, f"tests/cropped_nvs_image_{interpolation_index}.png")
+                            #     save_img(nvs_img, f"tests/nvs_image_{interpolation_index}.png")
+                            #     save_img(cropped_nvs_img.permute(1,2,0), f"tests/cropped_nvs_image_{interpolation_index}.png")
                             # except Exception as e:
                             #     print(f"Failed to save image {interpolation_index}: {e}")
                             #     continue  
@@ -780,29 +792,35 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 gt_images = []
                 # gt_images_label_map = []
                 for index, pose_index in enumerate(best_camera_indices):
+                    if valid_u[pose_sorted_index[index]].shape[0] == 0 or valid_v[pose_sorted_index[index]].shape[0] == 0:
+                        continue
                     pose_index = pose_index.item()
-
                     single_camera = model.cameras[pose_index : pose_index + 1]
                     assert single_camera.shape[0] == 1, "Only one camera at a time"
                     # img = model.get_outputs(single_camera)["rgb_mask"]#["rgb"]#
                     with Image.open(model.image_file_names[pose_index]) as img:
                         img = transforms.ToTensor()(img).cuda()  # (C,H,W)
 
-                    # nvs_img = model.get_outputs(single_camera)["rgb"]  # (H,W,3)
-                    min_u, min_v, max_u, max_v = bounding_boxes[index]
-                    min_u = 0 if min_u == float('-inf') else min_u
-                    min_v = 0 if min_v == float('-inf') else min_v
-                    max_u = W if max_u == float('inf') else max_u
-                    max_v = H if max_v == float('inf') else max_v
-                    
-                    min_u, min_v, max_u, max_v = map(int, [min_u, min_v, max_u, max_v])
-                    _, H, W = img.shape
+                    min_u = min(torch.clamp(valid_u[pose_sorted_index[index]], 0, W-1))
+                    min_v = min(torch.clamp(valid_v[pose_sorted_index[index]], 0, H-1))
+                    max_u = max(torch.clamp(valid_u[pose_sorted_index[index]], 0, W-1))
+                    max_v = max(torch.clamp(valid_v[pose_sorted_index[index]], 0, H-1))
 
-                    # Clamp values to ensure they are within the valid range
-                    min_u = max(0, min(min_u, W - 1))
-                    min_v = max(0, min(min_v, H - 1))
-                    max_u = max(0, min(max_u, W))
-                    max_v = max(0, min(max_v, H))
+                    # # nvs_img = model.get_outputs(single_camera)["rgb"]  # (H,W,3)
+                    # min_u, min_v, max_u, max_v = bounding_boxes[index]
+                    # min_u = 0 if min_u == float('-inf') else min_u
+                    # min_v = 0 if min_v == float('-inf') else min_v
+                    # max_u = W if max_u == float('inf') else max_u
+                    # max_v = H if max_v == float('inf') else max_v
+                    
+                    # min_u, min_v, max_u, max_v = map(int, [min_u, min_v, max_u, max_v])
+                    # _, H, W = img.shape
+
+                    # # Clamp values to ensure they are within the valid range
+                    # min_u = max(0, min(min_u, W - 1))
+                    # min_v = max(0, min(min_v, H - 1))
+                    # max_u = max(0, min(max_u, W))
+                    # max_v = max(0, min(max_v, H))
 
                     # 检查裁剪区域是否有效（确保裁剪区域有正面积）
                     if min_u < max_u and min_v < max_v:
@@ -874,7 +892,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                         rgb_features, model.image_encoder.pos_embeds.T
                     )  
                     #pretrained text prompt
-                    rgb_logits_pretrain_text = torch.mm(rgb_features, self.pretrain_embeddings.T)
+                    #rgb_logits_pretrain_text = torch.mm(rgb_features, self.pretrain_embeddings.T)
                 if len(masked_gaussian_outputs) > 0:
                     mask_features = model.image_encoder.encode_batch_list_image(
                         masked_gaussian_outputs
@@ -900,75 +918,75 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
 
                         # Step 4: Compute the weighted sum of the logits
                         scores = torch.sum(rgb_logits * weights, dim=0)  # Shape: [num_classes]
-                if algorithm == 1:
-                    weights_mask = None
-                    weights_rgb = None
-                    # if self.run_name_for_wandb == "test":
-                    if len(masked_gaussian_outputs) > 0:
-                        correction_mask = mask_logits_pretrain_text.mean(dim=1, keepdim=True)
-                        weights_mask = mask_logits.max(dim=1, keepdim=True).values # accriss text prompt Mx1
-                        weights_mask = torch.softmax((weights_mask - correction_mask) / T, dim=0) 
+                # if algorithm == 1:
+                #     weights_mask = None
+                #     weights_rgb = None
+                #     # if self.run_name_for_wandb == "test":
+                #     if len(masked_gaussian_outputs) > 0:
+                #         correction_mask = mask_logits_pretrain_text.mean(dim=1, keepdim=True)
+                #         weights_mask = mask_logits.max(dim=1, keepdim=True).values # accriss text prompt Mx1
+                #         weights_mask = torch.softmax((weights_mask - correction_mask) / T, dim=0) 
                     
-                    if len(rgb_outputs) > 0:
-                        correction_rgb = rgb_logits_pretrain_text.mean(dim=1, keepdim=True)
-                        weights_rgb = rgb_logits.max(dim=1, keepdim=True).values  # accriss text prompt
-                        weights_rgb = torch.softmax((weights_rgb - correction_rgb) / T, dim=0)
+                #     if len(rgb_outputs) > 0:
+                #         correction_rgb = rgb_logits_pretrain_text.mean(dim=1, keepdim=True)
+                #         weights_rgb = rgb_logits.max(dim=1, keepdim=True).values  # accriss text prompt
+                #         weights_rgb = torch.softmax((weights_rgb - correction_rgb) / T, dim=0)
                         
-                    #concat weights
-                    if weights_mask is not None and weights_rgb is not None:
-                        weights = torch.cat([weights_mask, weights_rgb], dim=0) 
-                        all_logits = torch.cat([mask_logits, rgb_logits], dim=0)
-                    elif weights_mask is not None:
-                        weights = weights_mask
-                        all_logits = mask_logits
-                    else:
-                        weights = weights_rgb
-                        all_logits = rgb_logits    
+                #     #concat weights
+                #     if weights_mask is not None and weights_rgb is not None:
+                #         weights = torch.cat([weights_mask, weights_rgb], dim=0) 
+                #         all_logits = torch.cat([mask_logits, rgb_logits], dim=0)
+                #     elif weights_mask is not None:
+                #         weights = weights_mask
+                #         all_logits = mask_logits
+                #     else:
+                #         weights = weights_rgb
+                #         all_logits = rgb_logits    
 
-                    weighted_logits = all_logits * weights
-                    scores = torch.sum(weighted_logits, dim=0)
+                #     weighted_logits = all_logits * weights
+                #     scores = torch.sum(weighted_logits, dim=0)
                     
-                if self.algorithm == 2:
+                # if self.algorithm == 2:
                     
-                    weights_mask = None
-                    weights_rgb = None
-                    # if self.run_name_for_wandb == "test":
-                    if len(masked_gaussian_outputs) > 0:
-                        correction_mask = mask_logits_pretrain_text.mean(dim=1, keepdim=True)
-                        weights_mask = mask_logits.max(dim=1, keepdim=True).values # accriss text prompt Mx1
-                        # weights_mask = torch.softmax((weights_mask - correction_mask) / T, dim=0) 
+                #     weights_mask = None
+                #     weights_rgb = None
+                #     # if self.run_name_for_wandb == "test":
+                #     if len(masked_gaussian_outputs) > 0:
+                #         correction_mask = mask_logits_pretrain_text.mean(dim=1, keepdim=True)
+                #         weights_mask = mask_logits.max(dim=1, keepdim=True).values # accriss text prompt Mx1
+                #         # weights_mask = torch.softmax((weights_mask - correction_mask) / T, dim=0) 
                     
-                    if len(rgb_outputs) > 0:
-                        correction_rgb = rgb_logits_pretrain_text.mean(dim=1, keepdim=True)
-                        weights_rgb = rgb_logits.max(dim=1, keepdim=True).values  # accriss text prompt
-                        # weights_rgb = torch.softmax((weights_rgb - correction_rgb) / T, dim=0)
+                #     if len(rgb_outputs) > 0:
+                #         correction_rgb = rgb_logits_pretrain_text.mean(dim=1, keepdim=True)
+                #         weights_rgb = rgb_logits.max(dim=1, keepdim=True).values  # accriss text prompt
+                #         # weights_rgb = torch.softmax((weights_rgb - correction_rgb) / T, dim=0)
                         
-                    #concat weights
-                    if weights_mask is not None and weights_rgb is not None:
-                        weights = torch.cat([weights_mask, weights_rgb], dim=0)
-                        correction = torch.cat([correction_mask, correction_rgb], dim=0)
-                        weights = torch.softmax((weights - correction) / T, dim=0)
-                        all_logits = torch.cat([mask_logits, rgb_logits], dim=0)
-                    elif weights_mask is not None:
-                        weights = torch.softmax((weights_mask - correction_mask) / T, dim=0)
-                        all_logits = mask_logits
-                    else:
-                        weights = torch.softmax((weights_rgb - correction_rgb) / T, dim=0)
-                        all_logits = rgb_logits    
+                #     #concat weights
+                #     if weights_mask is not None and weights_rgb is not None:
+                #         weights = torch.cat([weights_mask, weights_rgb], dim=0)
+                #         correction = torch.cat([correction_mask, correction_rgb], dim=0)
+                #         weights = torch.softmax((weights - correction) / T, dim=0)
+                #         all_logits = torch.cat([mask_logits, rgb_logits], dim=0)
+                #     elif weights_mask is not None:
+                #         weights = torch.softmax((weights_mask - correction_mask) / T, dim=0)
+                #         all_logits = mask_logits
+                #     else:
+                #         weights = torch.softmax((weights_rgb - correction_rgb) / T, dim=0)
+                #         all_logits = rgb_logits    
 
                     # weighted_logits = all_logits * weights
                     # scores = torch.sum(weighted_logits, dim=0)
                     
-                    med_weights = torch.median(weights)
-                    med_diffs = torch.median(torch.abs(weights - med_weights))
-                    scores = (weights - med_weights) / med_diffs
-                    chosen = (scores > 0.5).squeeze()
-                    print(f"Choosen {torch.sum(chosen)} out of {len(weights)}")
-                    # print(all_logits.shape, weights.shape)
+                    # med_weights = torch.median(weights)
+                    # med_diffs = torch.median(torch.abs(weights - med_weights))
+                    # scores = (weights - med_weights) / med_diffs
+                    # chosen = (scores > 0.5).squeeze()
+                    # print(f"Choosen {torch.sum(chosen)} out of {len(weights)}")
+                    # # print(all_logits.shape, weights.shape)
                     
-                    weighted_logits = all_logits[chosen, :] * weights[chosen, :]
-                    # print(weighted_logits.shape)
-                    scores = torch.sum(weighted_logits, dim=0)
+                    # weighted_logits = all_logits[chosen, :] * weights[chosen, :]
+                    # # print(weighted_logits.shape)
+                    # scores = torch.sum(weighted_logits, dim=0)
                     
 
                 # if algorithm == 2:

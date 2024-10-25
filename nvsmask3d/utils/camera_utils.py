@@ -188,7 +188,7 @@ def object_optimal_k_camera_poses_2D_mask(#no sam uses object_optimal_k_camera_p
     depth_filenames=None,
     depth_scale=None,
     k_poses=2,
-    chunk_size=50,
+    chunk_size=200,
     vis_depth_threshold=0.4,
     score_fn=lambda num_visible_points,_: num_visible_points  # 默认是用可见点数作为得分
 
@@ -242,33 +242,51 @@ def object_optimal_k_camera_poses_2D_mask(#no sam uses object_optimal_k_camera_p
         valid_indices = valid_points.nonzero(as_tuple=False)  # Shape: (num_valid_points, 2)
         batch_indices_valid = valid_indices[:, 0]  # 有效点的批次索引 (M 维)
         point_indices_valid = valid_indices[:, 1]  # 有效点在每个批次内的索引 (N 维)
-
+        
         # 提取有效的 u, v, z
         u_valid = u[valid_points].long()  # Shape: (num_valid_points,)
         v_valid = v[valid_points].long()  # Shape: (num_valid_points,)
         z_valid = z[valid_points]         # Shape: (num_valid_points,)
 
-            # 处理有效点，使用一个 for 循环分批处理，控制内存占用
-        for start in range(0, num_valid_points, chunk_size):
-            end = min(start + chunk_size, num_valid_points)
-
-            # 当前块的索引
-            batch_indices_chunk = batch_indices_valid[start:end]
-            point_indices_chunk = point_indices_valid[start:end]
-            u_chunk = u_valid[start:end]
-            v_chunk = v_valid[start:end]
-            z_chunk = z_valid[start:end]
-
+        try:
             # 从深度图中提取对应的深度值
-            depth_values = depth_maps[batch_indices_chunk, v_chunk, u_chunk]
+            depth_values = depth_maps[batch_indices_valid, v_valid, u_valid]
 
-            # 比较深度值并更新 valid_points
-            valid_depths = torch.abs(depth_values - z_chunk) <= vis_depth_threshold
-            valid_points[batch_indices_chunk, point_indices_chunk] &= valid_depths
+            # 深度值有效性检查
+            depth_valid_mask = depth_values > 0
+            valid_depths = (torch.abs(depth_values - z_valid) <= vis_depth_threshold) & depth_valid_mask
 
-            # Cleanup to save memory
-        del  u_chunk, v_chunk, z_chunk, depth_values, valid_depths, valid_indices, batch_indices_valid, point_indices_valid, batch_indices_chunk, point_indices_chunk, depth_maps
-        torch.cuda.empty_cache()
+            # 更新 valid_points
+            valid_points[batch_indices_valid, point_indices_valid] &= valid_depths
+            # 删除不需要的变量
+            del u_valid, v_valid, z_valid, valid_indices, batch_indices_valid, point_indices_valid
+            torch.cuda.empty_cache()
+        except RuntimeError:
+            print("Runtime error occured during depth map processing, switching to chunked processing.")
+            # 分块处理
+            for start in range(0, num_valid_points, chunk_size):
+                end = min(start + chunk_size, num_valid_points)
+
+                # 当前块的索引
+                batch_indices_chunk = batch_indices_valid[start:end]
+                point_indices_chunk = point_indices_valid[start:end]
+                u_chunk = u_valid[start:end]
+                v_chunk = v_valid[start:end]
+                z_chunk = z_valid[start:end]
+
+                # 从深度图中提取对应的深度值
+                depth_values = depth_maps[batch_indices_chunk, v_chunk, u_chunk]
+
+                # 深度值有效性检查
+                depth_valid_mask = depth_values > 0
+                valid_depths = (torch.abs(depth_values - z_chunk) <= vis_depth_threshold) & depth_valid_mask
+
+                # 更新 valid_points
+                valid_points[batch_indices_chunk, point_indices_chunk] &= valid_depths
+
+                # 删除中间变量
+            del batch_indices_chunk, point_indices_chunk, u_chunk, v_chunk, z_chunk, depth_values, valid_depths, depth_valid_mask, batch_indices_valid, point_indices_valid, u_valid, v_valid, z_valid
+            torch.cuda.empty_cache()
         
     if not valid_points.any():
         print("No valid points found")
@@ -282,11 +300,11 @@ def object_optimal_k_camera_poses_2D_mask(#no sam uses object_optimal_k_camera_p
     # Select top k scored poses
     _, best_poses_indices = torch.topk(visibility_scores, k_poses)
     
-    for index in best_poses_indices:
-        sparse_map = torch.zeros((H, W, 3), dtype=torch.float32, device="cuda")
-        sparse_map[ v[index][valid_points[index]].long(), u[index][valid_points[index]].long()] = 1
-        from nvsmask3d.utils.utils import save_img
-        save_img(sparse_map, f"tests/sparse_map_{index}.png")
+    # for index in best_poses_indices:
+    #     sparse_map = torch.zeros((H, W, 3), dtype=torch.float32, device="cuda")
+    #     sparse_map[ v[index][valid_points[index]].long(), u[index][valid_points[index]].long()] = 1
+    #     from nvsmask3d.utils.utils import save_img
+    #     save_img(sparse_map, f"tests/sparse_map_{index}.png")
     # sparse_map = torch.zeros((H, W, 3), dtype=torch.float32, device="cuda")
     # sparse_map[ v[0][valid_points[0]].long(), u[0][valid_points[0]].long()] = 1
     # from nvsmask3d.utils.utils import save_img
@@ -308,9 +326,9 @@ def object_optimal_k_camera_poses_2D_mask(#no sam uses object_optimal_k_camera_p
 
     # # Stack valid u and v to create 2D positions for each best camera pose
     # masks = torch.stack([valid_u, valid_v], dim=1)  # shape (k_poses, num_valid_points, 2)
-
     # Ensure indices are on the CPU for nerfstudio's camera
     best_poses_indices = best_poses_indices.cpu()
+    #best_poses_indices = torch.sort(best_poses_indices).cpu() #sorted for smooth interpolation
 
     return best_poses_indices, valid_u, valid_v
 

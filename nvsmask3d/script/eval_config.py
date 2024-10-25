@@ -66,7 +66,7 @@ class Experiment:
     def run(self):
         # Initialize a new WandB run for each experiment
         wandb.init(
-            # mode="disabled",################
+            mode="disabled",################
             project=self.project_name,
             name=self.run_name_for_wandb,
             config={
