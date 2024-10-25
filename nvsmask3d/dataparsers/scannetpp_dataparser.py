@@ -75,18 +75,21 @@ class ScanNetppDataParserConfig(DataParserConfig):
 
     .. code-block:: text
 
-        root/
-        |── scannetpp_masks/
+        ScannetPP/
+        |── mask3d_processed/
             ├── {SCENE_ID}.pt/
             ...
-        ├── SCENE_ID0
-            ├── dslr
-                ├── resized_images
-                ├── resized_anon_masks
-                ├── nerfstudio/transforms.json
-            ├── scans
-                ├── mesh_aligned_0.05.ply
-        ├── SCENE_ID1/
+        |── data/
+            ├── SCENE_ID0
+                ├── dslr
+                    |── colmap
+                        |── cameras.txt
+                        |── images.txt
+                    ├── undistorted_images
+                    ├── nerfstudio/transforms.json
+                ├── scans
+                    ├── mesh_aligned_0.05.ply
+            ├── SCENE_ID1/
         ...
     """
 
@@ -428,7 +431,7 @@ class ScanNetpp(ColmapDataParser):
 
         if self.config.load_masks:
             mask_path = (
-                self.config.data / "mask3d_processed_first10" / (self.config.sequence + ".pt")
+                self.config.data / "mask3d_processed" / (self.config.sequence + ".pt")
             )
             # #load gt masks for amblation study
             # current_dir = os.getcwd()
@@ -639,7 +642,7 @@ class ScanNetpp(ColmapDataParser):
                 P[:3, 3] = T
                 
                 image_filenames.append(image_dir/image_name)
-                depth_filenames.append(depth_dir / (image_name.strip('.JPG') + '.png'))
+                depth_filenames.append(depth_dir/(image_name.split(".")[0] + ".png"))
                 P = camera_to_world_from_wc(P)@OPENGL_TO_OPENCV#important
                 poses.append(P)
         return 
