@@ -249,16 +249,27 @@ def object_optimal_k_camera_poses_2D_mask(#no sam uses object_optimal_k_camera_p
         z_valid = z[valid_points]         # Shape: (num_valid_points,)
 
         try:
-            # 从深度图中提取对应的深度值
             depth_values = depth_maps[batch_indices_valid, v_valid, u_valid]
-
-            # 深度值有效性检查
             depth_valid_mask = depth_values > 0
             valid_depths = (torch.abs(depth_values - z_valid) <= vis_depth_threshold) & depth_valid_mask
-
-            # 更新 valid_points
             valid_points[batch_indices_valid, point_indices_valid] &= valid_depths
-            # 删除不需要的变量
+            #debug
+            sparse_map = torch.zeros((H, W, 3), dtype=torch.float32, device="cuda")
+            sparse_map[ v[122][valid_points[122]].long(), u[122][valid_points[122]].long()] = z[122][valid_points[122]].unsqueeze(-1).expand(-1, 3)
+            from nvsmask3d.utils.utils import save_img
+            save_img(sparse_map, f"tests/sparse_map_orig_{122}.png")
+            depth_map = torch.zeros((H, W, 3), dtype=torch.float32, device="cuda")
+            depth_map[ v[122][valid_points[122]].long(), u[122][valid_points[122]].long()] = depth_maps[122][ v[122][valid_points[122]].long(), u[122][valid_points[122]].long()].float().unsqueeze(-1).expand(-1, 3)
+            save_img(depth_map, f"tests/depth_map_{122}.png")
+            diff_map = sparse_map - depth_map
+            save_img(diff_map, f"tests/depth_map_diff{122}.png")
+            greater_than_04_mask = diff_map.abs() > 0.4
+            greater_than_04_values = diff_map[greater_than_04_mask]
+            print("Values greater than 0.4 (absolute):", greater_than_04_values)
+            diff_map = torch.where(diff_map.abs() > 0.4, torch.tensor(0.0, device=diff_map.device), diff_map)
+            save_img(diff_map, f"tests/depth_map_diff{122}_thresholded.png")
+            import pdb; pdb.set_trace() 
+            
             del u_valid, v_valid, z_valid, valid_indices, batch_indices_valid, point_indices_valid
             torch.cuda.empty_cache()
         except RuntimeError:
@@ -313,20 +324,6 @@ def object_optimal_k_camera_poses_2D_mask(#no sam uses object_optimal_k_camera_p
     # Get the valid u and v coordinates for the best poses
     valid_u = [ u[index][valid_points[index]].long() for index in best_poses_indices] # shape (k_poses, num_valid_points) 第二个维度不一定都是3900 全满, occlution原因
     valid_v = [ v[index][valid_points[index]].long() for index in best_poses_indices] # shape (k_poses, num_valid_points)
-    # best_u = u[best_poses_indices]  # shape (k_poses, N)#(15,3900)
-    # best_v = v[best_poses_indices]  # shape (k_poses, N)#(15,3900)
-    # best_valid_points = valid_points[best_poses_indices]  # shape (k_poses, N)#(15,3900)
-
-
-    # # Only select valid points for the top poses, points differs for each pose
-    # valid_u = [best_u[i][best_valid_points[i]] for i in range(k_poses)]#(15,3900) 第二个维度不一定都是3900 全满, occlution原因
-    # valid_v = [best_v[i][best_valid_points[i]] for i in range(k_poses)]
-
-
-
-    # # Stack valid u and v to create 2D positions for each best camera pose
-    # masks = torch.stack([valid_u, valid_v], dim=1)  # shape (k_poses, num_valid_points, 2)
-    # Ensure indices are on the CPU for nerfstudio's camera
     best_poses_indices = best_poses_indices.cpu()
     #best_poses_indices = torch.sort(best_poses_indices).cpu() #sorted for smooth interpolation
 

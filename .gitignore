@@ -8,7 +8,8 @@ semantic-gaussians/
 OpenYOLO3D*
 wandb/*
 nvsmask3d/checkpoints
-
+test*
+combined*
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

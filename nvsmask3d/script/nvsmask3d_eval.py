@@ -162,14 +162,14 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
 
             load_configs = [
 
-                "outputs/office0/nvsmask3d/2024-08-14_204330/config.yml",
-                "outputs/office1/nvsmask3d/2024-08-14_204330/config.yml",
-                "outputs/office2/nvsmask3d/2024-08-14_205100/config.yml",
-                "outputs/office3/nvsmask3d/2024-08-14_205128/config.yml",
-                "outputs/office4/nvsmask3d/2024-08-14_210152/config.yml",
-                "outputs/room1/nvsmask3d/2024-08-14_211248/config.yml",
-                "outputs/room2/nvsmask3d/2024-08-14_211851/config.yml",
-                "outputs/room0/nvsmask3d/2024-08-14_210501/config.yml",
+                "outputs/office0/nvsmask3d/config.yml",
+                "outputs/office1/nvsmask3d/config.yml",
+                "outputs/office2/nvsmask3d/config.yml",
+                "outputs/office3/nvsmask3d/config.yml",
+                "outputs/office4/nvsmask3d/config.yml",
+                "outputs/room1/nvsmask3d/config.yml",
+                "outputs/room2/nvsmask3d/config.yml",
+                "outputs/room0/nvsmask3d/config.yml",
 
             ]
 
@@ -677,24 +677,40 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
             # set instance
             model.cls_index = i
             boolean_mask = class_agnostic_3d_mask[:, i]
-            (
-                best_camera_indices, valid_u, valid_v
-                # bounding_boxes,
-            ) = object_optimal_k_camera_poses_2D_mask(#object_optimal_k_camera_poses_bounding_box(
-                seed_points_0=seed_points_0,
-                optimized_camera_to_world=camera_to_world_opencv,
-                K=K,
-                W=W,
-                H=H,
-                boolean_mask=boolean_mask,  # select i_th mask
-                depth_filenames=model.metadata["depth_filenames"] if self.occlusion_aware else None,
-                depth_scale=model.depth_scale,
-                k_poses=self.top_k,
-                score_fn=self.visibility_score,
-                vis_depth_threshold=0.05 if self.inference_dataset != "replica" else 0.4,
-
-            )
-            best_camera_indices, pose_sorted_index = torch.sort(best_camera_indices)
+            # try:
+            #     result  = object_optimal_k_camera_poses_2D_mask(#object_optimal_k_camera_poses_bounding_box(
+            #         seed_points_0=seed_points_0,
+            #         optimized_camera_to_world=camera_to_world_opencv,
+            #         K=K,
+            #         W=W,
+            #         H=H,
+            #         boolean_mask=boolean_mask,  # select i_th mask
+            #         depth_filenames=model.metadata["depth_filenames"] if self.occlusion_aware else None,
+            #         depth_scale=model.depth_scale,
+            #         k_poses=self.top_k,
+            #         score_fn=self.visibility_score,
+            #         vis_depth_threshold=0.05 if self.inference_dataset != "replica" else 0.4
+            #         )
+            #     best_camera_indices, valid_u, valid_v = result
+            # except:
+            #     import pdb;pdb.set_trace()
+            best_camera_indices, valid_u, valid_v  = object_optimal_k_camera_poses_2D_mask(#object_optimal_k_camera_poses_bounding_box(
+                                                        seed_points_0=seed_points_0,
+                                                        optimized_camera_to_world=camera_to_world_opencv,
+                                                        K=K,
+                                                        W=W,
+                                                        H=H,
+                                                        boolean_mask=boolean_mask,  # select i_th mask
+                                                        depth_filenames=model.metadata["depth_filenames"] if self.occlusion_aware else None,
+                                                        depth_scale=model.depth_scale,
+                                                        k_poses=self.top_k,
+                                                        score_fn=self.visibility_score,
+                                                        vis_depth_threshold=0.05 if self.inference_dataset != "replica" else 0.4
+                                                        )
+            #sorted camera indices and its index
+            # this is for smoother interpolation, keep the order of camera indices
+            # Note! pose_sorted_index is not aligned with valid_u and valid_v's index anymore
+            best_camera_indices, pose_sorted_index = torch.sort(best_camera_indices) 
 
             if best_camera_indices.shape[0] == 0 or len(valid_u) == 0 or len(valid_v) == 0:
                 print(
@@ -791,8 +807,8 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
             if self.gt_camera_rgb or self.gt_camera_gaussian:
                 gt_images = []
                 # gt_images_label_map = []
-                for index, pose_index in enumerate(best_camera_indices):
-                    if valid_u[pose_sorted_index[index]].shape[0] == 0 or valid_v[pose_sorted_index[index]].shape[0] == 0:
+                for  pose_index, index in zip(best_camera_indices, pose_sorted_index):
+                    if valid_u[index].shape[0] == 0 or valid_v[index].shape[0] == 0:
                         continue
                     pose_index = pose_index.item()
                     single_camera = model.cameras[pose_index : pose_index + 1]
@@ -801,10 +817,10 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     with Image.open(model.image_file_names[pose_index]) as img:
                         img = transforms.ToTensor()(img).cuda()  # (C,H,W)
 
-                    min_u = min(torch.clamp(valid_u[pose_sorted_index[index]], 0, W-1))
-                    min_v = min(torch.clamp(valid_v[pose_sorted_index[index]], 0, H-1))
-                    max_u = max(torch.clamp(valid_u[pose_sorted_index[index]], 0, W-1))
-                    max_v = max(torch.clamp(valid_v[pose_sorted_index[index]], 0, H-1))
+                    min_u = min(torch.clamp(valid_u[index], 0, W-1))
+                    min_v = min(torch.clamp(valid_v[index], 0, H-1))
+                    max_u = max(torch.clamp(valid_u[index], 0, W-1))
+                    max_v = max(torch.clamp(valid_v[index], 0, H-1))
 
                     # # nvs_img = model.get_outputs(single_camera)["rgb"]  # (H,W,3)
                     # min_u, min_v, max_u, max_v = bounding_boxes[index]
@@ -856,12 +872,11 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                         #cropped_nvs_mask_image = nvs_mask_img.permute(2, 0, 1)
                     ###################save rendered image#################
                     # from nvsmask3d.utils.utils import save_img
-
+                
                     # save_img(
                     #     cropped_image.permute(1, 2, 0), f"tests/output_{i}_{pose_index}.png"
                     # )
                     ######################################################
-
             # Clear intermediate memory before encoding
             if 'img' in locals():
                 del img

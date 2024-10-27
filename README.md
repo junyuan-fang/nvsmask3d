@@ -24,18 +24,6 @@ ssh -L 7007:localhost:7007 <username>@<remote_machine_ip>
 
 ### train scannetpp scene
 ```
-#iphone 
-ns-train nvsmask3d --experiment-name 7b6477cb95 --timestamp ""  --vis viewer scannetpp_nvsmask3d --data nvsmask3d/data/ScannetPP   --sequence 7b6477cb95 
-
-#iphone no pointcloud
-ns-train nvsmask3d --experiment-name 7b6477cb95 --timestamp "no_pointcloud"  --vis viewer scannetpp_nvsmask3d --data nvsmask3d/data/ScannetPP --load_3D_points False  --sequence 7b6477cb95
-
-#iphone eval
-ns-eval psnr --load_config /home/fangj1/Code/nerfstudio-nvsmask3d/outputs/7b6477cb95/nvsmask3d/config.yml
-
-#dslr
-ns-train nvsmask3d --experiment-name 7b6477cb95_dslr --timestamp ""  --vis viewer scannetpp_nvsmask3d --data nvsmask3d/data/ScannetPP   --sequence 7b6477cb95 --mode dslr
-
 ##dslr colmap (Use this, dump scenes to bash)
 ns-train nvsmask3d --experiment-name 7b6477cb95_dslr_colmap --timestamp ""  --vis viewer scannetpp_nvsmask3d --data nvsmask3d/data/ScannetPP   --sequence 7b6477cb95 --mode dslr_colmap
 ```
@@ -48,13 +36,8 @@ ns-viewer nvsmask3d --load_config /home/fangj1/Code/nerfstudio-nvsmask3d/outputs
 
 ## train Replica scene
 ```
-ns-train splatfacto scannet-data --data nvsmask3d/data/scene0000_00_  # this is old scannet dataparser
-ns-train nvsmask3d scannet --data nvsmask3d/data/scene_example # this is new scannet dataparser modified in this repo
-ns-train nvsmask3d replica --data nvsmask3d/data/Replica # train on replica data
-ns-train nvsmask3d --vis viewer replica --data nvsmask3d/data/Replica --sequence room0
-ns-train splatfacto --vis viewer+wandb colmap --data nvsmask3d/data/scene0011_00/colmap 
-ns-train nvsmask3d replica --data nvsmask3d/data/Replica --sequence room0
-ns-train nvsmask3d --vis viewer replica_nvsmask3d --data nvsmask3d/data/replica --sequence room0 #sometimes wandb error, so use this
+ns-train nvsmask3d --experiment-name office0 --timestamp "" --vis viewer replica_nvsmask3d --data nvsmask3d/data/replica --sequence office0 
+
 ```
 
 

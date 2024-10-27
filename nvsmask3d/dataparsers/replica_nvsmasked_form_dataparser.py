@@ -50,13 +50,13 @@ class ReplicaNvsmask3DParserConfig(DataParserConfig):
     """How much to scale the camera origins by."""
     scene_scale: float = 1.0
     """How much to scale the region of interest by."""
-    center_method: Literal["poses", "focus", "none"] = "poses"
+    center_method: Literal["poses", "focus", "none"] = "none"
     """The method to use to center the poses."""
-    auto_scale_poses: bool = True
+    auto_scale_poses: bool = False
     """Whether to automatically scale the poses to fit in +/- 1 bounding box."""
     train_split_fraction: float = 1
     """The fraction of images to use for training. The remaining images are for eval."""
-    depth_unit_scale_factor: float = 1e-3
+    depth_unit_scale_factor: float = 1/6553.5
     """Scales the depth values to meters. Default value is 0.001 for a millimeter to meter conversion."""
     load_3D_points: bool = True
     """Whether to load the 3D points from the .ply"""
