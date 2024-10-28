@@ -19,6 +19,7 @@ ns-eval for_ap --load_config nvsmask3d/data/replica
 """
 from __future__ import annotations
 import os
+import time
 import matplotlib.pyplot as plt
 from matplotlib import cm
 from datetime import datetime
@@ -673,7 +674,9 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
         pred_classes = np.full(cls_num, 0)  # -1)
         
         # Loop through each mask
-        for i in range(cls_num):
+        for i in tqdm(range(cls_num), 
+              desc="Inferenceing objects", 
+              total=cls_num):
             # set instance
             model.cls_index = i
             boolean_mask = class_agnostic_3d_mask[:, i]
@@ -694,6 +697,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
             #     best_camera_indices, valid_u, valid_v = result
             # except:
             #     import pdb;pdb.set_trace()
+            #set time
             best_camera_indices, valid_u, valid_v  = object_optimal_k_camera_poses_2D_mask(#object_optimal_k_camera_poses_bounding_box(
                                                         seed_points_0=seed_points_0,
                                                         optimized_camera_to_world=camera_to_world_opencv,
@@ -915,24 +919,27 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     mask_logits = torch.mm(
                         mask_features, model.image_encoder.pos_embeds.T
                     )  
-                    mask_logits_pretrain_text = torch.mm(mask_features, self.pretrain_embeddings.T)
+                    #mask_logits_pretrain_text = torch.mm(mask_features, self.pretrain_embeddings.T)
                 # if self.run_name_for_wandb == "test":
                 if algorithm == 0:  
                 #aggregate similarity scores 你目前是将批次中的相似度分数进行求和（sum），这可能会导致信息丢失，尤其是在增强视图之间存在较大差异的情况下。
                     if len(masked_gaussian_outputs) > 0:
                         scores = mask_logits.sum(dim=0)  # Shape: (200,) for scannet200 
                     if len(rgb_outputs) > 0:
-                        #scores = rgb_logits.sum(dim=0)  # Shape: (200,) for scannet200 
-                        probs = torch.softmax(rgb_logits, dim=-1)  # Shape: [num_views, num_classes]
-                        # Step 2: Calculate entropy for each class across views
-                        entropy = -torch.sum(probs * torch.log(probs + 1e-9), dim=0)  # Shape: [num_classes]
+                        scores = rgb_logits.sum(dim=0)  # Shape: (200,) for scannet200 
+                        
+                        #weighted with entropy
+                        # # Step 1: Compute class probabilities for each view
+                        # probs = torch.softmax(rgb_logits, dim=-1)  # Shape: [num_views, num_classes]
+                        # # Step 2: Calculate entropy for each class across views
+                        # entropy = -torch.sum(probs * torch.log(probs + 1e-9), dim=0)  # Shape: [num_classes]
 
-                        # Step 3: Use inverse entropy to compute weights (lower entropy = higher weight)
-                        weights = 1 / (entropy + 1e-9)  # Add small constant to avoid division by zero
-                        weights = weights / weights.sum()  # Normalize the weights
+                        # # Step 3: Use inverse entropy to compute weights (lower entropy = higher weight)
+                        # weights = 1 / (entropy + 1e-9)  # Add small constant to avoid division by zero
+                        # weights = weights / weights.sum()  # Normalize the weights
 
-                        # Step 4: Compute the weighted sum of the logits
-                        scores = torch.sum(rgb_logits * weights, dim=0)  # Shape: [num_classes]
+                        # # Step 4: Compute the weighted sum of the logits
+                        # scores = torch.sum(rgb_logits * weights, dim=0)  # Shape: [num_classes]
                 # if algorithm == 1:
                 #     weights_mask = None
                 #     weights_rgb = None
@@ -1010,51 +1017,33 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 #     logit_normalized = similarity_scores - ( E_pretrain_text).unsqueeze(1)# (B,C)
                 #     weights = torch.softmax(logit_normalized/T, dim=0)
                 #     scores = torch.sum(similarity_scores * weights, dim=0)
-                max_ind = torch.argmax(scores).item()
                 
                 # else:
                 #     #aggregate similarity scores 你目前是将批次中的相似度分数进行求和（sum），这可能会导致信息丢失，尤其是在增强视图之间存在较大差异的情况下。
                 #     scores = similarity_scores.sum(dim=0)  # Shape: (200,) for scannet200 
                 #     max_ind = torch.argmax(scores).item()
                 
-                
+                max_ind = torch.argmax(scores).item()
                 pred_classes[i] = max_ind  
                 # Log interpolated images
                 if 'interpolated_images' in locals() and len(interpolated_images) > 0:
                     plot_images_and_logits(
                         i,
-                        interpolated_images, rgb_logits[:-self.top_k], 
+                        interpolated_images, rgb_logits[:-self.top_k] if len(rgb_outputs) > 0 else mask_logits[:-self.top_k], 
                         "Interpolated Scene", 'combined_image_with_logits_fixed_and_points.png', 
                         scene_name, max_ind, REPLICA_CLASSES
                     )
                     
                 # Log GT images
                 if 'gt_images' in locals() and len(gt_images) > 0:
-
                     # Use the helper function for GT images
                     plot_images_and_logits(
                         i,
-                        gt_images, rgb_logits[-self.top_k:], 
+                        gt_images, rgb_logits[-self.top_k:] if len(rgb_outputs) > 0 else mask_logits[-self.top_k:], 
                         "GT Scene", 'combined_image_with_logits_fixed_and_points.png', 
                         scene_name, max_ind, REPLICA_CLASSES
                     )
                     #wandb.log({f"GT Scene: {scene_name}": wandb.Image(final_gt_image, caption=f"GT Camera Pose for object {i} predicted class: {REPLICA_CLASSES[max_ind]}")})
-
-                # del rgb_outputs, masked_gaussian_outputs, rgb_logits, mask_logits, rgb_logits_pretrain_text, mask_logits_pretrain_text, weights, all_logits, scores, weights_mask, weights_rgb, correction_mask, correction_rgb, weighted_logits
-                # if rgb_features in locals():
-                #     del rgb_features
-                # if mask_features in locals():
-                #     del mask_features
-                # torch.cuda.empty_cache()
-                
-                # if 'interpolated_images_label_map' in locals() and len(interpolated_images_label_map) > 0:
-                #     final_interpolated_image_label_map = concat_images_horizontally(interpolated_images_label_map)
-                #     wandb.log({f"Interpolated Scene: {scene_name}": wandb.Image(final_interpolated_image_label_map, caption=f"Interpolated Image Label Map for object {i} predicted class: {REPLICA_CLASSES[max_ind]}")})
-                
-                # if 'gt_images_label_map' in locals() and len(gt_images_label_map) > 0:
-                #     final_gt_image_label_map = concat_images_horizontally(gt_images_label_map)
-                #     wandb.log({f"GT Scene: {scene_name}": wandb.Image(final_gt_image_label_map, caption=f"GT Camera Pose Label Map for object {i} predicted class: {REPLICA_CLASSES[max_ind]}")})
-
         return pred_classes
 
 

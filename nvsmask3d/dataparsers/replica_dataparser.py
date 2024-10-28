@@ -324,7 +324,7 @@ class ReplicaDataparser(DataParser):
     def _load_mask(self, mask_path: Path):
         # mask[0] torch.Size([points_num, class_num]) mask
         # mask[1] torch.Size([36]) confidence of the mask
-        masks = torch.load(mask_path)
+        masks = torch.load(mask_path, map_location="cuda")
         cls_num = masks[0].shape[1]
         out = {"points3D_mask": masks[0], "points3D_cls_num": cls_num}
         return out

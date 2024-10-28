@@ -236,7 +236,7 @@ def object_optimal_k_camera_poses_2D_mask(#no sam uses object_optimal_k_camera_p
 
         # 如果没有有效点，直接返回
         if num_valid_points == 0:
-            return valid_points
+            return torch.tensor([]), torch.tensor([]), torch.tensor([])
 
         # 展平有效点的索引
         valid_indices = valid_points.nonzero(as_tuple=False)  # Shape: (num_valid_points, 2)
@@ -249,31 +249,32 @@ def object_optimal_k_camera_poses_2D_mask(#no sam uses object_optimal_k_camera_p
         z_valid = z[valid_points]         # Shape: (num_valid_points,)
 
         try:
+            #print("Trying to process depth maps in one go.")
             depth_values = depth_maps[batch_indices_valid, v_valid, u_valid]
             depth_valid_mask = depth_values > 0
             valid_depths = (torch.abs(depth_values - z_valid) <= vis_depth_threshold) & depth_valid_mask
             valid_points[batch_indices_valid, point_indices_valid] &= valid_depths
             #debug
-            sparse_map = torch.zeros((H, W, 3), dtype=torch.float32, device="cuda")
-            sparse_map[ v[122][valid_points[122]].long(), u[122][valid_points[122]].long()] = z[122][valid_points[122]].unsqueeze(-1).expand(-1, 3)
-            from nvsmask3d.utils.utils import save_img
-            save_img(sparse_map, f"tests/sparse_map_orig_{122}.png")
-            depth_map = torch.zeros((H, W, 3), dtype=torch.float32, device="cuda")
-            depth_map[ v[122][valid_points[122]].long(), u[122][valid_points[122]].long()] = depth_maps[122][ v[122][valid_points[122]].long(), u[122][valid_points[122]].long()].float().unsqueeze(-1).expand(-1, 3)
-            save_img(depth_map, f"tests/depth_map_{122}.png")
-            diff_map = sparse_map - depth_map
-            save_img(diff_map, f"tests/depth_map_diff{122}.png")
-            greater_than_04_mask = diff_map.abs() > 0.4
-            greater_than_04_values = diff_map[greater_than_04_mask]
-            print("Values greater than 0.4 (absolute):", greater_than_04_values)
-            diff_map = torch.where(diff_map.abs() > 0.4, torch.tensor(0.0, device=diff_map.device), diff_map)
-            save_img(diff_map, f"tests/depth_map_diff{122}_thresholded.png")
-            import pdb; pdb.set_trace() 
+            # sparse_map = torch.zeros((H, W, 3), dtype=torch.float32, device="cuda")
+            # sparse_map[ v[122][valid_points[122]].long(), u[122][valid_points[122]].long()] = z[122][valid_points[122]].unsqueeze(-1).expand(-1, 3)
+            # from nvsmask3d.utils.utils import save_img
+            # save_img(sparse_map, f"tests/sparse_map_orig_{122}.png")
+            # depth_map = torch.zeros((H, W, 3), dtype=torch.float32, device="cuda")
+            # depth_map[ v[122][valid_points[122]].long(), u[122][valid_points[122]].long()] = depth_maps[122][ v[122][valid_points[122]].long(), u[122][valid_points[122]].long()].float().unsqueeze(-1).expand(-1, 3)
+            # save_img(depth_map, f"tests/depth_map_{122}.png")
+            # diff_map = sparse_map - depth_map
+            # save_img(diff_map, f"tests/depth_map_diff{122}.png")
+            # greater_than_04_mask = diff_map.abs() > 0.4
+            # greater_than_04_values = diff_map[greater_than_04_mask]
+            # print("Values greater than 0.4 (absolute):", greater_than_04_values)
+            # diff_map = torch.where(diff_map.abs() > 0.4, torch.tensor(0.0, device=diff_map.device), diff_map)
+            # save_img(diff_map, f"tests/depth_map_diff{122}_thresholded.png")
+            # import pdb; pdb.set_trace() 
             
             del u_valid, v_valid, z_valid, valid_indices, batch_indices_valid, point_indices_valid
             torch.cuda.empty_cache()
         except RuntimeError:
-            print("Runtime error occured during depth map processing, switching to chunked processing.")
+            print("Runtime error occured during depth map one go processing, switching to chunked processing.")
             # 分块处理
             for start in range(0, num_valid_points, chunk_size):
                 end = min(start + chunk_size, num_valid_points)
