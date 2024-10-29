@@ -206,9 +206,9 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     f"pred_masks.shape, pred_scores.shape, pred_classes.shape {pred_masks.shape, pred_scores.shape, pred_classes.shape}"
                 )
                 preds[scene_name] = {
-                    "pred_masks": pred_masks,
-                    "pred_scores": pred_scores,
-                    "pred_classes": pred_classes,
+                    "pred_masks": pred_masks,#(num_points, num_cls) with 0 or 1 value
+                    "pred_scores": pred_scores, # (num_cls,) with 1 value
+                    "pred_classes": pred_classes, # (num_cls,) with value from dataset's class id
                 }
             if self.inference_dataset == "replica":
                 inst_AP = evaluate_replica(
@@ -227,6 +227,9 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 with open(file_name, "w") as f:
                     json.dump(inst_AP, f, indent=4)
                 #log_evaluation_results_to_wandb(inst_AP,self.run_name_for_wandb)
+            if self.inference_dataset == "scannetpp":
+                
+                pass 
     def pred_classes_with_sam(self, scene_name=""):
         """
         Args:
@@ -382,9 +385,6 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                                 
                                 elif kind == "blur":
                                     temp = transforms.ToPILImage()(nvs_img.permute(2, 0, 1).cpu())
-                                    
-                                    # test
-                                    # print(nvs_img.permute(2, 0, 1).cpu(), transforms.ToTensor()(img))
                                     
                                     result = temp.copy()
                                     result = result.filter(ImageFilter.GaussianBlur(blur_std_dev))
@@ -944,7 +944,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 #aggregate similarity scores 你目前是将批次中的相似度分数进行求和（sum），这可能会导致信息丢失，尤其是在增强视图之间存在较大差异的情况下。
                     if len(masked_gaussian_outputs) > 0:
                         if self.interpolate_n_camera > 1:
-                            rgb_logits[:-self.top_k]/=self.interpolate_n_camera
+                            mask_logits[:-self.top_k]/=self.interpolate_n_camera
                         scores = mask_logits.sum(dim=0)  
                         #scores = select_low_entropy_logits(mask_logits, self.top_k, apply_softmax=True).sum(dim=0)
                     if len(rgb_outputs) > 0:

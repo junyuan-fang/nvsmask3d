@@ -125,8 +125,8 @@ def run_experiments(experiment_type: str, dataset: str = "replica", sam: bool = 
 
 
 if __name__ == "__main__": 
-    #run_experiments(experiment_type="rgb", dataset="replica", sam=False, algorithm=0, project_name="rgb", wandb_mode="disabled")# online,offline,disabled
-    run_experiments(experiment_type="rgb", dataset="replica", sam=True, algorithm=0, project_name="rgb", wandb_mode="disabled")# online,offline,disabled
+    run_experiments(experiment_type="rgb", dataset="replica", sam=False, algorithm=0, project_name="rgb", wandb_mode="disabled")# online,offline,disabled
+    #run_experiments(experiment_type="rgb", dataset="replica", sam=True, algorithm=0, project_name="rgb", wandb_mode="disabled")# online,offline,disabled
 
     #run_experiments(experiment_type="gaussian", dataset="replica", sam=False, algorithm=0, project_name="gaussian", wandb_mode="disabled")# online,offline,disabled
     #run_experiments(experiment_type="rgb", dataset="replica", sam=True, algorithm=0, project_name="SAM rgb", wandb_mode="disabled", kind = "crop")# online,offline,disabled
