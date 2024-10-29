@@ -58,12 +58,13 @@ from nvsmask3d.eval.replica.eval_semantic_instance import evaluate as evaluate_r
 from nvsmask3d.eval.replica.eval_semantic_instance import (
     CLASS_LABELS as REPLICA_CLASSES,
 )
+from nvsmask3d.eval.scannetpp.eval_semantic_instance import SCANNETPP_CLASSES
 import tyro
 import wandb
 import threading
 from nerfstudio.utils.eval_utils import eval_setup
 from nerfstudio.utils.rich_utils import CONSOLE
-from nvsmask3d.utils.utils import concat_images_vertically, concat_images_horizontally,log_evaluation_results_to_wandb
+from nvsmask3d.utils.utils import concat_images_vertically, concat_images_horizontally,log_evaluation_results_to_wandb, select_low_entropy_logits
     
 
 @dataclass
@@ -118,9 +119,11 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
     run_name_for_wandb: Optional[str] = "test"
     algorithm: int = 0
     sam: bool = True
+    kind: Literal["crop", "blur"] = "crop"
     prompt_threshold: float = 0.1
+    wandb_mode: Literal["online", "offline", "disabled"] = "disabled"
     # inference
-    inference_dataset: Literal["scannet200", "replica"] = "replica"
+    inference_dataset: Literal["scannetpp", "replica"] = "replica"
     num_levels: int = 3
     #if run_name_for_wandb == "test":
     #pretrain_embeddings = torch.load("../../hanlin/pretrain_embeddings.pt", map_location="cuda")#20000,768
@@ -144,7 +147,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
             '27dd4da69e', 'c49a8c6cff']
             test_mode = "all scannetpp"
             load_configs = [
-                "/home/fangj1/Code/nerfstudio-nvsmask3d/outputs/7b6477cb95_dslr_colmap/nvsmask3d/config.yml"
+                "outputs/7b6477cb95_dslr_colmap/nvsmask3d/config.yml"
             ]#TODO
         if self.inference_dataset == "replica":
             scene_names = [
@@ -253,7 +256,9 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
         pred_classes = np.full(cls_num, 0)  # -1)
         
         # Loop through each mask/ object
-        for i in range(cls_num):
+        for i in tqdm(range(cls_num), 
+              desc="Inferenceing objects", 
+              total=cls_num):
             # set instance
             self.model.cls_index = i
             boolean_mask = class_agnostic_3d_mask[:, i]
@@ -268,8 +273,14 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 depth_filenames=self.model.metadata["depth_filenames"] if self.occlusion_aware else None,
                 depth_scale=self.model.depth_scale,
                 k_poses=self.top_k,
-                score_fn=self.visibility_score
+                score_fn=self.visibility_score,
+                vis_depth_threshold=0.05 if self.inference_dataset != "replica" else 0.4
             )
+            #sorted camera indices and its index
+            # this is for smoother interpolation, keep the order of camera indices
+            # Note! pose_sorted_index is not aligned with valid_u and valid_v's index anymore
+            best_camera_indices, pose_sorted_index = torch.sort(best_camera_indices) 
+
             # Skip if no valid camera poses
             if best_camera_indices.shape[0] == 0 or len(valid_u) == 0 or len(valid_v) == 0:
                 # print(
@@ -278,7 +289,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 continue
             
             # kind = "crop"
-            kind = "blur"
+            kind = self.kind
             blur_std_dev = 100.0
 
             rgb_outputs = []
@@ -411,7 +422,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 gt_images = []
                 # gt_images_label_map = []
                 
-                for index, pose_index in enumerate(best_camera_indices):
+                for pose_index, index in zip(best_camera_indices, pose_sorted_index):
                     if valid_u[index].shape[0] == 0 or valid_v[index].shape[0] == 0:
                         # print(f"Skipping inference for object {i} pose {index} due to no valid camera poses, assign")
                         continue
@@ -563,9 +574,13 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 if self.algorithm == 0:
                 #aggregate similarity scores 你目前是将批次中的相似度分数进行求和（sum），这可能会导致信息丢失，尤其是在增强视图之间存在较大差异的情况下。
                     if len(masked_gaussian_outputs) > 0:
-                        scores = mask_logits.sum(dim=0)  # Shape: (200,) for scannet200 
+                        if self.interpolate_n_camera > 1:
+                            mask_logits[:-self.top_k]/=self.interpolate_n_camera
+                        scores = mask_logits.sum(dim=0)
                     if len(rgb_outputs) > 0:
-                        scores = rgb_logits.sum(dim=0)  # Shape: (200,) for scannet200 
+                        if self.interpolate_n_camera > 1:
+                            rgb_logits[:-self.top_k]/=self.interpolate_n_camera
+                        scores = rgb_logits.sum(dim=0)
 
                 # if self.algorithm == 1:
                 #     weights_mask = None
@@ -780,7 +795,6 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                             rgb_outputs.append(cropped_nvs_img)  # (C, H, W) ######################################################rgb##################################################################
                             cropped_nvs_img = cropped_nvs_img.cpu()#for wandb
                             # nvs_img_label_map = model.image_encoder.return_image_map(cropped_nvs_img)#for wandb
-                            nvs_img_pil = transforms.ToPILImage()(cropped_nvs_img)#for wandb
                             #############debug################
                             # Save the cropped image
                             # try:
@@ -797,15 +811,20 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                             masked_gaussian_outputs.append(cropped_nvs_mask_image)###########################################################################gaussian#####################################################################
                             cropped_nvs_mask_image = cropped_nvs_mask_image.cpu()
                             #nvs_mask_img_label_map = model.image_encoder.return_image_map(cropped_nvs_mask_image)#for wandb
-                            nvs_mask_img_pil = transforms.ToPILImage()(cropped_nvs_mask_image)#for wandb
                             # Combine GT image and mask horizontally
-                        combined_nvs_image = concat_images_vertically([nvs_img_pil, nvs_mask_img_pil])#for wandb
-                        # combined_nvs_image_label_map = concat_images_vertically([nvs_img_label_map, nvs_mask_img_label_map])#for wandb
-                        interpolated_images.append(combined_nvs_image)#for wandb
-                        # interpolated_images_label_map.append(combined_nvs_image_label_map)#for wandb
+                        if self.wandb_mode != "disabled":
+                            if self.interpolate_n_rgb_camera > 0:
+                                nvs_img_pil = transforms.ToPILImage()(cropped_nvs_img)#for wandb
+                            if self.interpolate_n_gaussian_camera > 0:
+                                nvs_mask_img_pil = transforms.ToPILImage()(cropped_nvs_mask_image)#for wandb
+                            combined_nvs_image = concat_images_vertically([nvs_img_pil, nvs_mask_img_pil])#for wandb
+                            # combined_nvs_image_label_map = concat_images_vertically([nvs_img_label_map, nvs_mask_img_label_map])#for wandb
+                            interpolated_images.append(combined_nvs_image)#for wandb
+                            # interpolated_images_label_map.append(combined_nvs_image_label_map)#for wandb
                     else:
                         print(f"Invalid bounding box for image {interpolation_index}: "
                             f"min_u={min_u}, max_u={max_u}, min_v={min_v}, max_v={max_v}")
+                # interpolated images's selection via entropy
             #################################################################################################
             #gt camera pose
             if self.gt_camera_rgb or self.gt_camera_gaussian:
@@ -924,11 +943,18 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 if algorithm == 0:  
                 #aggregate similarity scores 你目前是将批次中的相似度分数进行求和（sum），这可能会导致信息丢失，尤其是在增强视图之间存在较大差异的情况下。
                     if len(masked_gaussian_outputs) > 0:
-                        scores = mask_logits.sum(dim=0)  # Shape: (200,) for scannet200 
+                        if self.interpolate_n_camera > 1:
+                            rgb_logits[:-self.top_k]/=self.interpolate_n_camera
+                        scores = mask_logits.sum(dim=0)  
+                        #scores = select_low_entropy_logits(mask_logits, self.top_k, apply_softmax=True).sum(dim=0)
                     if len(rgb_outputs) > 0:
-                        scores = rgb_logits.sum(dim=0)  # Shape: (200,) for scannet200 
-                        
-                        #weighted with entropy
+                        if self.interpolate_n_camera > 1:
+                            rgb_logits[:-self.top_k]/=self.interpolate_n_camera
+                        scores = rgb_logits.sum(dim=0) 
+                            
+                        #scores = select_low_entropy_logits(rgb_logits, self.top_k, apply_softmax=True).sum(dim=0)  
+
+                        #weighted with entropy cant increase the performance
                         # # Step 1: Compute class probabilities for each view
                         # probs = torch.softmax(rgb_logits, dim=-1)  # Shape: [num_views, num_classes]
                         # # Step 2: Calculate entropy for each class across views
@@ -1026,24 +1052,25 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 max_ind = torch.argmax(scores).item()
                 pred_classes[i] = max_ind  
                 # Log interpolated images
-                if 'interpolated_images' in locals() and len(interpolated_images) > 0:
-                    plot_images_and_logits(
-                        i,
-                        interpolated_images, rgb_logits[:-self.top_k] if len(rgb_outputs) > 0 else mask_logits[:-self.top_k], 
-                        "Interpolated Scene", 'combined_image_with_logits_fixed_and_points.png', 
-                        scene_name, max_ind, REPLICA_CLASSES
-                    )
-                    
-                # Log GT images
-                if 'gt_images' in locals() and len(gt_images) > 0:
-                    # Use the helper function for GT images
-                    plot_images_and_logits(
-                        i,
-                        gt_images, rgb_logits[-self.top_k:] if len(rgb_outputs) > 0 else mask_logits[-self.top_k:], 
-                        "GT Scene", 'combined_image_with_logits_fixed_and_points.png', 
-                        scene_name, max_ind, REPLICA_CLASSES
-                    )
-                    #wandb.log({f"GT Scene: {scene_name}": wandb.Image(final_gt_image, caption=f"GT Camera Pose for object {i} predicted class: {REPLICA_CLASSES[max_ind]}")})
+                if self.wandb_mode != "disabled":
+                    if 'interpolated_images' in locals() and len(interpolated_images) > 0:
+                        plot_images_and_logits(
+                            i,
+                            interpolated_images, rgb_logits[:-self.top_k] if len(rgb_outputs) > 0 else mask_logits[:-self.top_k], 
+                            "Interpolated Scene", 'combined_image_with_logits_fixed_and_points.png', 
+                            scene_name, max_ind, REPLICA_CLASSES if self.inference_dataset == "replica" else SCANNETPP_CLASSES
+                        )
+                        
+                    # Log GT images
+                    if 'gt_images' in locals() and len(gt_images) > 0:
+                        # Use the helper function for GT images
+                        plot_images_and_logits(
+                            i,
+                            gt_images, rgb_logits[-self.top_k:] if len(rgb_outputs) > 0 else mask_logits[-self.top_k:], 
+                            "GT Scene", 'combined_image_with_logits_fixed_and_points.png', 
+                            scene_name, max_ind, REPLICA_CLASSES if self.inference_dataset == "replica" else SCANNETPP_CLASSES
+                        )
+                        #wandb.log({f"GT Scene: {scene_name}": wandb.Image(final_gt_image, caption=f"GT Camera Pose for object {i} predicted class: {REPLICA_CLASSES[max_ind]}")})
         return pred_classes
 
 

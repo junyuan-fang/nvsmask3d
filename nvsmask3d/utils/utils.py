@@ -236,6 +236,69 @@ SCANNET200_CLASSES = [
 
 # Depth Scale Factor m to mm
 SCALE_FACTOR = 0.001
+# def select_low_entropy_logits(logits, top_k, apply_softmax=True):
+#     """
+#     选择给定logits中熵最小的top_k个视角，并返回这些视角的logits之和。
+    
+#     参数:
+#         logits (torch.Tensor): 输入的logits，形状为 [num_views, num_classes]
+#         top_k (int): 要选择的低熵视角数量
+#         apply_softmax (bool): 是否对logits应用softmax进行熵计算，默认为True
+        
+#     返回:
+#         torch.Tensor: 选定视角的logits之和，形状为 [num_classes]
+#     """
+#     if logits.size(0)<= (top_k):# skip camera interp = 1
+#         return logits
+#     # 计算 softmax 概率以便计算熵
+#     if apply_softmax:
+#         probs = torch.softmax(logits, dim=-1)  # [num_views, num_classes]
+#     else:
+#         probs = logits  # 若不需要 softmax，直接使用logits
+    
+#     # 计算每个视角的熵
+#     entropy = -torch.sum(probs * torch.log(probs + 1e-9), dim=1)  # [num_views]
+
+#     # 找出熵最小的前 top_k 个视角
+#     _, top_k_indices = torch.topk(-entropy, k=top_k, largest=True)
+
+#     # 取出这些低熵视角的 logits
+#     top_k_logits = logits[top_k_indices[:top_k]]  # [top_k, num_classes]
+#     return top_k_logits  # [num_classes]
+def select_low_entropy_logits(logits, top_k, apply_softmax=True):
+    """
+    选择给定logits中熵最小的top_k个视角，并返回这些视角的logits之和。
+    
+    参数:
+        logits (torch.Tensor): 输入的logits，形状为 [num_views, num_classes]
+        top_k (int): 要选择的低熵视角数量
+        apply_softmax (bool): 是否对logits应用softmax进行熵计算，默认为True
+        
+    返回:
+        torch.Tensor: 选定视角的logits之和，形状为 [num_classes]
+    """
+    if logits.size(0)<= 2*(top_k):# skip camera interp = 1
+        return logits
+    interpolated_logits = logits[:-top_k]
+    gt_rgb_logits = logits[-top_k:]# default position of gt_rgb is the last top_k
+    # 计算 softmax 概率以便计算熵
+    if apply_softmax:
+        probs = torch.softmax(interpolated_logits, dim=-1)  # [num_views, num_classes]
+    else:
+        probs = interpolated_logits  # 若不需要 softmax，直接使用logits
+    
+    # 计算每个视角的熵
+    entropy = -torch.sum(probs * torch.log(probs + 1e-9), dim=1)  # [num_views]
+
+    # 找出熵最小的前 top_k 个视角
+    _, top_k_indices = torch.topk(-entropy, k=top_k, largest=True)
+
+    # 取出这些低熵视角的 logits
+    top_k_logits = logits[top_k_indices]  # [top_k, num_classes]
+    
+    # 将 gt_rgb_logits 与 top_k_logits 拼接并返回
+    top_k_logits = torch.cat([top_k_logits, gt_rgb_logits], dim=0)  # [top_k + num_gt_rgb, num_classes]
+    return top_k_logits  # [num_classes]
 
 def blur_non_masked_areas(img_tensor, mask, blur_kernel_size=15):
     """
