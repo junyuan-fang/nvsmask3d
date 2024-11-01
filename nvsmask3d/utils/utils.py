@@ -352,8 +352,86 @@ def video_to_frames(
             keep_image_dir=False,
         )
         assert num_extracted_frames == num_frames_target
+import subprocess
 
+def run_command_and_save_output(cmd, output_file):
+    # Run the command
+    result = subprocess.run(
+        cmd,
+        shell=True,  # Use shell=True if the command is a shell command
+        capture_output=True,  # Capture both stdout and stderr
+        text=True  # Return output as strings instead of bytes
+    )
 
+    # Save output to a file
+    with open(output_file, 'w') as f:
+        f.write("Standard Output:\n")
+        f.write(result.stdout)  # Write standard output
+        f.write("\nStandard Error:\n")
+        f.write(result.stderr)  # Write standard error
+
+    # Optionally print the return code
+    print(f"Command executed with return code: {result.returncode}")
+def save_predictions(preds, output_dir, VALID_CLASS_IDS):
+    # 创建存放预测掩码的目录
+    masks_dir = os.path.join(output_dir, "predicted_masks")
+    os.makedirs(masks_dir, exist_ok=True)
+
+    for scene_name, scene_data in preds.items():
+        pred_masks = scene_data["pred_masks"]  # 掩码数组，形状为 (num_points, num_instances)
+        pred_classes_orig = scene_data["pred_classes"]  # 每个实例的类别ID，形状为 (num_instances,)
+        #replace class id with valid class id
+        pred_classes = [VALID_CLASS_IDS[c] for c in pred_classes_orig]
+        import pdb; pdb.set_trace()
+        pred_scores = scene_data["pred_scores"]  # 每个实例的置信度，形状为 (num_instances,)
+
+        summary_lines = []
+
+        # 遍历每个实例
+        for i in range(pred_masks.shape[1]):
+            mask = pred_masks[:, i]
+            class_id = pred_classes[i]
+            score = pred_scores[i]
+
+            # 使用 RLE 编码掩码
+            rle_mask_data = rle_encode(mask.astype(int))  # 返回带嵌套结构的字典
+            rle_counts = rle_mask_data["counts"]  # 提取 counts 字符串
+            
+            # 生成掩码文件名
+            mask_filename = f"{scene_name}_{i:03d}.json"
+            mask_filepath = os.path.join(masks_dir, mask_filename)
+            
+            # 保存 RLE 编码到 JSON 文件中，确保 counts 是字符串
+            rle_data = {
+                "length": len(mask),
+                "counts": rle_counts  # 确保这里是空格分隔字符串而非嵌套结构
+            }
+            with open(mask_filepath, 'w') as f:
+                json.dump(rle_data, f)
+
+            # 记录主 .txt 文件的内容，包括相对路径、类ID和置信度
+            relative_path = os.path.join("predicted_masks", mask_filename)
+            summary_lines.append(f"{relative_path} {class_id} {score:.4f}")
+
+        # 将每个场景的摘要信息写入对应的 .txt 文件
+        scene_txt_path = os.path.join(output_dir, f"{scene_name}.txt")
+        with open(scene_txt_path, 'w') as f:
+            f.write("\n".join(summary_lines))
+def rle_encode(mask):
+    """Encode RLE (Run-length-encode) from 1D binary mask.
+
+    Args:
+        mask (np.ndarray): 1D binary mask
+    Returns:
+        rle (dict): encoded RLE
+    """
+    length = mask.shape[0]
+    mask = np.concatenate([[0], mask, [0]])
+    runs = np.where(mask[1:] != mask[:-1])[0] + 1
+    runs[1::2] -= runs[::2]
+    counts = ' '.join(str(x) for x in runs)
+    rle = dict(length=length, counts=counts)
+    return rle
 def get_filename_list(image_dir: Path, ends_with: Optional[str] = None) -> List:
     """List directory and save filenames
 

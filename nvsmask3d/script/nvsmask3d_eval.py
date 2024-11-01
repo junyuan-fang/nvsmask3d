@@ -32,10 +32,10 @@ import json
 from nvsmask3d.utils.utils import plot_images_and_logits
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 from typing import Literal, Optional, Tuple, Union, Callable
 import torch
-from nvsmask3d.utils.utils import blur_non_masked_areas, make_square_image, generate_txt_files_optimized
+from nvsmask3d.utils.utils import blur_non_masked_areas, make_square_image, generate_txt_files_optimized, save_predictions, rle_encode, run_command_and_save_output
 from nvsmask3d.utils.camera_utils import (
     get_camera_pose_in_opencv_convention,
     object_optimal_k_camera_poses_2D_mask,
@@ -108,8 +108,8 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
 
     # Path to config YAML file.
     path: Path = Path("nvsmask3d/data/replica")
-    load_configs: Optional[list] = None
-    scene_names: Optional[list] = None
+    load_configs: Optional[List[str]] = None
+    scene_names: Optional[ List[str]] = None
     top_k: int = 15
     visibility_score: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] = lambda num_visible_points, bounding_box_area: num_visible_points*bounding_box_area
     occlusion_aware: Optional[bool] = True
@@ -148,18 +148,21 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
             # 'f3d64c30f8', '0d2ee665be', '3db0a1c8f3', 'ac48a9b736', 'c5439f4607', '578511c8a9',
             # 'd755b3d9d8', '99fa5c25e1', '09c1414f1b', '5f99900f09', '9071e139d9', '6115eddb86',
             # '27dd4da69e', 'c49a8c6cff']
-            scene_names = ['7b6477cb95']
+            scene_names = self.scene_names
             test_mode = "all scannetpp"
-            load_configs = [
-                "outputs/7b6477cb95_dslr_colmap/nvsmask3d/config.yml"
-            ]#TODO
-            gt_dir = "nvsmask3d/data/ScannetPP/sem_gt_val"
+            load_configs = self.load_configs
+            # import pdb;pdb.set_trace()
+            # gt_dir = "nvsmask3d/data/ScannetPP/sem_gt_val"
         if self.inference_dataset == "replica":
             scene_names = self.scene_names
             test_mode = "all replica"
             load_configs = self.load_configs
-            import pdb; pdb.set_trace()
-
+            # #save scene names, test_mode, load_configs to txt file for testing
+            # with open("result.txt", "w") as f:
+            #     f.write(f"scene_names: {scene_names}\n")
+            #     f.write(f"test_mode: {test_mode}\n")
+            #     f.write(f"load_configs: {load_configs}\n")
+            # quit()
         preds = {}
         # scene_names = ["scene0011_00"]  # hard coded for now
         with torch.no_grad():
@@ -194,13 +197,18 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     "pred_classes": pred_classes, # (num_cls,) with value from dataset's class id
                 }
                 if self.inference_dataset == "scannetpp":#save pred one by one, later scannet_repo will do the evaluation in seperated script
-                    # save preds to torch file
-                    output_folder = "results/segmentation"
-                    if not os.path.exists(output_folder):
-                        os.makedirs(output_folder)
-                    # 确保路径中有分隔符
-                    torch.save(preds, os.path.join(output_folder, "preds.pth"))
-                    generate_txt_files_optimized(preds, "results/segmentation")
+                    VALID_CLASS_IDS = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 21, 22, 23, 25, 27, 28, 29, 30, 31, 32, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 49, 50, 51, 52, 54, 55, 56, 57, 58, 59, 60, 61, 62, 65, 66, 67, 68, 69, 70, 71, 72, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99]
+                    output_dir = "/results/pred"
+                    save_predictions(preds, output_dir,VALID_CLASS_IDS)
+                    
+                    # # save preds to torch file
+                    # output_folder = "results/segmentation"
+                    # if not os.path.exists(output_folder):
+                    #     os.makedirs(output_folder)
+                    # # 确保路径中有分隔符
+                    # torch.save(preds, os.path.join(output_folder, "preds.pth"))
+                    # generate_txt_files_optimized(preds, "results/segmentation")
+                    
             if self.inference_dataset == "replica":
                 inst_AP = evaluate_replica(
                     preds, gt_dir, output_file="output.txt", dataset="replica"
@@ -218,9 +226,11 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 with open(file_name, "w") as f:
                     json.dump(inst_AP, f, indent=4)
                 #log_evaluation_results_to_wandb(inst_AP,self.run_name_for_wandb)
-            # if self.inference_dataset == "scannetpp":   
-            #     #
-                
+            if self.inference_dataset == "scannetpp":   
+                # use scannetpp evaluation script
+                command = "python -m scannetpp.semantic.eval.eval_instance eval_instance.yml"  # Example command
+                output_file = self.run_name_for_wandb + ".txt"
+                run_command_and_save_output(command, output_file)
 
     def pred_classes_with_sam(self, scene_name=""):
         """

@@ -3,6 +3,9 @@
 import glob
 import os
 import time
+from typing import Optional
+from typing import List, Union
+import ast
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
@@ -18,7 +21,7 @@ data_dirs = {
 
 # scenes to run from dataset
 scenes = {
-    "scannetpp": (
+    "scannetpp": [
         '7b6477cb95', 'c50d2d1d42', 'cc5237fd77', 'acd95847c5', 'fb5a96b1a2', 'a24f64f7fb',
         '1ada7a0617', '5eb31827b7', '3e8bba0176', '3f15a9266d', '21d970d8de', '5748ce6f01',
         'c4c04e6d6c', '7831862f02', 'bde1e479ad', '38d58a7a31', '5ee7c22ba0', 'f9f95681fd',
@@ -28,8 +31,8 @@ scenes = {
         'f3d64c30f8', '0d2ee665be', '3db0a1c8f3', 'ac48a9b736', 'c5439f4607', '578511c8a9',
         'd755b3d9d8', '99fa5c25e1', '09c1414f1b', '5f99900f09', '9071e139d9', '6115eddb86',
         '27dd4da69e', 'c49a8c6cff'
-    ),
-    "replica": (
+    ],
+    "replica": [
         "office0",
         "office1",
         "office2",
@@ -38,49 +41,101 @@ scenes = {
         "room1",
         "room2",
         "room0",
-    ),
+    ],
 }
+REPLICA_LOAD_CONFIGS = [
 
+                "outputs/office0/nvsmask3d/config.yml",
+                "outputs/office1/nvsmask3d/config.yml",
+                "outputs/office2/nvsmask3d/config.yml",
+                "outputs/office3/nvsmask3d/config.yml",
+                "outputs/office4/nvsmask3d/config.yml",
+                "outputs/room1/nvsmask3d/config.yml",
+                "outputs/room2/nvsmask3d/config.yml",
+                "outputs/room0/nvsmask3d/config.yml",
+
+            ]
 
 @dataclass
 class BenchmarkConfig:
     """Baseline benchmark config"""
-
     # trainer to run
-    function: str = "eval_config_run.py"
+    function: str = "nvsmask3d/script/eval_config_run.py"
     # path to data
-    load_config : str = "outputs/7b6477cb95_dslr_colmap/nvsmask3d/config.yml"
-    dry_run: bool = True
+    dataset : str = "replica"
+    kind : str = "crop"
+    sam : bool = False
+    wandb_mode : str = "disabled"
+    project_name : str = "crop"
+    experiment_type : str = "rgb"   
+    scene_names: Optional[List[str]]= None  # Accept either str or List
+    load_configs: Optional[List[str]] = None  # Accept either str or List
+    dry_run: bool = False
     excluded_gpus: set = field(default_factory=set)
 
 # Configurations of different options
-first_config = BenchmarkConfig(
-    load_config = "outputs/7b6477cb95_dslr_colmap/nvsmask3d/config.yml")
-second_config = first_config
+replica_config = BenchmarkConfig(load_configs = REPLICA_LOAD_CONFIGS, scene_names = scenes["replica"])
+scannetpp_config = BenchmarkConfig(load_configs = "outputs/7b6477cb95_dslr_colmap/nvsmask3d/config.yml")
 
-# Jobs to run or different "configs" to run
-configs_to_run = [
-    first_config,
-    second_config
+configs_to_run = [  
+    replica_config
 ]
+# Jobs to run or different "configs" to run
+# configs_to_run = [
+#     first_config,
+#     second_config
+# ]
+
 
 SKIP_TRAIN = False
 
 
+# def train_scene(gpu, config: BenchmarkConfig):
+#     """Train a single scene with config on current gpu"""
+#     # additional user set model configs
+#     model_config_args = " ".join(f"{k} {v}" for k, v in config.model_configs.items())
+
+#     if not SKIP_TRAIN:
+#         # train without eval
+#         cmd = f"OMP_NUM_THREADS=4 " \
+#                 f"CUDA_VISIBLE_DEVICES={gpu} " \
+#                 f"python {config.function} " \
+#                 f"--load-configs {config.load_configs} " \
+#                 f"--dataset {config.dataset} " \
+#                 f"--scene-names {config.scene_names} " \
+#                 f"--experiment_type {config.experiment_type} " \
+#                 f"--sam {config.sam} " \
+#                 f"--project_name {config.project_name} " \
+#                 f"--wandb_mode {config.wandb_mode} " \
+#                 f"--kind {config.kind}"
+
+#         if not config.dry_run:
+#             os.system(cmd)
+#     return True
+
 def train_scene(gpu, config: BenchmarkConfig):
+    print("------------------------------------------------------------------------------------------------------")
+    load_configs_str = ' '.join(config.load_configs)
+    scene_names_str = ' '.join(config.scene_names)
+    print("load_configs_str:", load_configs_str)
+    print("scene_names_str:", scene_names_str)
+
     """Train a single scene with config on current gpu"""
-    # additional user set model configs
-    model_config_args = " ".join(f"{k} {v}" for k, v in config.model_configs.items())
+    cmd = f"OMP_NUM_THREADS=4 " \
+          f"CUDA_VISIBLE_DEVICES={gpu} " \
+          f"python {config.function} " \
+          f"--load-configs {load_configs_str} " \
+          f"--dataset {config.dataset} " \
+          f"--scene-names {scene_names_str} " \
+          f"--experiment_type {config.experiment_type} " \
+          f"--sam {config.sam} " \
+          f"--project_name {config.project_name} " \
+          f"--wandb_mode {config.wandb_mode} " \
+          f"--kind {config.kind}"
 
-    if not SKIP_TRAIN:
-        # train without eval
-        cmd = f"OMP_NUM_THREADS=4 CUDA_VISIBLE_DEVICES={gpu} python {config.function} --load-config {config.load_config}"
-        print(cmd)
-
-        if not config.dry_run:
-            os.system(cmd)
-
-    return True
+    print("Generated command:", cmd)  # Debugging print
+    if not config.dry_run:
+        os.system(cmd)
 
 
 def worker(config, gpu):
@@ -92,37 +147,32 @@ def worker(config, gpu):
 
 def dispatch_jobs(jobs, executor):
     future_to_job = {}
-    reserved_gpus = set()  # GPUs that are slated for work but may not be active yet
-    print(jobs)
+    reserved_gpus = set()
+    print("Jobs to dispatch:", jobs)
     while jobs or future_to_job:
-        # Get the list of available GPUs, not including those that are reserved.
+        print("Checking for available GPUs...")
         all_available_gpus = set(
-            GPUtil.getAvailable(order="first", limit=10, maxMemory=0.1, maxLoad=0.1)
+            GPUtil.getAvailable(order="first", limit=10, maxMemory=0.5, maxLoad=0.5)
         )
         available_gpus = list(all_available_gpus - reserved_gpus)
+        print("Available GPUs:", available_gpus)
+        print("Reserved GPUs:", reserved_gpus)
 
-        # Launch new jobs on available GPUs
         while available_gpus and jobs:
             gpu = available_gpus.pop(0)
             job = jobs.pop(0)
-            future = executor.submit(
-                worker, job, gpu
-            )  # Unpacking job as arguments to worker
+            future = executor.submit(worker, job, gpu)
             future_to_job[future] = (gpu, job)
-            reserved_gpus.add(gpu)  # Reserve this GPU until the job starts processing
+            reserved_gpus.add(gpu)
+            print(f"Dispatched job on GPU {gpu}")
 
-        # Check for completed jobs and remove them from the list of running jobs.
-        # Also, release the GPUs they were using.
         done_futures = [future for future in future_to_job if future.done()]
         for future in done_futures:
-            job = future_to_job.pop(
-                future
-            )  # Remove the job associated with the completed future
-            gpu = job[0]  # The GPU is the first element in each job tuple
-            reserved_gpus.discard(gpu)  # Release this GPU
-            print(f"Job {job} has finished., releasing GPU {gpu}")
-        # (Optional) You might want to introduce a small delay here to prevent this loop from spinning very fast
-        # when there are no GPUs available.
+            job = future_to_job.pop(future)
+            gpu = job[0]
+            reserved_gpus.discard(gpu)
+            print(f"Job {job} has finished, releasing GPU {gpu}")
+
         time.sleep(5)
 
     print("All jobs have been processed.")

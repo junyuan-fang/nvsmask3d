@@ -70,7 +70,7 @@ class Experiment:
 
     def generate_run_name(self) -> str:
         mode_info = f"MODE: {'rgb' if self.gt_camera_rgb else ''}-{'masked_gaussian' if self.gt_camera_gaussian else ''}"
-        return f"SAM:{self.sam} algo:{self.algorithm} topk:{self.top_k} {mode_info} CAMERA_INTERP:{self.interpolate_n_camera} VIS:{self.visibility_score_description} OCC_AWARE:{self.occlusion_aware} kind:{self.kind}"
+        return f"{self.dataset} SAM:{self.sam} algo:{self.algorithm} topk:{self.top_k} {mode_info} CAMERA_INTERP:{self.interpolate_n_camera} VIS:{self.visibility_score_description} OCC_AWARE:{self.occlusion_aware} kind:{self.kind}"
 
     def run(self):
         """Run the experiment and log results with WandB."""
