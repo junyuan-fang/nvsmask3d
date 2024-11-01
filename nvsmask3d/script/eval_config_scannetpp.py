@@ -30,7 +30,7 @@ SCENE_NAMES = ['7b6477cb95', 'c50d2d1d42', 'cc5237fd77', 'acd95847c5', 'fb5a96b1
             'd755b3d9d8', '99fa5c25e1', '09c1414f1b', '5f99900f09', '9071e139d9', '6115eddb86',
             '27dd4da69e', 'c49a8c6cff']
 
-LOAD_CONFIGS = [ f"nvsmask3d/outputs/{scene}_dslr_colmap/nvsmask3d/config.yml" for scene in SCENE_NAMES
+LOAD_CONFIGS = [ f"outputs/{scene}_dslr_colmap/nvsmask3d/config.yml" for scene in SCENE_NAMES
             ]
 
 class Experiment:
@@ -163,6 +163,7 @@ def scannetpp_run_experiments(scene_names: Optional[List[str]] = SCENE_NAMES, lo
 if __name__ == "__main__": 
     # import tyro
     # tyro.cli(run_experiments)  
+    print("runnning starts")
     scannetpp_run_experiments(experiment_type="rgb", dataset="scannetpp", sam=False, algorithm=0, project_name="rgb", wandb_mode="disabled", kind="crop")
     #run_experiments(experiment_type="rgb", dataset="replica", sam=False, algorithm=0, project_name="blur", wandb_mode="disabled", kind="blur")# online,offline,disabled
     #run_experiments(experiment_type="rgb", dataset="", sam=False, algorithm=0, project_name="blur", wandb_mode="disabled", kind="blur")# online,offline,disabled
