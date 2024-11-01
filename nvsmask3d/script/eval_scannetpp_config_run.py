@@ -5,8 +5,6 @@ from nvsmask3d.script.nvsmask3d_eval import ComputeForAP
 import wandb
 from tqdm import tqdm
 
-SCANNETPP_CLASSES = ['table', 'door', 'ceiling lamp', 'cabinet', 'blinds', 'curtain', 'chair', 'storage cabinet', 'office chair', 'bookshelf', 'whiteboard', 'window', 'box', 'monitor', 'shelf', 'heater', 'kitchen cabinet', 'sofa', 'bed', 'trash can', 'book', 'plant', 'blanket', 'tv', 'computer tower', 'refrigerator', 'jacket', 'sink', 'bag', 'picture', 'pillow', 'towel', 'suitcase', 'backpack', 'crate', 'keyboard', 'rack', 'toilet', 'printer', 'poster', 'painting', 'microwave', 'shoes', 'socket', 'bottle', 'bucket', 'cushion', 'basket', 'shoe rack', 'telephone', 'file folder', 'laptop', 'plant pot', 'exhaust fan', 'cup', 'coat hanger', 'light switch', 'speaker', 'table lamp', 'kettle', 'smoke detector', 'container', 'power strip', 'slippers', 'paper bag', 'mouse', 'cutting board', 'toilet paper', 'paper towel', 'pot', 'clock', 'pan', 'tap', 'jar', 'soap dispenser', 'binder', 'bowl', 'tissue box', 'whiteboard eraser', 'toilet brush', 'spray bottle', 'headphones', 'stapler', 'marker']
-
 # Visibility score functions
 VISIBILITY_SCORES = {
     "visible_points": {
@@ -38,10 +36,11 @@ class Experiment:
         self.project_name = project_name
         self.algorithm = algorithm
         self.dataset = dataset
-        self.run_name_for_wandb = self.generate_run_name()
         self.wandb_mode = wandb_mode
         self.visibility_score_key = visibility_score_key
         self.kind = kind
+        self.run_name_for_wandb = self.generate_run_name()
+
 
     def generate_run_name(self) -> str:
         mode_info = f"MODE: {'rgb' if self.gt_camera_rgb else ''}-{'masked_gaussian' if self.gt_camera_gaussian else ''}"
@@ -71,7 +70,7 @@ class Experiment:
         )
 
         compute_ap = ComputeForAP(
-            load_config=self.load_config,
+            patj=self.load_config,
             sam=self.sam,
             top_k=self.top_k,
             visibility_score=self.visibility_score_fn,
@@ -93,7 +92,7 @@ class Experiment:
         wandb.finish()
 
 
-def create_experiments(project_name: str, experiment_type: str, dataset: str, sam: bool, algorithm: int, wandb_mode: str = "online", kind = "crop"):
+def create_experiments(load_config:str, project_name: str, experiment_type: str, dataset: str, sam: bool, algorithm: int, wandb_mode: str = "online", kind = "crop"):
     """Creates experiments based on experiment type."""
     config_map = {
         "rgb": {"gt_camera_rgb": True, "gt_camera_gaussian": False},
@@ -107,7 +106,7 @@ def create_experiments(project_name: str, experiment_type: str, dataset: str, sa
     config = config_map[experiment_type]
     return [
         Experiment(
-            load_config=Path("nvsmask3d/data/replica"),
+            load_config=Path(load_config), # Path("nvsmask3d/data/replica"),
             project_name=project_name,
             visibility_score_key="visible_points",
             dataset=dataset,
@@ -120,14 +119,18 @@ def create_experiments(project_name: str, experiment_type: str, dataset: str, sa
     ]
 
 
-def run_experiments(experiment_type: str, dataset: str = "replica", sam: bool = False, algorithm: int = 0, project_name: str = "depth_corrected", wandb_mode: str = "online", kind = "crop"):
-    experiments = create_experiments(project_name, experiment_type, dataset, sam, algorithm, wandb_mode, kind)
+def run_experiments(load_config: str, experiment_type: str, dataset: str = "replica", sam: bool = False, algorithm: int = 0, project_name: str = "depth_corrected", wandb_mode: str = "online", kind: str = "crop"):
+    experiments = create_experiments(load_config, project_name, experiment_type, dataset, sam, algorithm, wandb_mode, kind)
     for experiment in tqdm(experiments):
         experiment.run()
 
 
 if __name__ == "__main__": 
-    run_experiments(experiment_type="rgb", dataset="scannetpp", sam=False, algorithm=0, project_name="crop", wandb_mode="disabled", kind="crop")# online,offline,disabled
+    import tyro
+    tyro.cli(run_experiments)        
+    #run_experiments(experiment_type="rgb", dataset="replica", sam=False, algorithm=0, project_name="blur", wandb_mode="disabled", kind="blur")# online,offline,disabled
+    #run_experiments(experiment_type="rgb", dataset="", sam=False, algorithm=0, project_name="blur", wandb_mode="disabled", kind="blur")# online,offline,disabled
+
     #run_experiments(experiment_type="rgb", dataset="replica", sam=True, algorithm=0, project_name="rgb", wandb_mode="disabled")# online,offline,disabled
 
     #run_experiments(experiment_type="gaussian", dataset="replica", sam=False, algorithm=0, project_name="gaussian", wandb_mode="disabled")# online,offline,disabled

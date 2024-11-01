@@ -4,3 +4,6 @@
 [submodule "segment-anything"]
 	path = segment-anything
 	url = https://github.com/facebookresearch/segment-anything.git
+[submodule "scannetpp"]
+	path = scannetpp
+	url = https://github.com/scannetpp/scannetpp.git

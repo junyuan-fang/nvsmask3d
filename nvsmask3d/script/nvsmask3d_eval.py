@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import Optional
 from typing import Literal, Optional, Tuple, Union, Callable
 import torch
-from nvsmask3d.utils.utils import blur_non_masked_areas
+from nvsmask3d.utils.utils import blur_non_masked_areas, make_square_image, generate_txt_files_optimized
 from nvsmask3d.utils.camera_utils import (
     get_camera_pose_in_opencv_convention,
     object_optimal_k_camera_poses_2D_mask,
@@ -54,6 +54,7 @@ import numpy as np
 from nvsmask3d.eval.scannet200.eval_semantic_instance import (
     evaluate as evaluate_scannet200,
 )
+
 from nvsmask3d.eval.replica.eval_semantic_instance import evaluate as evaluate_replica
 from nvsmask3d.eval.replica.eval_semantic_instance import (
     CLASS_LABELS as REPLICA_CLASSES,
@@ -106,7 +107,9 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
     # use : ns-eval for_ap --load_config nvsmask3d/data/replica
 
     # Path to config YAML file.
-    load_config: Path = Path("nvsmask3d/data/replica")
+    path: Path = Path("nvsmask3d/data/replica")
+    load_configs: Optional[list] = None
+    scene_names: Optional[list] = None
     top_k: int = 15
     visibility_score: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] = lambda num_visible_points, bounding_box_area: num_visible_points*bounding_box_area
     occlusion_aware: Optional[bool] = True
@@ -134,48 +137,28 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
             wandb.init(project=self.project_name, name=self.run_name_for_wandb)
         # 假设从配置或命令行参数中读取 project_name 和 run_name
         if self.inference_dataset == "replica":
-            gt_dir = self.load_config / "ground_truth"
+            gt_dir = self.path / "ground_truth"
         if self.inference_dataset == "scannetpp":
-            scene_names = ['7b6477cb95', 'c50d2d1d42', 'cc5237fd77', 'acd95847c5', 'fb5a96b1a2', 'a24f64f7fb',
-            '1ada7a0617', '5eb31827b7', '3e8bba0176', '3f15a9266d', '21d970d8de', '5748ce6f01',
-            'c4c04e6d6c', '7831862f02', 'bde1e479ad', '38d58a7a31', '5ee7c22ba0', 'f9f95681fd',
-            '3864514494', '40aec5fffa', '13c3e046d7', 'e398684d27', 'a8bf42d646', '45b0dac5e3',
-            '31a2c91c43', 'e7af285f7d', '286b55a2bf', '7bc286c1b6', 'f3685d06a9', 'b0a08200c9',
-            '825d228aec', 'a980334473', 'f2dc06b1d2', '5942004064', '25f3b7a318', 'bcd2436daf',
-            'f3d64c30f8', '0d2ee665be', '3db0a1c8f3', 'ac48a9b736', 'c5439f4607', '578511c8a9',
-            'd755b3d9d8', '99fa5c25e1', '09c1414f1b', '5f99900f09', '9071e139d9', '6115eddb86',
-            '27dd4da69e', 'c49a8c6cff']
+            # scene_names = ['7b6477cb95', 'c50d2d1d42', 'cc5237fd77', 'acd95847c5', 'fb5a96b1a2', 'a24f64f7fb',
+            # '1ada7a0617', '5eb31827b7', '3e8bba0176', '3f15a9266d', '21d970d8de', '5748ce6f01',
+            # 'c4c04e6d6c', '7831862f02', 'bde1e479ad', '38d58a7a31', '5ee7c22ba0', 'f9f95681fd',
+            # '3864514494', '40aec5fffa', '13c3e046d7', 'e398684d27', 'a8bf42d646', '45b0dac5e3',
+            # '31a2c91c43', 'e7af285f7d', '286b55a2bf', '7bc286c1b6', 'f3685d06a9', 'b0a08200c9',
+            # '825d228aec', 'a980334473', 'f2dc06b1d2', '5942004064', '25f3b7a318', 'bcd2436daf',
+            # 'f3d64c30f8', '0d2ee665be', '3db0a1c8f3', 'ac48a9b736', 'c5439f4607', '578511c8a9',
+            # 'd755b3d9d8', '99fa5c25e1', '09c1414f1b', '5f99900f09', '9071e139d9', '6115eddb86',
+            # '27dd4da69e', 'c49a8c6cff']
+            scene_names = ['7b6477cb95']
             test_mode = "all scannetpp"
             load_configs = [
                 "outputs/7b6477cb95_dslr_colmap/nvsmask3d/config.yml"
             ]#TODO
+            gt_dir = "nvsmask3d/data/ScannetPP/sem_gt_val"
         if self.inference_dataset == "replica":
-            scene_names = [
-
-                "office0",
-                "office1",
-                "office2",
-                "office3",
-                "office4",
-                "room1",
-                "room2",
-                "room0",
-
-            ]
+            scene_names = self.scene_names
             test_mode = "all replica"
-
-            load_configs = [
-
-                "outputs/office0/nvsmask3d/config.yml",
-                "outputs/office1/nvsmask3d/config.yml",
-                "outputs/office2/nvsmask3d/config.yml",
-                "outputs/office3/nvsmask3d/config.yml",
-                "outputs/office4/nvsmask3d/config.yml",
-                "outputs/room1/nvsmask3d/config.yml",
-                "outputs/room2/nvsmask3d/config.yml",
-                "outputs/room0/nvsmask3d/config.yml",
-
-            ]
+            load_configs = self.load_configs
+            import pdb; pdb.set_trace()
 
         preds = {}
         # scene_names = ["scene0011_00"]  # hard coded for now
@@ -210,6 +193,14 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     "pred_scores": pred_scores, # (num_cls,) with 1 value
                     "pred_classes": pred_classes, # (num_cls,) with value from dataset's class id
                 }
+                if self.inference_dataset == "scannetpp":#save pred one by one, later scannet_repo will do the evaluation in seperated script
+                    # save preds to torch file
+                    output_folder = "results/segmentation"
+                    if not os.path.exists(output_folder):
+                        os.makedirs(output_folder)
+                    # 确保路径中有分隔符
+                    torch.save(preds, os.path.join(output_folder, "preds.pth"))
+                    generate_txt_files_optimized(preds, "results/segmentation")
             if self.inference_dataset == "replica":
                 inst_AP = evaluate_replica(
                     preds, gt_dir, output_file="output.txt", dataset="replica"
@@ -227,9 +218,10 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 with open(file_name, "w") as f:
                     json.dump(inst_AP, f, indent=4)
                 #log_evaluation_results_to_wandb(inst_AP,self.run_name_for_wandb)
-            if self.inference_dataset == "scannetpp":
+            # if self.inference_dataset == "scannetpp":   
+            #     #
                 
-                pass 
+
     def pred_classes_with_sam(self, scene_name=""):
         """
         Args:
@@ -384,22 +376,23 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                                     ##################################
                                 
                                 elif kind == "blur":
-                                    temp = transforms.ToPILImage()(nvs_img.permute(2, 0, 1).cpu())
+                                    # temp = transforms.ToPILImage()(nvs_img.permute(2, 0, 1).cpu())
                                     
-                                    result = temp.copy()
-                                    result = result.filter(ImageFilter.GaussianBlur(blur_std_dev))
+                                    # result = temp.copy()
+                                    # result = result.filter(ImageFilter.GaussianBlur(blur_std_dev))
                                     
-                                    width, height = temp.size
-                                    mask = Image.new("L", (width, height), 0)
-                                    draw = ImageDraw.Draw(mask)
-                                    draw.rectangle((min_u, min_v, max_u, max_v), fill=255)
+                                    # width, height = temp.size
+                                    # mask = Image.new("L", (width, height), 0)
+                                    # draw = ImageDraw.Draw(mask)
+                                    # draw.rectangle((min_u, min_v, max_u, max_v), fill=255)
                                     
-                                    result.paste(temp, mask=mask)
+                                    # result.paste(temp, mask=mask)
+                                    result_tensor = make_square_image(nvs_img, min_v, max_v, min_u, max_u)
                                     
-                                    result_tensor = transforms.ToTensor()(result)
+                                    # result_tensor = transforms.ToTensor()(result)
                                     rgb_outputs.append(result_tensor.to(device="cuda"))
                                     
-                                    nvs_img_pil = result
+                                    nvs_img_pil = transforms.ToPILImage(result_tensor)
                                     
                             if self.interpolate_n_gaussian_camera > 0:
                                 # # Process and crop the nvs mask image, seems will make inference worse
@@ -486,26 +479,28 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                                         gt_img_pil = transforms.ToPILImage()(cropped_image)#for wandb
                                         
                                     elif kind == "blur":
-                                        temp = transforms.ToPILImage()(nvs_img.permute(2, 0, 1).cpu())
+                                        # temp = transforms.ToPILImage()(nvs_img.permute(2, 0, 1).cpu())
                                         
-                                        # test
-                                        # assert torch.allclose(nvs_img.permute(2, 0, 1).cpu(), transforms.ToTensor()(img))
+                                        # # test
+                                        # # assert torch.allclose(nvs_img.permute(2, 0, 1).cpu(), transforms.ToTensor()(img))
                                         
-                                        result = temp.copy()
-                                        result = result.filter(ImageFilter.GaussianBlur(blur_std_dev))
-                                        # result.paste(temp, mask=transforms.ToPILImage()(mask_i.cpu()))
+                                        # result = temp.copy()
+                                        # result = result.filter(ImageFilter.GaussianBlur(blur_std_dev))
+                                        # # result.paste(temp, mask=transforms.ToPILImage()(mask_i.cpu()))
                                         
-                                        width, height = temp.size
-                                        mask = Image.new("L", (width, height), 0)
-                                        draw = ImageDraw.Draw(mask)
-                                        draw.rectangle((min_u, min_v, max_u, max_v), fill=255)
+                                        # width, height = temp.size
+                                        # mask = Image.new("L", (width, height), 0)
+                                        # draw = ImageDraw.Draw(mask)
+                                        # draw.rectangle((min_u, min_v, max_u, max_v), fill=255)
                                         
-                                        result.paste(temp, mask=mask)
+                                        # result.paste(temp, mask=mask)
+                                        # result_tensor = transforms.ToTensor()(result)
                                         
-                                        result_tensor = transforms.ToTensor()(result)
+                                        result_tensor = make_square_image(nvs_img, min_v, max_v, min_u, max_u)
+                                        
                                         rgb_outputs.append(result_tensor.to(device="cuda"))
                                         
-                                        gt_img_pil = result
+                                        gt_img_pil = transforms.ToPILImage(result_tensor)
                                         
                                 if self.gt_camera_gaussian:
                                     nvs_mask_img = self.model.get_outputs(single_camera)["rgb_mask"]  # ["rgb_mask"]  # (H,W,3)
@@ -788,22 +783,25 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                         # nvs_img_label_map = None
                         # nvs_mask_img_label_map = None
                         if self.interpolate_n_rgb_camera > 0:
-                            #Get output dimensions to validate bounding box
-                            nvs_img = model.get_outputs(camera)["rgb"]  # (H, W, 3)
-                            cropped_nvs_img = nvs_img[min_v:max_v, min_u:max_u]
-                            cropped_nvs_img = cropped_nvs_img.permute(2, 0, 1) # (H, W, 3)
-                            rgb_outputs.append(cropped_nvs_img)  # (C, H, W) ######################################################rgb##################################################################
-                            cropped_nvs_img = cropped_nvs_img.cpu()#for wandb
-                            # nvs_img_label_map = model.image_encoder.return_image_map(cropped_nvs_img)#for wandb
-                            #############debug################
-                            # Save the cropped image
-                            # try:
-                            #     save_img(nvs_img, f"tests/nvs_image_{interpolation_index}.png")
-                            #     save_img(cropped_nvs_img.permute(1,2,0), f"tests/cropped_nvs_image_{interpolation_index}.png")
-                            # except Exception as e:
-                            #     print(f"Failed to save image {interpolation_index}: {e}")
-                            #     continue  
-                            ##################################
+                            if self.kind == "crop":
+                                #Get output dimensions to validate bounding box
+                                nvs_img = model.get_outputs(camera)["rgb"]  # (H, W, 3)
+                                cropped_nvs_img = nvs_img[min_v:max_v, min_u:max_u]
+                                cropped_nvs_img = cropped_nvs_img.permute(2, 0, 1) # (H, W, 3)
+                                rgb_outputs.append(cropped_nvs_img)  # (C, H, W) ######################################################rgb##################################################################
+                                cropped_nvs_img = cropped_nvs_img.cpu()#for wandb
+                                # nvs_img_label_map = model.image_encoder.return_image_map(cropped_nvs_img)#for wandb
+                                #############debug################
+                                # Save the cropped image
+                                # try:
+                                #     save_img(nvs_img, f"tests/nvs_image_{interpolation_index}.png")
+                                #     save_img(cropped_nvs_img.permute(1,2,0), f"tests/cropped_nvs_image_{interpolation_index}.png")
+                                # except Exception as e:
+                                #     print(f"Failed to save image {interpolation_index}: {e}")
+                                #     continue  
+                                ##################################
+                            if self.kind == "blur":
+                                pass
                         if self.interpolate_n_gaussian_camera > 0:
                             # # Process and crop the nvs mask image, seems will make inference worse
                             nvs_mask_img = model.get_outputs(camera)["rgb_mask"]  # (H, W, 3)
@@ -870,11 +868,14 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
 
                         # 如果有效，则裁剪图像
                         if self.gt_camera_rgb:
-                            cropped_image = img[:, min_v:max_v, min_u:max_u]
-                            rgb_outputs.append(cropped_image)#######################################################################################rgb#####################
-                            cropped_image = cropped_image.cpu()#for wandb
-                            # gt_img_pil_label_map = model.image_encoder.return_image_map(cropped_image) #for wandb
-                            gt_img_pil = transforms.ToPILImage()(cropped_image)#for wandb
+                            if self.kind == "crop":
+                                cropped_image = img[:, min_v:max_v, min_u:max_u]
+                                rgb_outputs.append(cropped_image)#######################################################################################rgb#####################
+                                cropped_image = cropped_image.cpu()#for wandb
+                                # gt_img_pil_label_map = model.image_encoder.return_image_map(cropped_image) #for wandb
+                                gt_img_pil = transforms.ToPILImage()(cropped_image)#for wandb
+                            if self.kind == "blur":
+                                pass
                         if self.gt_camera_gaussian:
                             nvs_mask_img = model.get_outputs(single_camera)["rgb_mask"]  # ["rgb_mask"]  # (H,W,3)
                             cropped_nvs_mask_image = nvs_mask_img[min_v:max_v, min_u:max_u].permute(2, 0, 1)

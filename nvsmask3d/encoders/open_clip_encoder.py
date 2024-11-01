@@ -28,9 +28,8 @@ from nvsmask3d.eval.replica.eval_semantic_instance import (
 from nvsmask3d.eval.replica.eval_semantic_instance import (
     CLASS_LABELS as REPLICA_CLASSES,
 )
-from nvsmask3d.eval.scannetpp.eval_semantic_instance import SCANNETPP_CLASSES
 
-
+SCANNETPP_CLASSES = ['table', 'door', 'ceiling lamp', 'cabinet', 'blinds', 'curtain', 'chair', 'storage cabinet', 'office chair', 'bookshelf', 'whiteboard', 'window', 'box', 'monitor', 'shelf', 'heater', 'kitchen cabinet', 'sofa', 'bed', 'trash can', 'book', 'plant', 'blanket', 'tv', 'computer tower', 'refrigerator', 'jacket', 'sink', 'bag', 'picture', 'pillow', 'towel', 'suitcase', 'backpack', 'crate', 'keyboard', 'rack', 'toilet', 'printer', 'poster', 'painting', 'microwave', 'shoes', 'socket', 'bottle', 'bucket', 'cushion', 'basket', 'shoe rack', 'telephone', 'file folder', 'laptop', 'plant pot', 'exhaust fan', 'cup', 'coat hanger', 'light switch', 'speaker', 'table lamp', 'kettle', 'smoke detector', 'container', 'power strip', 'slippers', 'paper bag', 'mouse', 'cutting board', 'toilet paper', 'paper towel', 'pot', 'clock', 'pan', 'tap', 'jar', 'soap dispenser', 'binder', 'bowl', 'tissue box', 'whiteboard eraser', 'toilet brush', 'spray bottle', 'headphones', 'stapler', 'marker']
 @dataclass
 class OpenCLIPNetworkConfig(BaseImageEncoderConfig):
     _target: Type = field(default_factory=lambda: OpenCLIPNetwork)

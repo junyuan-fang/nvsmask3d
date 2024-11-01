@@ -11,7 +11,7 @@ import open3d as o3d
 import torch
 from nvsmask3d.utils.camera_utils import OPENGL_TO_OPENCV, get_means3d_backproj
 from natsort import natsorted
-from PIL import Image
+from PIL import Image, ImageFilter
 from torch import Tensor
 from torch.utils.data import DataLoader
 from torchvision import transforms
@@ -1113,6 +1113,30 @@ def format_to_percentage(value):
         return "{:.1f}%".format(value * 100)
     except (TypeError, ValueError):
         return "0.0%"
+    
+def generate_txt_files_optimized(preds, output_dir):
+    os.makedirs(output_dir, exist_ok=True)
+    for scene_name, scene_data in preds.items():
+        num_points, num_classes = scene_data["pred_masks"].shape
+        pred_masks = scene_data["pred_masks"]
+        pred_classes = scene_data["pred_classes"]
+
+        # 初始化结果数组，所有元素设为 -100
+        labels = np.full(num_points, -100, dtype=int)
+
+        # 遍历每个类别，用 pred_classes[i] 替换 pred_masks 中为 1 的位置
+        for i in range(num_classes):
+            labels[pred_masks[:, i] == 1] = pred_classes[i]
+
+        # 将所有标签转换为字符串形式，未分配的标签保持为 "0"
+        result_lines = labels.astype(str)
+
+        # 将结果写入文件
+        output_path = os.path.join(output_dir, f"{scene_name}.txt")
+        with open(output_path, "w") as f:
+            f.write("\n".join(result_lines) + "\n")
+
+    print(f"Files generated in {output_dir}")
 
 def log_evaluation_results_to_wandb(avgs, run_name):
     # Define the metrics to log
@@ -1136,3 +1160,108 @@ def log_evaluation_results_to_wandb(avgs, run_name):
     
     # Log the table in W&B under a unique key
     wandb.log({f"{run_name}_evaluation_results": table})
+    
+    
+def blur(img_tensor):
+    # Optimized blur function using PyTorch's functional API
+    # img_tensor: (H, W, C), values in [0,1], torch tensor
+
+    # Ensure the image tensor is in (C, H, W) format
+    img_tensor = img_tensor.permute(2, 0, 1)  # (C, H, W)
+
+    # Define kernel size and sigma for Gaussian blur
+    kernel_size = 11  # Should be odd and greater than 1 (radius * 2 + 1)
+    sigma = 5  # Corresponds to the radius
+
+    # Apply Gaussian blur directly using PyTorch
+    blurred_img_tensor = F.gaussian_blur(img_tensor, kernel_size=[kernel_size, kernel_size], sigma=[sigma, sigma])
+
+    # Permute back to (H, W, C)
+    blurred_img_tensor = blurred_img_tensor.permute(1, 2, 0)  # (H, W, C)
+
+    return blurred_img_tensor
+
+
+def make_square_image(nvs_img, min_v, max_v, min_u, max_u):
+    # Optimized make_square_image function
+    # nvs_img: (H_total, W_total, 3), values in [0,1], torch tensor
+
+    # Crop the image
+    cropped_nvs_img = nvs_img[min_v:max_v, min_u:max_u]  # (H_cropped, W_cropped, 3)
+    H_cropped, W_cropped, _ = cropped_nvs_img.shape
+
+    if H_cropped == W_cropped:
+        # Image is already square
+        expanded_img = cropped_nvs_img
+    else:
+        # Need to make image square
+        if H_cropped > W_cropped:
+            # Need to increase width
+            diff = H_cropped - W_cropped
+            pad_left = diff // 2
+            pad_right = diff - pad_left
+
+            # Determine available extra pixels from the original image
+            extra_left = min(pad_left, min_u)
+            extra_right = min(pad_right, nvs_img.shape[1] - max_u)
+
+            # Remaining padding required after using extra pixels
+            remaining_left_pad = pad_left - extra_left
+            remaining_right_pad = pad_right - extra_right
+
+            # Initialize left and right pads with zeros
+            left_pad = torch.zeros(H_cropped, pad_left, 3, device=nvs_img.device, dtype=nvs_img.dtype)
+            right_pad = torch.zeros(H_cropped, pad_right, 3, device=nvs_img.device, dtype=nvs_img.dtype)
+
+            # Use extra pixels from the original image if available
+            if extra_left > 0:
+                left_extra = nvs_img[min_v:max_v, (min_u - extra_left):min_u]
+                left_extra_blurred = blur(left_extra)
+                left_pad[:, -extra_left:, :] = left_extra_blurred
+
+            if extra_right > 0:
+                right_extra = nvs_img[min_v:max_v, max_u:(max_u + extra_right)]
+                right_extra_blurred = blur(right_extra)
+                right_pad[:, :extra_right, :] = right_extra_blurred
+
+            # Concatenate left pad, cropped image, and right pad
+            expanded_img = torch.cat([left_pad, cropped_nvs_img, right_pad], dim=1)
+
+            # If remaining padding is required, it's already zeros
+        else:
+            # Need to increase height
+            diff = W_cropped - H_cropped
+            pad_top = diff // 2
+            pad_bottom = diff - pad_top
+
+            # Determine available extra pixels from the original image
+            extra_top = min(pad_top, min_v)
+            extra_bottom = min(pad_bottom, nvs_img.shape[0] - max_v)
+
+            # Remaining padding required after using extra pixels
+            remaining_top_pad = pad_top - extra_top
+            remaining_bottom_pad = pad_bottom - extra_bottom
+
+            # Initialize top and bottom pads with zeros
+            top_pad = torch.zeros(pad_top, W_cropped, 3, device=nvs_img.device, dtype=nvs_img.dtype)
+            bottom_pad = torch.zeros(pad_bottom, W_cropped, 3, device=nvs_img.device, dtype=nvs_img.dtype)
+
+            # Use extra pixels from the original image if available
+            if extra_top > 0:
+                top_extra = nvs_img[(min_v - extra_top):min_v, min_u:max_u]
+                top_extra_blurred = blur(top_extra)
+                top_pad[-extra_top:, :, :] = top_extra_blurred
+
+            if extra_bottom > 0:
+                bottom_extra = nvs_img[max_v:(max_v + extra_bottom), min_u:max_u]
+                bottom_extra_blurred = blur(bottom_extra)
+                bottom_pad[:extra_bottom, :, :] = bottom_extra_blurred
+
+            # Concatenate top pad, cropped image, and bottom pad
+            expanded_img = torch.cat([top_pad, cropped_nvs_img, bottom_pad], dim=0)
+
+            # If remaining padding is required, it's already zeros
+
+    # Permute to (C, H, W) as the final output
+    expanded_img = expanded_img.permute(2, 0, 1)  # (C, H, W)
+    return expanded_img
