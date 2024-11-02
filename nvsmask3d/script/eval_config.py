@@ -144,8 +144,9 @@ def create_experiments(scene_names: list, load_configs:list, project_name: str, 
             interpolate_n_camera=i,
             scene_names=scene_names,
             load_configs=load_configs,
+            kind=kind,
             **config
-        ) for i in range(0,5)
+        ) for i in range(1,5)
     ]
 
 
@@ -157,6 +158,7 @@ def run_experiments(scene_names: list = SCENE_NAMES, load_configs:list = LOAD_CO
 
 if __name__ == "__main__": 
     run_experiments(experiment_type="rgb", dataset="replica", sam=False, algorithm=0, project_name="blur", wandb_mode="disabled", kind="blur")# online,offline,disabled
+    # run_experiments(experiment_type="rgb", dataset="replica", sam=False, algorithm=0, project_name="blur", wandb_mode="disabled", kind="crop")# online,offline,disabled
     #run_experiments(experiment_type="rgb", dataset="replica", sam=False, algorithm=0, project_name="blur", wandb_mode="disabled", kind="blur")# online,offline,disabled
 
     #run_experiments(experiment_type="rgb", dataset="replica", sam=True, algorithm=0, project_name="rgb", wandb_mode="disabled")# online,offline,disabled
