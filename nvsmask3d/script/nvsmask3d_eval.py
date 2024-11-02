@@ -818,8 +818,8 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                                     result_tensor = make_square_image(nvs_img, u_i, v_i, min_u, max_u, min_v, max_v)  # CHW
                                     rgb_outputs.append(result_tensor.to(device="cuda"))
                                     cropped_nvs_img = result_tensor.cpu()
-                                    save_img(cropped_nvs_img.permute(1,2,0), f"tests/cropped_nvs_image_{interpolation_index}.png")
-                                    import pdb;pdb.set_trace()
+                                    # save_img(cropped_nvs_img.permute(1,2,0), f"tests/cropped_nvs_image_{interpolation_index}.png")
+                                    # import pdb;pdb.set_trace()
                             if self.interpolate_n_gaussian_camera > 0:
                                 # # Process and crop the nvs mask image, seems will make inference worse
                                 nvs_mask_img = model.get_outputs(camera)["rgb_mask"]  # (H, W, 3)
