@@ -60,7 +60,7 @@ REPLICA_LOAD_CONFIGS = [
 class BenchmarkConfig:
     """Baseline benchmark config"""
     # trainer to run
-    function: str = "nvsmask3d/script/eval_config_run.py"
+    function: str = "nvsmask3d/script/eval_config.py"
     # path to data
     dataset : str = "replica"
     kind : str = "crop"

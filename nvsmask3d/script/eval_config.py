@@ -146,7 +146,7 @@ def create_experiments(scene_names: list, load_configs:list, project_name: str, 
             load_configs=load_configs,
             kind=kind,
             **config
-        ) for i in range(1,5)
+        ) for i in range(0,5)
     ]
 
 

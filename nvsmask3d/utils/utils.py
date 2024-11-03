@@ -1372,7 +1372,7 @@ def blur(img_tensor):
 #     # expanded_img is already in (C, H, W)
 #     return expanded_img
 
-def make_square_image(nvs_img, valid_u, valid_v, min_u, max_u, min_v, max_v):
+def make_square_image(nvs_img, valid_u, valid_v, min_u, max_u, min_v, max_v, expand_factor=0.7):
     # Create a mask from valid_u and valid_v
     mask = torch.zeros((nvs_img.shape[1], nvs_img.shape[2]), dtype=torch.bool, device=nvs_img.device)
     mask[valid_v, valid_u] = True
@@ -1390,7 +1390,7 @@ def make_square_image(nvs_img, valid_u, valid_v, min_u, max_u, min_v, max_v):
     crop_height = max_v - min_v
     max_dim = max(crop_width, crop_height)
 
-    expansion_factor = 0.5  # We want the object to occupy 50% of the image
+    expansion_factor = expand_factor  # We want the object to occupy 50% of the image
     new_dim = int(max_dim / expansion_factor)
 
     center_u = (min_u + max_u) // 2

@@ -815,10 +815,10 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                                 if self.kind == "blur":
                                     nvs_img = model.get_outputs(camera)["rgb"]
                                     nvs_img = torch.permute(nvs_img, (2, 0, 1))
-                                    result_tensor = make_square_image(nvs_img, u_i, v_i, min_u, max_u, min_v, max_v)  # CHW
+                                    result_tensor = make_square_image(nvs_img, u_i, v_i, min_u, max_u, min_v, max_v, 0.7)  # CHW
                                     rgb_outputs.append(result_tensor.to(device="cuda"))
                                     cropped_nvs_img = result_tensor.cpu()
-                                    # save_img(cropped_nvs_img.permute(1,2,0), f"tests/cropped_nvs_image_{interpolation_index}.png")
+                                    save_img(cropped_nvs_img.permute(1,2,0), f"tests/blur_{0.7}_cam_interp{self.interpolate_n_camera}/object{i}/nvs_{interpolation_index}.png")
                                     # import pdb;pdb.set_trace()
                             if self.interpolate_n_gaussian_camera > 0:
                                 # # Process and crop the nvs mask image, seems will make inference worse
@@ -893,9 +893,9 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                                 # gt_img_pil_label_map = model.image_encoder.return_image_map(cropped_image) #for wandb
                                 gt_img_pil = transforms.ToPILImage()(cropped_image)#for wandb
                             if self.kind == "blur":
-                                result_tensor = make_square_image(img, valid_u[index], valid_v[index], min_u, max_u, min_v, max_v)  # CHW
+                                result_tensor = make_square_image(img, valid_u[index], valid_v[index], min_u, max_u, min_v, max_v, 0.7)  # CHW
                                 # save img to debug
-                                #save_img(result_tensor.permute(1, 2, 0), f"tests/output_{i}_{pose_index}.png")
+                                save_img(result_tensor.permute(1,2,0), f"tests/blur_{0.7}_cam_interp{self.interpolate_n_camera}/object{i}/gt_{index}.png")
                                 rgb_outputs.append(result_tensor.to(device="cuda"))
                                 cropped_image = result_tensor.cpu()
                                 gt_img_pil = transforms.ToPILImage()(cropped_image)

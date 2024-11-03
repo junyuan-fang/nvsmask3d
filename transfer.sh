@@ -15,12 +15,12 @@ ids=(
 local_dir="/home/fangj1/Code/nerfstudio-nvsmask3d/nvsmask3d/data/ScannetPP/data"
 remote_user="fangjuny"
 remote_host="puhti.csc.fi"
-remote_dir="/scratch/project_2003267/junyuan/scannetpp"
+remote_dir="/scratch/project_2003267/junyuan/data"
 
 # Loop through each ID and rsync matching folders/files
 for id in "${ids[@]}"; do
   # Ensure the folder and all subdirectories/files are completely re-synced, excluding 'iphone' and 'render_rgb' subdirectories
-  rsync -avzc --exclude 'iphone/' --exclude 'dslr/render_rgb/' --delete "$local_dir/$id/" "$remote_user@$remote_host:$remote_dir/$id/"
+  rsync -avzc --progress --info=progress2  --exclude 'iphone/' --exclude 'dslr/render_rgb/' --delete "$local_dir/$id/" "$remote_user@$remote_host:$remote_dir/$id/"
 done
 
 # # Delete folders on remote that are not in the ID list
