@@ -383,7 +383,6 @@ def save_predictions(preds, output_dir, VALID_CLASS_IDS):
         pred_classes_orig = scene_data["pred_classes"]  # 每个实例的类别ID，形状为 (num_instances,)
         #replace class id with valid class id
         pred_classes = [VALID_CLASS_IDS[c] for c in pred_classes_orig]
-        import pdb; pdb.set_trace()
         pred_scores = scene_data["pred_scores"]  # 每个实例的置信度，形状为 (num_instances,)
 
         summary_lines = []
