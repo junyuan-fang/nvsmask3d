@@ -1,0 +1,10 @@
+scene_list_file: nvsmask3d/data/ScannetPP/splits/nvs_sem_val.txt
+
+gt_dir: nvsmask3d/data/ScannetPP/gt_sem_inst_val
+preds_dir: results/pred_cam2
+data_root: /scratch/project_2003267/junyuan/data
+
+semantic_classes_file: nvsmask3d/data/ScannetPP/metadata/semantic_benchmark/top100.txt
+instance_classes_file: nvsmask3d/data/ScannetPP/metadata/semantic_benchmark/top100_instance.txt
+
+check_pred_files: true

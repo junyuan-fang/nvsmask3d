@@ -1,7 +1,7 @@
 import torch
 from pathlib import Path
 from typing import Optional
-from nvsmask3d.script.nvsmask3d_eval_scannetpp import ComputeForAP
+from nvsmask3d.script.nvsmask3d_eval_scannetpp_inrow import ComputeForAP
 import wandb
 import ast
 from typing import List

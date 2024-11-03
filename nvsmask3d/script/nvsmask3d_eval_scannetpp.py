@@ -20,6 +20,13 @@ ns-eval for_ap --load_config nvsmask3d/data/replica
 from __future__ import annotations
 import os
 import time
+import os
+import json
+from datetime import datetime
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from tqdm import tqdm
+import GPUtil
+import torch
 import matplotlib.pyplot as plt
 from matplotlib import cm
 from datetime import datetime
@@ -131,105 +138,87 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
     #if run_name_for_wandb == "test":
     #pretrain_embeddings = torch.load("../../hanlin/pretrain_embeddings.pt", map_location="cuda")#20000,768
 
+    def process_scene(self, scene_name, load_config, sam):
+        """Process a single scene using the specified model."""
+        # Setup evaluation for the specific scene
+        config, pipeline, checkpoint_path, _ = eval_setup(
+            Path(load_config),
+            test_mode="all scannetpp",
+        )
+        model = pipeline.model  # Load the model for this pipeline
+        model.cuda()  # Move model to the correct GPU
+        print(f"Processing scene: {scene_name}")  # Print the scene being processed
+
+        # Predict classes
+        pred_classes = (
+            self.pred_classes_with_sam(scene_name=scene_name)
+            if sam
+            else self.pred_classes(
+                model=model,
+                class_agnostic_3d_mask=model.points3D_mask,
+                seed_points_0=model.seed_points[0].cuda(),
+                scene_name=scene_name,
+            )
+        )
+
+        pred_masks = model.points3D_mask.cpu().numpy()  # Move to CPU
+        pred_scores = np.ones(pred_classes.shape[0])
+
+        preds = {
+            "pred_masks": pred_masks,
+            "pred_scores": pred_scores,
+            "pred_classes": pred_classes,
+        }
+
+        return scene_name, preds  # Return scene name and predictions
 
     def main(self) -> None:
         if self.run_name_for_wandb == "test":
             wandb.init(project=self.project_name, name=self.run_name_for_wandb)
-        # 假设从配置或命令行参数中读取 project_name 和 run_name
-        if self.inference_dataset == "replica":
-            gt_dir = self.path / "ground_truth"
+
         if self.inference_dataset == "scannetpp":
-            # scene_names = ['7b6477cb95', 'c50d2d1d42', 'cc5237fd77', 'acd95847c5', 'fb5a96b1a2', 'a24f64f7fb',
-            # '1ada7a0617', '5eb31827b7', '3e8bba0176', '3f15a9266d', '21d970d8de', '5748ce6f01',
-            # 'c4c04e6d6c', '7831862f02', 'bde1e479ad', '38d58a7a31', '5ee7c22ba0', 'f9f95681fd',
-            # '3864514494', '40aec5fffa', '13c3e046d7', 'e398684d27', 'a8bf42d646', '45b0dac5e3',
-            # '31a2c91c43', 'e7af285f7d', '286b55a2bf', '7bc286c1b6', 'f3685d06a9', 'b0a08200c9',
-            # '825d228aec', 'a980334473', 'f2dc06b1d2', '5942004064', '25f3b7a318', 'bcd2436daf',
-            # 'f3d64c30f8', '0d2ee665be', '3db0a1c8f3', 'ac48a9b736', 'c5439f4607', '578511c8a9',
-            # 'd755b3d9d8', '99fa5c25e1', '09c1414f1b', '5f99900f09', '9071e139d9', '6115eddb86',
-            # '27dd4da69e', 'c49a8c6cff']
             scene_names = self.scene_names
-            test_mode = "all scannetpp"
             load_configs = self.load_configs
-            # import pdb;pdb.set_trace()
-            # gt_dir = "nvsmask3d/data/ScannetPP/sem_gt_val"
-        if self.inference_dataset == "replica":
-            scene_names = self.scene_names
-            test_mode = "all replica"
-            load_configs = self.load_configs
-            # #save scene names, test_mode, load_configs to txt file for testing
-            # with open("result.txt", "w") as f:
-            #     f.write(f"scene_names: {scene_names}\n")
-            #     f.write(f"test_mode: {test_mode}\n")
-            #     f.write(f"load_configs: {load_configs}\n")
-            # quit()
+
         preds = {}
-        # scene_names = ["scene0011_00"]  # hard coded for now
-        with torch.no_grad():
-            # for each scene
-            for i, scene_name in tqdm(
-                enumerate(scene_names), desc="Evaluating", total=len(scene_names)
-            ):
-                config, pipeline, checkpoint_path, _ = eval_setup(
-                    Path(load_configs[i]),
-                    test_mode=test_mode,
-                )
-                self.model = pipeline.model
-                # scene_id = scene_name[5:]
-                #seed_points_0 = self.model.seed_points[0].cuda()  # shape (N, 3)
-                pred_classes =  self.pred_classes_with_sam(
-                                    scene_name=scene_name,
-                                ) if self.sam  else self.pred_classes(
-                                    model=self.model,
-                                    class_agnostic_3d_mask=self.model.points3D_mask,
-                                    seed_points_0=self.model.seed_points[0].cuda(),
-                                    scene_name=scene_name,
-                                )
-                pred_masks = self.model.points3D_mask.cpu().numpy()  # move to cpu
-                pred_scores = np.ones(pred_classes.shape[0])
-                # pred = {'pred_scores' = 100, 'pred_classes' = 100 'pred_masks' = Nx100}
-                print(
-                    f"pred_masks.shape, pred_scores.shape, pred_classes.shape {pred_masks.shape, pred_scores.shape, pred_classes.shape}"
-                )
-                preds[scene_name] = {
-                    "pred_masks": pred_masks,#(num_points, num_cls) with 0 or 1 value
-                    "pred_scores": pred_scores, # (num_cls,) with 1 value
-                    "pred_classes": pred_classes, # (num_cls,) with value from dataset's class id
-                }
-                if self.inference_dataset == "scannetpp":#save pred one by one, later scannet_repo will do the evaluation in seperated script
+
+        # Get all available GPUs
+        available_gpus = GPUtil.getAvailable(order="first")
+        num_gpus = len(available_gpus)
+
+        # Set how many scenes to process per GPU
+        scenes_per_gpu = 4
+
+        # Use ProcessPoolExecutor to manage parallel processing
+        with ProcessPoolExecutor(max_workers=num_gpus * scenes_per_gpu) as executor:
+            futures = {}
+            # Submit tasks to the executor for each scene
+            for i, scene_name in tqdm(enumerate(scene_names), desc="Submitting tasks", total=len(scene_names)):
+                load_config = load_configs[i]
+                gpu_id = available_gpus[(i // scenes_per_gpu) % num_gpus]  # Determine GPU based on the index
+
+                # Set the environment variable for GPU usage
+                os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+
+                # Submit the processing task
+                futures[executor.submit(self.process_scene, scene_name, load_config, self.sam)] = scene_name
+
+            # Collect results as they complete
+            for future in tqdm(as_completed(futures), desc="Collecting results"):
+                scene_name, scene_preds = future.result()
+                preds[scene_name] = scene_preds
+
+                # Save predictions for each scene if necessary
+                if self.inference_dataset == "scannetpp":
                     VALID_CLASS_IDS = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 21, 22, 23, 25, 27, 28, 29, 30, 31, 32, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 49, 50, 51, 52, 54, 55, 56, 57, 58, 59, 60, 61, 62, 65, 66, 67, 68, 69, 70, 71, 72, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99]
-                    output_dir = f"results/pred_cam{i}"### written?
-                    save_predictions(preds, output_dir,VALID_CLASS_IDS)
-                    
-                    # # save preds to torch file
-                    # output_folder = "results/segmentation"
-                    # if not os.path.exists(output_folder):
-                    #     os.makedirs(output_folder)
-                    # # 确保路径中有分隔符
-                    # torch.save(preds, os.path.join(output_folder, "preds.pth"))
-                    # generate_txt_files_optimized(preds, "results/segmentation")
-                    
-            if self.inference_dataset == "replica":
-                inst_AP = evaluate_replica(
-                    preds, gt_dir, output_file="output.txt", dataset="replica"
-                )
-                # Create folder if it doesn't exist
-                folder_name = "results"
-                if not os.path.exists(folder_name):
-                    os.makedirs(folder_name)
+                    output_dir = f"results/pred_cam_{scene_name}"  # Ensure unique directory names
+                    save_predictions(scene_preds, output_dir, VALID_CLASS_IDS)
 
-                # Add date and time to the filename
-                timestamp = datetime.now().strftime("%m-%d_%H")
-                file_name = os.path.join(folder_name, f"{timestamp}_{self.run_name_for_wandb}.json")
-
-                # Write to the file
-                with open(file_name, "w") as f:
-                    json.dump(inst_AP, f, indent=4)
-                #log_evaluation_results_to_wandb(inst_AP,self.run_name_for_wandb)
-            if self.inference_dataset == "scannetpp":   
-                # use scannetpp evaluation script
-                command = f"python -m scannetpp.semantic.eval.eval_instance config/eval_instance_cam{i}.yml"  # Example command
-                output_file = self.run_name_for_wandb + ".txt"
+        # Further evaluation logic
+        if self.inference_dataset == "scannetpp":
+            for i in range(len(scene_names)):
+                command = f"python -m scannetpp.semantic.eval.eval_instance config/eval_instance_cam{scene_names[i]}.yml"
+                output_file = f"{self.run_name_for_wandb}.txt"
                 run_command_and_save_output(command, output_file)
 
     def pred_classes_with_sam(self, scene_name=""):
