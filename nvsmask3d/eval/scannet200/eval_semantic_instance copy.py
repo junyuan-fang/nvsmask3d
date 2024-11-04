@@ -24,10 +24,10 @@
 # is ignored in the evaluation.
 
 # python imports
-import os, sys
+import os
+import sys
 from copy import deepcopy
 from uuid import uuid4
-import pdb
 import torch
 from nvsmask3d.eval.scannet200.scannet_constants import (
     HEAD_CATS_SCANNET_200,
@@ -44,11 +44,9 @@ except:
     print("Failed to import numpy package.")
     sys.exit(-1)
 
-from scipy import stats
 
 import nvsmask3d.eval.scannet200.util as util
 import nvsmask3d.eval.scannet200.util_3d as util_3d
-import copy
 
 # parser = argparse.ArgumentParser()
 # parser.add_argument('--gt_path', default='', help='path to directory of gt .txt files')
@@ -132,7 +130,6 @@ def evaluate_matches(matches):
     for di, (min_region_size, distance_thresh, distance_conf) in enumerate(
         zip(min_region_sizes, dist_threshes, dist_confs)
     ):
-
         for oi, overlap_th in enumerate(overlaps):
             pred_visited = {}
             for m in matches:
@@ -150,7 +147,6 @@ def evaluate_matches(matches):
                 has_pred = False
 
                 for m in matches:
-
                     # group all common and tail under unknown
 
                     pred_instances = matches[m]["pred"][label_name]
@@ -179,7 +175,6 @@ def evaluate_matches(matches):
                         found_match = False
                         num_pred = len(gt["matched_pred"])
                         for pred in gt["matched_pred"]:
-
                             # greedy assignments
                             if pred_visited[pred["uuid"]]:
                                 continue
@@ -220,10 +215,8 @@ def evaluate_matches(matches):
 
                     # collect non-matched predictions as false positive
                     for pred in pred_instances:
-
                         found_gt = False
                         for gt in pred["matched_gt"]:
-
                             overlap = float(gt["intersection"]) / (
                                 gt["vert_count"]
                                 + pred["vert_count"]
@@ -623,10 +616,9 @@ def assign_instances_for_scan(pred: dict, gt_file: str):
     bool_void = np.logical_not(np.in1d(gt_ids // 1000, VALID_CLASS_IDS))
     # go thru all prediction masks
     for uuid in pred_info:
-
         label_id = int(pred_info[uuid]["label_id"])
         conf = pred_info[uuid]["conf"]
-        if not label_id in ID_TO_LABEL:
+        if label_id not in ID_TO_LABEL:
             continue
         label_name = ID_TO_LABEL[label_id]
         # read the mask

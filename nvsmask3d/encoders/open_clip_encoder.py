@@ -4,11 +4,6 @@ import torch.nn.functional as F
 import torch
 import torchvision
 from typing import Literal
-from sklearn.decomposition import PCA
-import albumentations as A
-from torch_kmeans import KMeans, CosineSimilarity
-import matplotlib.pyplot as plt
-from PIL import Image
 
 
 try:
@@ -20,23 +15,108 @@ except ImportError:
 
 from nvsmask3d.encoders.image_encoder import BaseImageEncoder, BaseImageEncoderConfig
 from nerfstudio.viewer.viewer_elements import *
+
 # from nvsmask3d.utils.utils import SCANNET200_CLASSES
 # from nvsmask3d.eval.scannet200.scannet_constants import VALID_CLASS_IDS_200
-from nvsmask3d.eval.replica.eval_semantic_instance import (
-    VALID_CLASS_IDS as VALID_CLASS_IDS_REPLICA,
-)
 from nvsmask3d.eval.replica.eval_semantic_instance import (
     CLASS_LABELS as REPLICA_CLASSES,
 )
 
-SCANNETPP_CLASSES = ['table', 'door', 'ceiling lamp', 'cabinet', 'blinds', 'curtain', 'chair', 'storage cabinet', 'office chair', 'bookshelf', 'whiteboard', 'window', 'box', 'monitor', 'shelf', 'heater', 'kitchen cabinet', 'sofa', 'bed', 'trash can', 'book', 'plant', 'blanket', 'tv', 'computer tower', 'refrigerator', 'jacket', 'sink', 'bag', 'picture', 'pillow', 'towel', 'suitcase', 'backpack', 'crate', 'keyboard', 'rack', 'toilet', 'printer', 'poster', 'painting', 'microwave', 'shoes', 'socket', 'bottle', 'bucket', 'cushion', 'basket', 'shoe rack', 'telephone', 'file folder', 'laptop', 'plant pot', 'exhaust fan', 'cup', 'coat hanger', 'light switch', 'speaker', 'table lamp', 'kettle', 'smoke detector', 'container', 'power strip', 'slippers', 'paper bag', 'mouse', 'cutting board', 'toilet paper', 'paper towel', 'pot', 'clock', 'pan', 'tap', 'jar', 'soap dispenser', 'binder', 'bowl', 'tissue box', 'whiteboard eraser', 'toilet brush', 'spray bottle', 'headphones', 'stapler', 'marker']
+SCANNETPP_CLASSES = [
+    "table",
+    "door",
+    "ceiling lamp",
+    "cabinet",
+    "blinds",
+    "curtain",
+    "chair",
+    "storage cabinet",
+    "office chair",
+    "bookshelf",
+    "whiteboard",
+    "window",
+    "box",
+    "monitor",
+    "shelf",
+    "heater",
+    "kitchen cabinet",
+    "sofa",
+    "bed",
+    "trash can",
+    "book",
+    "plant",
+    "blanket",
+    "tv",
+    "computer tower",
+    "refrigerator",
+    "jacket",
+    "sink",
+    "bag",
+    "picture",
+    "pillow",
+    "towel",
+    "suitcase",
+    "backpack",
+    "crate",
+    "keyboard",
+    "rack",
+    "toilet",
+    "printer",
+    "poster",
+    "painting",
+    "microwave",
+    "shoes",
+    "socket",
+    "bottle",
+    "bucket",
+    "cushion",
+    "basket",
+    "shoe rack",
+    "telephone",
+    "file folder",
+    "laptop",
+    "plant pot",
+    "exhaust fan",
+    "cup",
+    "coat hanger",
+    "light switch",
+    "speaker",
+    "table lamp",
+    "kettle",
+    "smoke detector",
+    "container",
+    "power strip",
+    "slippers",
+    "paper bag",
+    "mouse",
+    "cutting board",
+    "toilet paper",
+    "paper towel",
+    "pot",
+    "clock",
+    "pan",
+    "tap",
+    "jar",
+    "soap dispenser",
+    "binder",
+    "bowl",
+    "tissue box",
+    "whiteboard eraser",
+    "toilet brush",
+    "spray bottle",
+    "headphones",
+    "stapler",
+    "marker",
+]
+
+
 @dataclass
 class OpenCLIPNetworkConfig(BaseImageEncoderConfig):
     _target: Type = field(default_factory=lambda: OpenCLIPNetwork)
     clip_model_type: str = "ViT-L-14-336"  # "ViT-B-16"
     clip_model_pretrained: str = "openai"  # "laion2b_s34b_b88k"
     clip_n_dims: int = 768  # 对应ViT-L-14-336px的输出维度
-    vit_width: int = 1024# 对应ViT-L-14-336px
+    vit_width: int = 1024  # 对应ViT-L-14-336px
     negatives: Tuple[str] = ("object", "things", "stuff", "texture")
 
 
@@ -45,7 +125,13 @@ class OpenCLIPNetwork(BaseImageEncoder):
         self,
         config: OpenCLIPNetworkConfig,
         test_mode: Literal[
-            "test", "val", "inference", "train", "all_replica", "all_scannet", "all_scannetpp"
+            "test",
+            "val",
+            "inference",
+            "train",
+            "all_replica",
+            "all_scannet",
+            "all_scannetpp",
         ] = "val",
     ):
         super().__init__()
@@ -54,7 +140,9 @@ class OpenCLIPNetwork(BaseImageEncoder):
         # 使用 super().__setattr__ 来绕过 @property
         self.process = torchvision.transforms.Compose(
             [
-                torchvision.transforms.Resize((336, 336), antialias=True),  # 添加 antialias=True
+                torchvision.transforms.Resize(
+                    (336, 336), antialias=True
+                ),  # 添加 antialias=True
                 torchvision.transforms.Normalize(
                     mean=[0.48145466, 0.4578275, 0.40821073],
                     std=[0.26862954, 0.26130258, 0.27577711],
@@ -70,7 +158,7 @@ class OpenCLIPNetwork(BaseImageEncoder):
         self.tokenizer = open_clip.get_tokenizer(self.config.clip_model_type)
         self.model = model.to("cuda")
         self.clip_n_dims = self.config.clip_n_dims
-        self.vit_width = self.config.vit_width      # 1024, 中间层的宽度
+        self.vit_width = self.config.vit_width  # 1024, 中间层的宽度
 
         self.positives = (
             SCANNETPP_CLASSES if "scannet" in self.testmode else REPLICA_CLASSES
@@ -116,7 +204,7 @@ class OpenCLIPNetwork(BaseImageEncoder):
         with torch.no_grad():
             tok_phrases = torch.cat(
                 [self.tokenizer(phrase) for phrase in self.positives]
-                #[self.tokenizer(f"an image of{phrase}") for phrase in self.positives]#########
+                # [self.tokenizer(f"an image of{phrase}") for phrase in self.positives]#########
             ).to("cuda")
             self.pos_embeds = model.encode_text(tok_phrases)
             tok_phrases = torch.cat(
@@ -143,7 +231,6 @@ class OpenCLIPNetwork(BaseImageEncoder):
     def embedding_dim(self) -> int:
         return self.config.clip_n_dims
 
-
     def updata_text_embedding(self):
         with torch.no_grad():
             tok_phrases = torch.cat(
@@ -161,7 +248,10 @@ class OpenCLIPNetwork(BaseImageEncoder):
             self.updata_text_embedding()
         else:
             self.positive_input.disable = True
-            if self.replica_checkbox.value == False and self.scannet_checkbox.value == False:
+            if (
+                self.replica_checkbox.value == False
+                and self.scannet_checkbox.value == False
+            ):
                 self.positives = ""
 
     def _replica_checkbox_update(self, element):
@@ -173,7 +263,10 @@ class OpenCLIPNetwork(BaseImageEncoder):
             self.updata_text_embedding()
         else:
             self.positive_input.disable = True
-            if self.replica_checkbox.value == False and self.scannet_checkbox.value == False:
+            if (
+                self.replica_checkbox.value == False
+                and self.scannet_checkbox.value == False
+            ):
                 self.positives = ""
 
     def _set_positives(self, element):
@@ -217,9 +310,10 @@ class OpenCLIPNetwork(BaseImageEncoder):
         processed_images = [self.process(img) for img in input]
         batch_tensor = torch.stack(processed_images).half()  # Shape (B, C, H, W)
         image_features = self.model.encode_image(batch_tensor)
-        return image_features/image_features.norm(dim=-1, keepdim=True)
+        return image_features / image_features.norm(dim=-1, keepdim=True)
+
     @torch.no_grad()
-    def classify_images(self, images: torch.Tensor, batch_size = 10) -> str:
+    def classify_images(self, images: torch.Tensor, batch_size=10) -> str:
         """
         Args:
             images: a list [] of images (torch.Tensor). (C,W,H) in a list  # (B,C,H,W)
@@ -232,7 +326,7 @@ class OpenCLIPNetwork(BaseImageEncoder):
 
         # Process images in batches
         for batch_start in range(0, len(images), batch_size):
-            batch_images = images[batch_start:batch_start + batch_size]
+            batch_images = images[batch_start : batch_start + batch_size]
 
             # Encode each image in the batch
             embeddings = [self.encode_image(img.unsqueeze(0)) for img in batch_images]
@@ -250,9 +344,13 @@ class OpenCLIPNetwork(BaseImageEncoder):
                 highest_score_index = probs.argmax(dim=-1).item()
                 highest_score_value = probs[highest_score_index].item()
                 try:
-                    results.append((self.positives[highest_score_index], highest_score_value))
+                    results.append(
+                        (self.positives[highest_score_index], highest_score_value)
+                    )
                 except:
-                    import pdb; pdb.set_trace() 
+                    import pdb
+
+                    pdb.set_trace()
 
             # Clear processed tensors to free memory
             del embed, output
@@ -262,7 +360,7 @@ class OpenCLIPNetwork(BaseImageEncoder):
         positive = max(results, key=lambda x: x[1])[0]
 
         return positive
-    
+
     # @torch.no_grad()
     # def classify_images(self, images: torch.Tensor, batch_size = 10) -> str:
     #     """
@@ -272,7 +370,7 @@ class OpenCLIPNetwork(BaseImageEncoder):
     #     Returns:
     #         str: inference object text
     #     """
-        
+
     #     # Find the maximum width and height across all images
     #     max_width = max(img.shape[2] for img in images)
     #     max_height = max(img.shape[1] for img in images)

@@ -1,4 +1,5 @@
-import os, sys
+import os
+import sys
 import json
 
 try:
@@ -8,7 +9,7 @@ except:
     sys.exit(-1)
 
 try:
-    from plyfile import PlyData, PlyElement
+    from plyfile import PlyData
 except:
     print("Please install the module 'plyfile' for PLY i/o, e.g.")
     print("pip install plyfile")
@@ -182,8 +183,6 @@ def get_instances_for_oracle(
     save_dir="/media/ayca/Elements/ayca/OpenMask3D/oracle_scannet200_val/",
     dataset_name="scannet200",
 ):
-    import pdb
-
     instance_ids = np.unique(ids)
 
     assert (len(np.unique(ids)) - 1) > 0, "to-do: handle if len(np.unique(ids))-1)==0"
@@ -224,8 +223,6 @@ def get_instances_for_oracle(
         save_dir + scene_name + "_oracle_scores_" + dataset_name + ".pt",
     )
 
-    from scannet_constants import VALID_CLASS_IDS_200
-
     transformed = [id2label[lbl] for lbl in new_classes]
     # pdb.set_trace()
 
@@ -241,8 +238,6 @@ def get_instances_for_oracle_replica(
     save_dir="/media/ayca/Elements/ayca/OpenMask3D/oracle_replica/",
     dataset_name="replica",
 ):
-    import pdb
-
     # pdb.set_trace()
     instance_ids = np.unique(ids)
 

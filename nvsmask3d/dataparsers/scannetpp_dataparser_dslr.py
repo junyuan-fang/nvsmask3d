@@ -19,7 +19,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, Type
 import json
-import math
 from scipy.spatial.transform import Rotation as R
 
 import numpy as np
@@ -27,15 +26,15 @@ import torch
 from nerfstudio.plugins.registry_dataparser import DataParserSpecification
 
 from nerfstudio.cameras import camera_utils
-from nerfstudio.cameras.cameras import CAMERA_MODEL_TO_TYPE, Cameras, CameraType
-from nerfstudio.data.dataparsers.base_dataparser import DataParser, DataParserConfig, DataparserOutputs
+from nerfstudio.cameras.cameras import Cameras, CameraType
+from nerfstudio.data.dataparsers.base_dataparser import (
+    DataParserConfig,
+    DataparserOutputs,
+)
 from nerfstudio.data.dataparsers.colmap_dataparser import (
     ColmapDataParser,
-    ColmapDataParserConfig,
 )
 from nerfstudio.data.scene_box import SceneBox
-from nerfstudio.utils.io import load_from_json
-from nerfstudio.utils.rich_utils import CONSOLE
 
 
 @dataclass
@@ -99,18 +98,59 @@ class ScanNetppDataParserConfig(DataParserConfig):
     load_every: int = 5
     """load every n'th frame from the dense trajectory"""
     load_masks: bool = True
-    #validation set of scannetpp
+    # validation set of scannetpp
     sequence: Literal[
-    '7b6477cb95', 'c50d2d1d42', 'cc5237fd77', 'acd95847c5', 'fb5a96b1a2', 'a24f64f7fb',
-    '1ada7a0617', '5eb31827b7', '3e8bba0176', '3f15a9266d', '21d970d8de', '5748ce6f01',
-    'c4c04e6d6c', '7831862f02', 'bde1e479ad', '38d58a7a31', '5ee7c22ba0', 'f9f95681fd',
-    '3864514494', '40aec5fffa', '13c3e046d7', 'e398684d27', 'a8bf42d646', '45b0dac5e3',
-    '31a2c91c43', 'e7af285f7d', '286b55a2bf', '7bc286c1b6', 'f3685d06a9', 'b0a08200c9',
-    '825d228aec', 'a980334473', 'f2dc06b1d2', '5942004064', '25f3b7a318', 'bcd2436daf',
-    'f3d64c30f8', '0d2ee665be', '3db0a1c8f3', 'ac48a9b736', 'c5439f4607', '578511c8a9',
-    'd755b3d9d8', '99fa5c25e1', '09c1414f1b', '5f99900f09', '9071e139d9', '6115eddb86',
-    '27dd4da69e', 'c49a8c6cff'
-] = "7b6477cb95"
+        "7b6477cb95",
+        "c50d2d1d42",
+        "cc5237fd77",
+        "acd95847c5",
+        "fb5a96b1a2",
+        "a24f64f7fb",
+        "1ada7a0617",
+        "5eb31827b7",
+        "3e8bba0176",
+        "3f15a9266d",
+        "21d970d8de",
+        "5748ce6f01",
+        "c4c04e6d6c",
+        "7831862f02",
+        "bde1e479ad",
+        "38d58a7a31",
+        "5ee7c22ba0",
+        "f9f95681fd",
+        "3864514494",
+        "40aec5fffa",
+        "13c3e046d7",
+        "e398684d27",
+        "a8bf42d646",
+        "45b0dac5e3",
+        "31a2c91c43",
+        "e7af285f7d",
+        "286b55a2bf",
+        "7bc286c1b6",
+        "f3685d06a9",
+        "b0a08200c9",
+        "825d228aec",
+        "a980334473",
+        "f2dc06b1d2",
+        "5942004064",
+        "25f3b7a318",
+        "bcd2436daf",
+        "f3d64c30f8",
+        "0d2ee665be",
+        "3db0a1c8f3",
+        "ac48a9b736",
+        "c5439f4607",
+        "578511c8a9",
+        "d755b3d9d8",
+        "99fa5c25e1",
+        "09c1414f1b",
+        "5f99900f09",
+        "9071e139d9",
+        "6115eddb86",
+        "27dd4da69e",
+        "c49a8c6cff",
+    ] = "7b6477cb95"
 
 
 @dataclass
@@ -121,7 +161,9 @@ class ScanNetpp(ColmapDataParser):
 
     def _generate_dataparser_outputs(self, split="train"):
         print("split is: ", split)
-        self.input_folder = self.config.data / "data" / self.config.sequence / self.config.mode
+        self.input_folder = (
+            self.config.data / "data" / self.config.sequence / self.config.mode
+        )
         assert (
             self.input_folder.exists()
         ), f"Data directory {self.input_folder} does not exist."
@@ -134,60 +176,70 @@ class ScanNetpp(ColmapDataParser):
             image_dir = self.input_folder / "undistorted_images"
             # mask_dir = self.input_folder / self.config.masks_dir
             depth_dir = self.input_folder / "depth"
-            pose_path = self.input_folder / "nerfstudio" /"transforms_undistorted.json"
-        
+            pose_path = self.input_folder / "nerfstudio" / "transforms_undistorted.json"
+
         else:
             KeyError(f"Unknown mode {self.config.mode}, we don't support it yet.")
-                
-        self.ply_file_path = self.config.data/ "data" / self.config.sequence / "scans" / "mesh_aligned_0.05.ply"
-                
+
+        self.ply_file_path = (
+            self.config.data
+            / "data"
+            / self.config.sequence
+            / "scans"
+            / "mesh_aligned_0.05.ply"
+        )
+
         poses = []
-        
-        with  open(pose_path) as f:
-            data = json.load(f) 
-            
+
+        with open(pose_path) as f:
+            data = json.load(f)
+
         if self.config.mode == "iphone":
             intrinsics = []
             image_filenames = list(
-                sorted(image_dir.iterdir(), key=lambda x: int(x.name.split("_")[1].split(".")[0]))
+                sorted(
+                    image_dir.iterdir(),
+                    key=lambda x: int(x.name.split("_")[1].split(".")[0]),
+                )
             )
             depth_filenames = list(
-                sorted(depth_dir.iterdir(), key=lambda x: int(x.name.split("_")[1].split(".")[0]))
-
+                sorted(
+                    depth_dir.iterdir(),
+                    key=lambda x: int(x.name.split("_")[1].split(".")[0]),
+                )
             )
-        # mask_filenames = list(
-        #     sorted(mask_dir.iterdir(), key=lambda x: int(x.name.split(".")[0]))
-        # )
+            # mask_filenames = list(
+            #     sorted(mask_dir.iterdir(), key=lambda x: int(x.name.split(".")[0]))
+            # )
             for _, frame_data in data.items():
-
-                intrinsics.append(np.array(frame_data['intrinsic']))
-                pose  = np.array(frame_data['aligned_pose'])
+                intrinsics.append(np.array(frame_data["intrinsic"]))
+                pose = np.array(frame_data["aligned_pose"])
                 pose[:3, 1] *= -1
                 pose[:3, 2] *= -1
-                poses.append(pose)#maybeaready opengl
-                
+                poses.append(pose)  # maybeaready opengl
+
         if self.config.mode == "dslr":
             image_filenames = []
-            depth_filenames = [] 
+            depth_filenames = []
             if split == "train":
-                for frame in data['frames']:
-                    is_bad = frame['is_bad'] 
+                for frame in data["frames"]:
+                    is_bad = frame["is_bad"]
                     if is_bad:
                         continue
-                    img_path = image_dir / frame['file_path']
+                    img_path = image_dir / frame["file_path"]
                     image_filenames.append(img_path)
-                    #mask_path = frame['mask_path']
-                    poses.append(frame['transform_matrix'])
+                    # mask_path = frame['mask_path']
+                    poses.append(frame["transform_matrix"])
             elif split in ["val", "test"]:
-                for frame in data['test_frames']:
-                    is_bad = frame['is_bad'] 
+                for frame in data["test_frames"]:
+                    is_bad = frame["is_bad"]
                     if is_bad:
                         continue
-                    img_path = image_dir / frame['file_path']
+                    img_path = image_dir / frame["file_path"]
                     image_filenames.append(img_path)
-                    #mask_path = frame['mask_path']
-                    poses.append(frame['transform_matrix'])
-        
+                    # mask_path = frame['mask_path']
+                    poses.append(frame["transform_matrix"])
+
         # assert len(depth_filenames) == 0 or (
         #     len(depth_filenames) == len(image_filenames)
         # ), """
@@ -238,7 +290,9 @@ class ScanNetpp(ColmapDataParser):
             #     [mask_filenames[i] for i in indices] if len(mask_filenames) > 0 else []
             # )
             depth_filenames = (
-                [depth_filenames[i] for i in indices] if len(depth_filenames) > 0 else []
+                [depth_filenames[i] for i in indices]
+                if len(depth_filenames) > 0
+                else []
             )
             idx_tensor = torch.tensor(indices, dtype=torch.long)
             poses = poses[idx_tensor]
@@ -253,10 +307,10 @@ class ScanNetpp(ColmapDataParser):
                 self._write_json(
                     image_filenames,
                     depth_filenames,
-                    intrinsics[0][0, 0], #fx
-                    intrinsics[0][1, 1], #fy
-                    intrinsics[0][0, 2], #cx
-                    intrinsics[0][1, 2], #cy
+                    intrinsics[0][0, 0],  # fx
+                    intrinsics[0][1, 1],  # fy
+                    intrinsics[0][0, 2],  # cx
+                    intrinsics[0][1, 2],  # cy
                     w,
                     h,
                     poses[:, :3, :4],
@@ -266,10 +320,10 @@ class ScanNetpp(ColmapDataParser):
                 self._write_json(
                     image_filenames,
                     depth_filenames,
-                    intrinsics[0][0, 0], #fx
-                    intrinsics[0][1, 1], #fy
-                    intrinsics[0][0, 2], #cx
-                    intrinsics[0][1, 2], #cy
+                    intrinsics[0][0, 0],  # fx
+                    intrinsics[0][1, 1],  # fy
+                    intrinsics[0][0, 2],  # cx
+                    intrinsics[0][1, 2],  # cy
                     w,
                     h,
                     poses[:, :3, :4],
@@ -337,7 +391,9 @@ class ScanNetpp(ColmapDataParser):
 
         if self.config.load_masks:
             mask_path = (
-                self.config.data / "mask3d_processed_first10" / (self.config.sequence + ".pt")
+                self.config.data
+                / "mask3d_processed_first10"
+                / (self.config.sequence + ".pt")
             )
             # #load gt masks for amblation study
             # current_dir = os.getcwd()
@@ -381,7 +437,7 @@ class ScanNetpp(ColmapDataParser):
             metadata=metadata,
         )
         return dataparser_outputs
-    
+
     def _load_3D_points(
         self,
         ply_file_path: Path,
@@ -451,7 +507,7 @@ class ScanNetpp(ColmapDataParser):
         cls_num = masks[0].shape[1]
         out = {"points3D_mask": masks[0], "points3D_cls_num": cls_num}
         return out
-    
+
     def _write_json(
         self,
         image_filenames,
@@ -467,7 +523,7 @@ class ScanNetpp(ColmapDataParser):
     ):
         frames = []
         base_dir = Path(image_filenames[0]).parent.parent
-        
+
         # 确保数值是Python原生类型
         fx = float(fx.cpu().item() if torch.is_tensor(fx) else fx)
         fy = float(fy.cpu().item() if torch.is_tensor(fy) else fy)
@@ -480,11 +536,11 @@ class ScanNetpp(ColmapDataParser):
             img = Path(img)
             file_path = img.relative_to(base_dir)
             depth_path = depth.relative_to(base_dir)
-            
+
             # 确保c2w是Python list类型
             if torch.is_tensor(c2w):
                 c2w = c2w.cpu().numpy().tolist()
-                
+
             frame = {
                 "file_path": file_path.as_posix(),
                 "depth_file_path": depth_path.as_posix(),
@@ -503,17 +559,17 @@ class ScanNetpp(ColmapDataParser):
             "cy": cy,
             "w": width,
             "h": height,
-            "frames": frames
+            "frames": frames,
         }
 
         with open(base_dir / name, "w", encoding="utf-8") as f:
             json.dump(out, f, indent=4)
-    
+
     def read_cameras(file_path):
         cameras = {}
-        with open(file_path, 'r') as f:
+        with open(file_path, "r") as f:
             for line in f:
-                if line.startswith('#') or line.strip() == '':
+                if line.startswith("#") or line.strip() == "":
                     continue
                 parts = line.split()
                 camera_id = int(parts[0])
@@ -521,14 +577,19 @@ class ScanNetpp(ColmapDataParser):
                 width = int(parts[2])
                 height = int(parts[3])
                 params = list(map(float, parts[4:]))
-                cameras[camera_id] = {'model': model, 'width': width, 'height': height, 'params': params}
+                cameras[camera_id] = {
+                    "model": model,
+                    "width": width,
+                    "height": height,
+                    "params": params,
+                }
         return cameras
 
     def read_images(file_path):
         images = {}
-        with open(file_path, 'r') as f:
+        with open(file_path, "r") as f:
             for line in f:
-                if line.startswith('#') or line.strip() == '':
+                if line.startswith("#") or line.strip() == "":
                     continue
                 parts = line.split()
                 image_id = int(parts[0])
@@ -536,14 +597,20 @@ class ScanNetpp(ColmapDataParser):
                 tvec = list(map(float, parts[5:8]))
                 camera_id = int(parts[8])
                 image_name = parts[9]
-                images[image_id] = {'qvec': qvec, 'tvec': tvec, 'camera_id': camera_id, 'image_name': image_name}
+                images[image_id] = {
+                    "qvec": qvec,
+                    "tvec": tvec,
+                    "camera_id": camera_id,
+                    "image_name": image_name,
+                }
         return images
 
     def quaternion_to_rotation_matrix(qvec):
         # Convert quaternion to rotation matrix
         r = R.from_quat(qvec)
         return r.as_matrix()
-    
+
+
 ScanNetppNvsmask3DParserSpecification = DataParserSpecification(
     config=ScanNetppDataParserConfig(load_3D_points=True),
     description="scannet dataparser",

@@ -1,4 +1,5 @@
-import os, sys
+import os
+import sys
 import csv
 
 try:
@@ -12,6 +13,7 @@ except:
     print("Please install the module 'imageio' for image processing, e.g.")
     print("pip install imageio")
     sys.exit(-1)
+
 
 # print an error message and quit
 def print_error(message, user_fault=False):

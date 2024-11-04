@@ -14,15 +14,13 @@ from nvsmask3d.nvsmask3d_pipeline import (
     NvsMask3dPipelineConfig,
 )
 from nerfstudio.configs.base_config import ViewerConfig
-from nerfstudio.data.dataparsers.nerfstudio_dataparser import NerfstudioDataParserConfig
-from nerfstudio.engine.optimizers import AdamOptimizerConfig, RAdamOptimizerConfig
+from nerfstudio.engine.optimizers import AdamOptimizerConfig
 from nerfstudio.engine.schedulers import (
     ExponentialDecaySchedulerConfig,
 )
 from nerfstudio.engine.trainer import TrainerConfig
 from nerfstudio.plugins.types import MethodSpecification
 
-from nerfstudio.plugins.registry_dataparser import DataParserSpecification
 from nvsmask3d.dataparsers.scannet_dataparser import ScanNetDataParserConfig
 from nvsmask3d.encoders.open_clip_encoder import OpenCLIPNetworkConfig
 from pathlib import Path

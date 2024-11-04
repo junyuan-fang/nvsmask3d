@@ -1,4 +1,5 @@
-import os, sys
+import os
+import sys
 import json
 
 try:
@@ -8,7 +9,7 @@ except:
     sys.exit(-1)
 
 try:
-    from plyfile import PlyData, PlyElement
+    from plyfile import PlyData
 except:
     print("Please install the module 'plyfile' for PLY i/o, e.g.")
     print("pip install plyfile")

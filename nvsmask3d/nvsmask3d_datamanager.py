@@ -3,8 +3,7 @@ Template DataManager
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, Literal, Tuple, Type, Union
-from copy import deepcopy
+from typing import Literal, Type, Union
 
 import torch
 

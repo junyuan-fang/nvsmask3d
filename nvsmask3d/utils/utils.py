@@ -1,21 +1,28 @@
 """Some useful util functions"""
+
 import json
+import math
 import os
 import random
 from pathlib import Path
 from typing import List, Literal, Optional, Union
-import math
+
 import cv2
+import matplotlib.pyplot as plt
 import numpy as np
-from torchvision.transforms import GaussianBlur
 import open3d as o3d
 import torch
-from nvsmask3d.utils.camera_utils import OPENGL_TO_OPENCV, get_means3d_backproj
+import torch.nn.functional as F
+import wandb
+
+# import cm
+from matplotlib import cm
 from natsort import natsorted
-from PIL import Image, ImageFilter
+from PIL import Image
 from torch import Tensor
 from torch.utils.data import DataLoader
 from torchvision import transforms
+from torchvision.transforms import GaussianBlur
 from torchvision.transforms.functional import resize
 from tqdm import tqdm
 
@@ -25,13 +32,9 @@ from nerfstudio.process_data.process_data_utils import (
     convert_video_to_images,
     get_num_frames_in_video,
 )
-#import cm 
-from matplotlib import cm
 from nerfstudio.utils import colormaps
 from nerfstudio.utils.rich_utils import CONSOLE
-import matplotlib.pyplot as plt
-import torch.nn.functional as F
-
+from nvsmask3d.utils.camera_utils import OPENGL_TO_OPENCV, get_means3d_backproj
 
 SCANNET200_CLASSES = [
     "wall",
@@ -241,12 +244,12 @@ SCALE_FACTOR = 0.001
 # def select_low_entropy_logits(logits, top_k, apply_softmax=True):
 #     """
 #     选择给定logits中熵最小的top_k个视角，并返回这些视角的logits之和。
-    
+
 #     参数:
 #         logits (torch.Tensor): 输入的logits，形状为 [num_views, num_classes]
 #         top_k (int): 要选择的低熵视角数量
 #         apply_softmax (bool): 是否对logits应用softmax进行熵计算，默认为True
-        
+
 #     返回:
 #         torch.Tensor: 选定视角的logits之和，形状为 [num_classes]
 #     """
@@ -257,12 +260,13 @@ SCALE_FACTOR = 0.001
 #         probs = torch.softmax(logits, dim=-1)  # [num_views, num_classes]
 #     else:
 #         probs = logits  # 若不需要 softmax，直接使用logits
-    
+
 #     # 计算每个视角的熵
 #     entropy = -torch.sum(probs * torch.log(probs + 1e-9), dim=1)  # [num_views]
 
 #     # 找出熵最小的前 top_k 个视角
 #     _, top_k_indices = torch.topk(-entropy, k=top_k, largest=True)
+
 
 #     # 取出这些低熵视角的 logits
 #     top_k_logits = logits[top_k_indices[:top_k]]  # [top_k, num_classes]
@@ -270,25 +274,25 @@ SCALE_FACTOR = 0.001
 def select_low_entropy_logits(logits, top_k, apply_softmax=True):
     """
     选择给定logits中熵最小的top_k个视角，并返回这些视角的logits之和。
-    
+
     参数:
         logits (torch.Tensor): 输入的logits，形状为 [num_views, num_classes]
         top_k (int): 要选择的低熵视角数量
         apply_softmax (bool): 是否对logits应用softmax进行熵计算，默认为True
-        
+
     返回:
         torch.Tensor: 选定视角的logits之和，形状为 [num_classes]
     """
-    if logits.size(0)<= 2*(top_k):# skip camera interp = 1
+    if logits.size(0) <= 2 * (top_k):  # skip camera interp = 1
         return logits
     interpolated_logits = logits[:-top_k]
-    gt_rgb_logits = logits[-top_k:]# default position of gt_rgb is the last top_k
+    gt_rgb_logits = logits[-top_k:]  # default position of gt_rgb is the last top_k
     # 计算 softmax 概率以便计算熵
     if apply_softmax:
         probs = torch.softmax(interpolated_logits, dim=-1)  # [num_views, num_classes]
     else:
         probs = interpolated_logits  # 若不需要 softmax，直接使用logits
-    
+
     # 计算每个视角的熵
     entropy = -torch.sum(probs * torch.log(probs + 1e-9), dim=1)  # [num_views]
 
@@ -297,10 +301,13 @@ def select_low_entropy_logits(logits, top_k, apply_softmax=True):
 
     # 取出这些低熵视角的 logits
     top_k_logits = logits[top_k_indices]  # [top_k, num_classes]
-    
+
     # 将 gt_rgb_logits 与 top_k_logits 拼接并返回
-    top_k_logits = torch.cat([top_k_logits, gt_rgb_logits], dim=0)  # [top_k + num_gt_rgb, num_classes]
+    top_k_logits = torch.cat(
+        [top_k_logits, gt_rgb_logits], dim=0
+    )  # [top_k + num_gt_rgb, num_classes]
     return top_k_logits  # [num_classes]
+
 
 def blur_non_masked_areas(img_tensor, mask, blur_kernel_size=15):
     """
@@ -320,16 +327,21 @@ def blur_non_masked_areas(img_tensor, mask, blur_kernel_size=15):
     # 生成模糊的图像
     blurred_img = F.conv2d(
         img_tensor.unsqueeze(0),  # 添加 batch 维度
-        weight=torch.ones((img_tensor.size(0), 1, blur_kernel_size, blur_kernel_size), device=img_tensor.device) / (blur_kernel_size ** 2),
+        weight=torch.ones(
+            (img_tensor.size(0), 1, blur_kernel_size, blur_kernel_size),
+            device=img_tensor.device,
+        )
+        / (blur_kernel_size**2),
         stride=1,
         padding=blur_kernel_size // 2,
-        groups=img_tensor.size(0)
+        groups=img_tensor.size(0),
     ).squeeze(0)  # 去除 batch 维度
 
     # 使用掩码合并模糊和原始图像
     combined_img = img_tensor * mask + blurred_img * (1 - mask)
 
     return combined_img  # 输出形状为 (C, H, W)
+
 
 def video_to_frames(
     video_path: Path, image_dir: Path("./data/frames"), force: bool = False
@@ -354,7 +366,10 @@ def video_to_frames(
             keep_image_dir=False,
         )
         assert num_extracted_frames == num_frames_target
+
+
 import subprocess
+
 
 def run_command_and_save_output(cmd, output_file):
     # Run the command
@@ -362,11 +377,11 @@ def run_command_and_save_output(cmd, output_file):
         cmd,
         shell=True,  # Use shell=True if the command is a shell command
         capture_output=True,  # Capture both stdout and stderr
-        text=True  # Return output as strings instead of bytes
+        text=True,  # Return output as strings instead of bytes
     )
 
     # Save output to a file
-    with open(output_file, 'w') as f:
+    with open(output_file, "w") as f:
         f.write("Standard Output:\n")
         f.write(result.stdout)  # Write standard output
         f.write("\nStandard Error:\n")
@@ -374,17 +389,25 @@ def run_command_and_save_output(cmd, output_file):
 
     # Optionally print the return code
     print(f"Command executed with return code: {result.returncode}")
+
+
 def save_predictions(preds, output_dir, VALID_CLASS_IDS):
     # 创建存放预测掩码的目录
     masks_dir = os.path.join(output_dir, "predicted_masks")
     os.makedirs(masks_dir, exist_ok=True)
 
     for scene_name, scene_data in preds.items():
-        pred_masks = scene_data["pred_masks"]  # 掩码数组，形状为 (num_points, num_instances)
-        pred_classes_orig = scene_data["pred_classes"]  # 每个实例的类别ID，形状为 (num_instances,)
-        #replace class id with valid class id
+        pred_masks = scene_data[
+            "pred_masks"
+        ]  # 掩码数组，形状为 (num_points, num_instances)
+        pred_classes_orig = scene_data[
+            "pred_classes"
+        ]  # 每个实例的类别ID，形状为 (num_instances,)
+        # replace class id with valid class id
         pred_classes = [VALID_CLASS_IDS[c] for c in pred_classes_orig]
-        pred_scores = scene_data["pred_scores"]  # 每个实例的置信度，形状为 (num_instances,)
+        pred_scores = scene_data[
+            "pred_scores"
+        ]  # 每个实例的置信度，形状为 (num_instances,)
 
         summary_lines = []
 
@@ -397,17 +420,17 @@ def save_predictions(preds, output_dir, VALID_CLASS_IDS):
             # 使用 RLE 编码掩码
             rle_mask_data = rle_encode(mask.astype(int))  # 返回带嵌套结构的字典
             rle_counts = rle_mask_data["counts"]  # 提取 counts 字符串
-            
+
             # 生成掩码文件名
             mask_filename = f"{scene_name}_{i:03d}.json"
             mask_filepath = os.path.join(masks_dir, mask_filename)
-            
+
             # 保存 RLE 编码到 JSON 文件中，确保 counts 是字符串
             rle_data = {
                 "length": len(mask),
-                "counts": rle_counts  # 确保这里是空格分隔字符串而非嵌套结构
-            }
-            with open(mask_filepath, 'w') as f:
+                "counts": rle_counts,
+            }  # 确保这里是空格分隔字符串而非嵌套结构
+            with open(mask_filepath, "w") as f:
                 json.dump(rle_data, f)
 
             # 记录主 .txt 文件的内容，包括相对路径、类ID和置信度
@@ -416,8 +439,10 @@ def save_predictions(preds, output_dir, VALID_CLASS_IDS):
 
         # 将每个场景的摘要信息写入对应的 .txt 文件
         scene_txt_path = os.path.join(output_dir, f"{scene_name}.txt")
-        with open(scene_txt_path, 'w') as f:
+        with open(scene_txt_path, "w") as f:
             f.write("\n".join(summary_lines))
+
+
 def rle_encode(mask):
     """Encode RLE (Run-length-encode) from 1D binary mask.
 
@@ -430,9 +455,11 @@ def rle_encode(mask):
     mask = np.concatenate([[0], mask, [0]])
     runs = np.where(mask[1:] != mask[:-1])[0] + 1
     runs[1::2] -= runs[::2]
-    counts = ' '.join(str(x) for x in runs)
+    counts = " ".join(str(x) for x in runs)
     rle = dict(length=length, counts=counts)
     return rle
+
+
 def get_filename_list(image_dir: Path, ends_with: Optional[str] = None) -> List:
     """List directory and save filenames
 
@@ -1010,7 +1037,6 @@ def save_outputs_helper(
         )
 
 
-import math
 from typing import NamedTuple
 
 
@@ -1082,44 +1108,50 @@ def fov2focal(fov, pixels):
 def focal2fov(focal, pixels):
     return 2 * math.atan(pixels / (2 * focal))
 
+
 # Function to concatenate images horizontally and vertically
 def concat_images_horizontally(imgs):
     # 过滤掉 None 的图像，确保只处理有效图像
     imgs = [img for img in imgs if img is not None]
-    
+
     if len(imgs) == 0:  # 如果没有有效图像，抛出异常
         raise ValueError("No images to concatenate horizontally!")
-    
+
     widths, heights = zip(*(i.size for i in imgs))
     total_width = sum(widths)
     max_height = max(heights)
 
-    new_img = Image.new('RGB', (total_width, max_height))
+    new_img = Image.new("RGB", (total_width, max_height))
     x_offset = 0
     for img in imgs:
         new_img.paste(img, (x_offset, 0))
         x_offset += img.size[0]
     return new_img
 
-def plot_images_and_logits(i, image_set, rgb_logits, title, filename, scene_name, max_ind, replica_classes):
+
+def plot_images_and_logits(
+    i, image_set, rgb_logits, title, filename, scene_name, max_ind, replica_classes
+):
     """
     Helper function to plot images and classification logits.
     Adjusts horizontal axis based on number of views.
     """
     if image_set and len(image_set) > 0:
-        colormap = cm.get_cmap('viridis')
+        colormap = cm.get_cmap("viridis")
         final_image = concat_images_horizontally(image_set)
 
         # Adjust the figure width based on number of views
         num_views = len(rgb_logits)
         fig_width = 15 + num_views * 0.2  # Increase figure width with more views
-        fig = plt.figure(figsize=(fig_width, 12))  # Adjust width for more space between x-axis labels
+        fig = plt.figure(
+            figsize=(fig_width, 12)
+        )  # Adjust width for more space between x-axis labels
         gs = fig.add_gridspec(2, 1, height_ratios=[2, 1])
 
         # 1. 上半部分：显示图片
         ax_img = fig.add_subplot(gs[0])
         ax_img.imshow(final_image)
-        ax_img.axis('off')  # 隐藏坐标轴
+        ax_img.axis("off")  # 隐藏坐标轴
 
         # 2. 下半部分：显示多视角的分类得分条形图
         ax_bar = fig.add_subplot(gs[1])
@@ -1134,24 +1166,45 @@ def plot_images_and_logits(i, image_set, rgb_logits, title, filename, scene_name
         for view_i, logits in enumerate(data):
             x = np.arange(len(logits))  # Class indices
             color = colormap(view_i / len(data))  # Normalize the view index
-            ax_bar.bar(x + view_i * bar_width, logits, width=bar_width, alpha=0.7, label=f'View {view_i}', color=color)
+            ax_bar.bar(
+                x + view_i * bar_width,
+                logits,
+                width=bar_width,
+                alpha=0.7,
+                label=f"View {view_i}",
+                color=color,
+            )
 
         # Sum the logits across all views and plot as scatter points
         scores = rgb_logits.sum(dim=0)  # Shape: (200,)
-        scores_normalized = torch.nn.functional.softmax(scores, dim=0).cpu().numpy()  # Normalize and convert to numpy
+        scores_normalized = (
+            torch.nn.functional.softmax(scores, dim=0).cpu().numpy()
+        )  # Normalize and convert to numpy
 
         # 绘制散点图，显示归一化后的logits分数
         x_points = np.arange(len(scores_normalized))
-        ax_bar.scatter(x_points + offset / 2, scores_normalized, color='red', label='Normalized Summed Logits', zorder=5)
+        ax_bar.scatter(
+            x_points + offset / 2,
+            scores_normalized,
+            color="red",
+            label="Normalized Summed Logits",
+            zorder=5,
+        )
 
         # Set x-ticks and labels
-        ax_bar.set_xticks(np.arange(len(replica_classes)) + offset / 2)  # Offset to center labels
-        ax_bar.set_xticklabels(replica_classes, rotation=45, ha='right')  # Rotate for better fit
+        ax_bar.set_xticks(
+            np.arange(len(replica_classes)) + offset / 2
+        )  # Offset to center labels
+        ax_bar.set_xticklabels(
+            replica_classes, rotation=45, ha="right"
+        )  # Rotate for better fit
 
         # Set labels and title
-        ax_bar.set_xlabel('Class Index')
-        ax_bar.set_ylabel('Logit Value')
-        ax_bar.set_title(f"{title}. Scene: {scene_name}. Object {i} predicted class: {replica_classes[max_ind]}")
+        ax_bar.set_xlabel("Class Index")
+        ax_bar.set_ylabel("Logit Value")
+        ax_bar.set_title(
+            f"{title}. Scene: {scene_name}. Object {i} predicted class: {replica_classes[max_ind]}"
+        )
         ax_bar.legend()
 
         # Adjust layout and save
@@ -1165,26 +1218,24 @@ def plot_images_and_logits(i, image_set, rgb_logits, title, filename, scene_name
         plt.close()
 
 
-
 def concat_images_vertically(imgs):
     # 过滤掉 None 的图像，确保只处理有效图像
     imgs = [img for img in imgs if img is not None]
-    
+
     if len(imgs) == 0:  # 如果没有有效图像，抛出异常
         raise ValueError("No images to concatenate vertically!")
-    
+
     widths, heights = zip(*(i.size for i in imgs))
     max_width = max(widths)
     total_height = sum(heights)
 
-    new_img = Image.new('RGB', (max_width, total_height))
+    new_img = Image.new("RGB", (max_width, total_height))
     y_offset = 0
     for img in imgs:
         new_img.paste(img, (0, y_offset))
         y_offset += img.size[1]
     return new_img
 
-import wandb
 
 def format_to_percentage(value):
     """Safely format a value as a percentage with one decimal place."""
@@ -1192,7 +1243,8 @@ def format_to_percentage(value):
         return "{:.1f}%".format(value * 100)
     except (TypeError, ValueError):
         return "0.0%"
-    
+
+
 def generate_txt_files_optimized(preds, output_dir):
     os.makedirs(output_dir, exist_ok=True)
     for scene_name, scene_data in preds.items():
@@ -1217,42 +1269,64 @@ def generate_txt_files_optimized(preds, output_dir):
 
     print(f"Files generated in {output_dir}")
 
+
 def log_evaluation_results_to_wandb(avgs, run_name):
     # Define the metrics to log
     metrics = ["AP", "AP50", "AP25"]
-    
+
     # Create a W&B Table with "Class" and the defined metrics as columns
     table = wandb.Table(columns=["Class"] + metrics)
-    
+
     # Log overall average results in percentage format
     table.add_data(
-        "Average", 
-        *[format_to_percentage(avgs.get(f"all_{m.lower()}", 0)) for m in metrics]
+        "Average",
+        *[format_to_percentage(avgs.get(f"all_{m.lower()}", 0)) for m in metrics],
     )
-    
+
     # Log per-class results (ensure values are retrieved safely)
     for class_name, class_metrics in avgs.get("classes", {}).items():
         table.add_data(
             class_name,
-            *[format_to_percentage(class_metrics.get(m.lower(), 0)) for m in metrics]
+            *[format_to_percentage(class_metrics.get(m.lower(), 0)) for m in metrics],
         )
-    
+
     # Log the table in W&B under a unique key
     wandb.log({f"{run_name}_evaluation_results": table})
-    
 
 
-def make_square_image(nvs_img, valid_u, valid_v, min_u, max_u, min_v, max_v, expand_factor=0.7, kernel_size=5):
+def make_square_image(
+    nvs_img,
+    valid_u,
+    valid_v,
+    min_u,
+    max_u,
+    min_v,
+    max_v,
+    expand_factor=0.7,
+    kernel_size=5,
+):
     # 创建初始掩码
-    mask = torch.zeros((nvs_img.shape[1], nvs_img.shape[2]), dtype=torch.bool, device=nvs_img.device)
+    mask = torch.zeros(
+        (nvs_img.shape[1], nvs_img.shape[2]), dtype=torch.bool, device=nvs_img.device
+    )
     mask[valid_v, valid_u] = True
 
     # 使用闭运算填充内部空洞
     # 先进行膨胀
-    dilated_mask = F.max_pool2d(mask.float().unsqueeze(0).unsqueeze(0), kernel_size=kernel_size, stride=1, padding=kernel_size//2)
+    dilated_mask = F.max_pool2d(
+        mask.float().unsqueeze(0).unsqueeze(0),
+        kernel_size=kernel_size,
+        stride=1,
+        padding=kernel_size // 2,
+    )
     dilated_mask = (dilated_mask.squeeze(0).squeeze(0) > 0).bool()
     # 再进行腐蚀
-    eroded_mask = F.max_pool2d((~dilated_mask).float().unsqueeze(0).unsqueeze(0), kernel_size=kernel_size, stride=1, padding=kernel_size//2)
+    eroded_mask = F.max_pool2d(
+        (~dilated_mask).float().unsqueeze(0).unsqueeze(0),
+        kernel_size=kernel_size,
+        stride=1,
+        padding=kernel_size // 2,
+    )
     eroded_mask = ~(eroded_mask.squeeze(0).squeeze(0) > 0).bool()
 
     # 应用高斯模糊
