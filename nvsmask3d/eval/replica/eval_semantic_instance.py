@@ -26,12 +26,10 @@
 # example usage: evaluate_semantic_instance.py --scan_path [path to scan data] --output_file [output file]
 
 # python imports
-import math
-import os, sys, argparse
-import inspect
+import os
+import sys
 from copy import deepcopy
 from uuid import uuid4
-import pdb
 import torch
 from tqdm import tqdm
 
@@ -41,7 +39,6 @@ except:
     print("Failed to import numpy package.")
     sys.exit(-1)
 
-from scipy import stats
 
 # currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 # parentdir = os.path.dirname(currentdir)
@@ -234,7 +231,7 @@ def evaluate_matches(matches):
                     cur_score = np.ones(len(gt_instances)) * (-float("inf"))
                     cur_match = np.zeros(len(gt_instances), dtype=bool)
                     # collect matches
-                    for (gti, gt) in enumerate(gt_instances):
+                    for gti, gt in enumerate(gt_instances):
                         found_match = False
                         num_pred = len(gt["matched_pred"])
                         for pred in gt["matched_pred"]:
@@ -382,7 +379,7 @@ def compute_averages(aps):
     avg_dict["all_ap_25%"] = np.nanmean(aps[d_inf, :, o25])
     avg_dict["classes"] = {}
 
-    for (li, label_name) in enumerate(CLASS_LABELS):
+    for li, label_name in enumerate(CLASS_LABELS):
         avg_dict["classes"][label_name] = {}
         # avg_dict["classes"][label_name]["ap"]       = np.average(aps[ d_inf,li,  :])
         avg_dict["classes"][label_name]["ap"] = np.average(aps[d_inf, li, oAllBut25])
@@ -445,7 +442,7 @@ def assign_instances_for_scan(pred: dict, gt_file: str):
             continue
         conf = pred_info[uuid]["conf"]
 
-        if not label_id in ID_TO_LABEL:
+        if label_id not in ID_TO_LABEL:
             continue
         label_name = ID_TO_LABEL[label_id]
         # read the mask
@@ -472,7 +469,7 @@ def assign_instances_for_scan(pred: dict, gt_file: str):
         # matched gt instances
         matched_gt = []
         # go thru all gt instances with matching label
-        for (gt_num, gt_inst) in enumerate(gt2pred[label_name]):
+        for gt_num, gt_inst in enumerate(gt2pred[label_name]):
             intersection = np.count_nonzero(
                 np.logical_and(gt_ids == gt_inst["instance_id"], pred_mask)
             )
@@ -508,7 +505,7 @@ def print_results(avgs):
     print(line)
     print("#" * lineLen)
 
-    for (li, label_name) in enumerate(CLASS_LABELS):
+    for li, label_name in enumerate(CLASS_LABELS):
         ap_avg = avgs["classes"][label_name]["ap"]
         ap_50o = avgs["classes"][label_name]["ap50%"]
         ap_25o = avgs["classes"][label_name]["ap25%"]
@@ -626,7 +623,6 @@ def eval_on_all_scenes():
     preds = {}
 
     for scene_name in tqdm.tqdm(scene_names):
-
         pred_masks = np.load(pred_masks_path_template.format(scene_name))
         pred_scores = np.load(pred_scores_path_template.format(scene_name))
         pred_classes = np.load(pred_classes_path_template.format(scene_name))
@@ -642,7 +638,6 @@ def eval_on_all_scenes():
 
 
 def eval_on_single_scene():
-
     # NOTE: if you need to evaluate only on a single scene, set the following and run the eval.
     # If you need to run it on multiple scenes, simply add the pred masks, scores and classes to "preds" similar to how it's done between lines 473-477.
     # In that case, the average scores across across all scenes will be computed.

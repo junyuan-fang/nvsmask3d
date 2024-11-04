@@ -24,10 +24,10 @@
 # is ignored in the evaluation.
 
 # python imports
-import os, sys
+import os
+import sys
 from copy import deepcopy
 from uuid import uuid4
-import pdb
 import torch
 
 try:
@@ -36,7 +36,6 @@ except:
     print("Failed to import numpy package.")
     sys.exit(-1)
 
-from scipy import stats
 
 # currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 # parentdir = os.path.dirname(currentdir)
@@ -130,7 +129,6 @@ def evaluate_matches(matches):
     for di, (min_region_size, distance_thresh, distance_conf) in enumerate(
         zip(min_region_sizes, dist_threshes, dist_confs)
     ):
-
         for oi, overlap_th in enumerate(overlaps):
             pred_visited = {}
             for m in matches:
@@ -587,7 +585,7 @@ def assign_instances_for_scan(pred: dict, gt_file: str):
     for uuid in pred_info:
         label_id = int(pred_info[uuid]["label_id"])
         conf = pred_info[uuid]["conf"]
-        if not label_id in ID_TO_LABEL:
+        if label_id not in ID_TO_LABEL:
             continue
         label_name = ID_TO_LABEL[label_id]
         # read the mask

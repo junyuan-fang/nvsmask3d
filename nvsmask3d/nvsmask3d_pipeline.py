@@ -44,8 +44,14 @@ class NvsMask3dPipelineConfig(VanillaPipelineConfig):
     network: BaseImageEncoderConfig = OpenCLIPNetworkConfig()
     """specifies the vision-language network config"""
     test_mode: Literal[
-            "test", "val", "inference", "train", "all_replica", "all_scannet", "all_scannetpp"
-        ] = "train",
+        "test",
+        "val",
+        "inference",
+        "train",
+        "all_replica",
+        "all_scannet",
+        "all_scannetpp",
+    ] = ("train",)
 
 
 class NvsMask3dPipeline(VanillaPipeline):
@@ -60,12 +66,18 @@ class NvsMask3dPipeline(VanillaPipeline):
         config: NvsMask3dPipelineConfig,
         device: str,
         test_mode: Literal[
-            "test", "val", "inference", "train", "all_replica", "all_scannet", "all_scannetpp"
+            "test",
+            "val",
+            "inference",
+            "train",
+            "all_replica",
+            "all_scannet",
+            "all_scannetpp",
         ] = "train",
         world_size: int = 1,
         local_rank: int = 0,
         grad_scaler: Optional[GradScaler] = None,
-    ):  
+    ):
         print("On pipeline side test_mode is: ", test_mode)
         super(VanillaPipeline, self).__init__()
         self.config = config
@@ -85,7 +97,6 @@ class NvsMask3dPipeline(VanillaPipeline):
             hasattr(self.datamanager, "train_dataparser_outputs")
             and "points3D_xyz" in self.datamanager.train_dataparser_outputs.metadata
         ):
-
             pts = self.datamanager.train_dataparser_outputs.metadata["points3D_xyz"]
             pts_rgb = self.datamanager.train_dataparser_outputs.metadata["points3D_rgb"]
             seed_pts = (pts, pts_rgb)

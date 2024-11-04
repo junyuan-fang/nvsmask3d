@@ -3,8 +3,8 @@
 import math
 from typing import List, Optional, Tuple
 from nerfstudio.cameras.cameras import Cameras, CameraType
+
 # from nerfstudio.cameras.camera_utils import get_interpolated_poses
-from scipy.spatial.transform import Rotation as R
 
 # from nerfstudio.models.splatfacto import get_viewmat
 import numpy as np
@@ -39,9 +39,27 @@ from PIL import Image
 ################debug################
 vis_depth_threshold = 0.4
 # opengl to opencv transformation matrix
-OPENGL_TO_OPENCV = np.array([[1.0, 0.0, 0.0, 0.0], [0.0, -1.0, 0.0, 0.0], [0.0, 0.0, -1.0, 0.0], [0.0, 0.0, 0.0, 1.0]])
-OPENCV_TO_OPENGL = np.array([[1.0, 0.0, 0.0, 0.0], [0.0, -1.0, 0.0, 0.0], [0.0, 0.0, -1.0, 0.0], [0.0, 0.0, 0.0, 1.0]])
-def get_camera_pose_in_opencv_convention(optimized_camera_to_world: torch.Tensor) -> torch.Tensor:
+OPENGL_TO_OPENCV = np.array(
+    [
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, -1.0, 0.0, 0.0],
+        [0.0, 0.0, -1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+)
+OPENCV_TO_OPENGL = np.array(
+    [
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, -1.0, 0.0, 0.0],
+        [0.0, 0.0, -1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+)
+
+
+def get_camera_pose_in_opencv_convention(
+    optimized_camera_to_world: torch.Tensor,
+) -> torch.Tensor:
     """
     Converts a batch of camera poses from OpenGL to OpenCV convention.
 
@@ -52,22 +70,40 @@ def get_camera_pose_in_opencv_convention(optimized_camera_to_world: torch.Tensor
         optimized_camera_to_world: Tensor of shape (M, 3, 4) or (3, 4) in OpenCV convention.
     """
     opengl_to_opencv = torch.tensor(
-        OPENGL_TO_OPENCV, device=optimized_camera_to_world.device, dtype=optimized_camera_to_world.dtype
+        OPENGL_TO_OPENCV,
+        device=optimized_camera_to_world.device,
+        dtype=optimized_camera_to_world.dtype,
     )  # shape (4, 4)
     # Expand `opengl_to_opencv` to match batch size if necessary
     if optimized_camera_to_world.dim() == 3:
-        opengl_to_opencv = opengl_to_opencv.unsqueeze(0).expand(optimized_camera_to_world.shape[0], -1, -1)
+        opengl_to_opencv = opengl_to_opencv.unsqueeze(0).expand(
+            optimized_camera_to_world.shape[0], -1, -1
+        )
 
     # Add a column to `optimized_camera_to_world` to make it (M, 4, 4) for matrix multiplication
     optimized_camera_to_world = torch.cat(
-        [optimized_camera_to_world, torch.tensor([0.0, 0.0, 0.0, 1.0], device=optimized_camera_to_world.device, dtype=optimized_camera_to_world.dtype).view(1, 1, 4).expand(optimized_camera_to_world.shape[0], -1, -1)],
-        dim=1
+        [
+            optimized_camera_to_world,
+            torch.tensor(
+                [0.0, 0.0, 0.0, 1.0],
+                device=optimized_camera_to_world.device,
+                dtype=optimized_camera_to_world.dtype,
+            )
+            .view(1, 1, 4)
+            .expand(optimized_camera_to_world.shape[0], -1, -1),
+        ],
+        dim=1,
     )
 
     # Perform batch matrix multiplication
-    optimized_camera_to_world = torch.matmul(optimized_camera_to_world, opengl_to_opencv)
+    optimized_camera_to_world = torch.matmul(
+        optimized_camera_to_world, opengl_to_opencv
+    )
 
-    return optimized_camera_to_world[:, :3, :] # Remove the extra row and return to original shape (M, 3, 4)
+    return optimized_camera_to_world[
+        :, :3, :
+    ]  # Remove the extra row and return to original shape (M, 3, 4)
+
 
 def get_camera_pose_in_opengl_convention(optimized_camera_to_world) -> torch.Tensor:
     """
@@ -87,14 +123,16 @@ def get_camera_pose_in_opengl_convention(optimized_camera_to_world) -> torch.Ten
     )  # shape (M, 3, 4)
     return optimized_camera_to_world
 
+
 def load_depth_maps(depth_maps_paths, depth_scale, device):
     depth_maps = []
     for depth_map_path in depth_maps_paths:
         depth_image = Image.open(depth_map_path)
         depth_array = np.array(depth_image) / depth_scale
         depth_maps.append(torch.from_numpy(depth_array).float().to(device))
-    
+
     return torch.stack(depth_maps)
+
 
 @torch.no_grad()
 def optimal_k_camera_poses_of_scene(
@@ -111,7 +149,9 @@ def optimal_k_camera_poses_of_scene(
         best_poses: torch.Tensor, size is (166,), top k poses (index) for each mask
     """
     # Move camera transformations to the GPU
-    optimized_camera_to_world = get_camera_pose_in_opencv_convention(camera.camera_to_worlds.to("cuda"))  # shape (M, 3, 4)
+    optimized_camera_to_world = get_camera_pose_in_opencv_convention(
+        camera.camera_to_worlds.to("cuda")
+    )  # shape (M, 3, 4)
 
     # Move intrinsics to the GPU
     K = camera.get_intrinsics_matrices().to("cuda")  # shape (M, 3, 3)
@@ -141,9 +181,7 @@ def optimal_k_camera_poses_of_scene(
         # Vectorized computation for all camera poses
         points_cam = masked_seed_points.unsqueeze(0) - optimized_camera_to_world[
             :, :3, 3
-        ].unsqueeze(
-            1
-        )  # shape (M, P, 3)
+        ].unsqueeze(1)  # shape (M, P, 3)
         points_cam = torch.bmm(
             points_cam, optimized_camera_to_world[:, :3, :3]
         )  # shape (M, P, 3)
@@ -177,8 +215,9 @@ def optimal_k_camera_poses_of_scene(
 
     return best_poses_per_mask
 
+
 @torch.no_grad()
-def object_optimal_k_camera_poses_2D_mask(#no sam uses object_optimal_k_camera_poses_2D_mask
+def object_optimal_k_camera_poses_2D_mask(  # no sam uses object_optimal_k_camera_poses_2D_mask
     seed_points_0,
     optimized_camera_to_world,
     K,
@@ -190,14 +229,14 @@ def object_optimal_k_camera_poses_2D_mask(#no sam uses object_optimal_k_camera_p
     k_poses=2,
     chunk_size=200,
     vis_depth_threshold=0.4,
-    score_fn=lambda num_visible_points,_: num_visible_points  # 默认是用可见点数作为得分
-
+    score_fn=lambda num_visible_points,
+    _: num_visible_points,  # 默认是用可见点数作为得分
 ):
     """
     Selects the top k optimal camera poses based on visibility scores computed for projected 3D points on a 2D mask.
 
-    The function projects 3D points into 2D for a set of candidate camera poses and calculates visibility scores. 
-    The visibility score is based on the number of valid 3D points projected into the 2D view that fall within image bounds and have valid depth values. 
+    The function projects 3D points into 2D for a set of candidate camera poses and calculates visibility scores.
+    The visibility score is based on the number of valid 3D points projected into the 2D view that fall within image bounds and have valid depth values.
     The function returns the indices of the top k camera poses along with the 2D pixel positions for the valid projected points.
 
     Args:
@@ -220,14 +259,19 @@ def object_optimal_k_camera_poses_2D_mask(#no sam uses object_optimal_k_camera_p
         valid_v (List[torch.Tensor]): List of length k_poses containing the valid v coordinates for each camera pose.
     """
 
-
     masked_seed_points = seed_points_0[boolean_mask]  # shape (N, 3)
-    u, v, z = get_points_projected_uv_and_depth(masked_seed_points, optimized_camera_to_world, K)  # shape (M, N)(200,3900)
-    valid_points = (u >= 0) & (u < W) & (v >= 0) & (v < H) & (z > 0) #shape (M, N) #(pose num, point num)
+    u, v, z = get_points_projected_uv_and_depth(
+        masked_seed_points, optimized_camera_to_world, K
+    )  # shape (M, N)(200,3900)
+    valid_points = (
+        (u >= 0) & (u < W) & (v >= 0) & (v < H) & (z > 0)
+    )  # shape (M, N) #(pose num, point num)
 
     if depth_filenames:
         # Load depth image
-        depth_maps = load_depth_maps(depth_filenames, depth_scale, device=seed_points_0.device).half()#(M,H,W)
+        depth_maps = load_depth_maps(
+            depth_filenames, depth_scale, device=seed_points_0.device
+        ).half()  # (M,H,W)
 
         # Initialize tensor to hold valid depth points
         H, W = depth_maps.shape[1], depth_maps.shape[2]
@@ -239,22 +283,26 @@ def object_optimal_k_camera_poses_2D_mask(#no sam uses object_optimal_k_camera_p
             return torch.tensor([]), torch.tensor([]), torch.tensor([])
 
         # 展平有效点的索引
-        valid_indices = valid_points.nonzero(as_tuple=False)  # Shape: (num_valid_points, 2)
+        valid_indices = valid_points.nonzero(
+            as_tuple=False
+        )  # Shape: (num_valid_points, 2)
         batch_indices_valid = valid_indices[:, 0]  # 有效点的批次索引 (M 维)
         point_indices_valid = valid_indices[:, 1]  # 有效点在每个批次内的索引 (N 维)
-        
+
         # 提取有效的 u, v, z
         u_valid = u[valid_points].long()  # Shape: (num_valid_points,)
         v_valid = v[valid_points].long()  # Shape: (num_valid_points,)
-        z_valid = z[valid_points]         # Shape: (num_valid_points,)
+        z_valid = z[valid_points]  # Shape: (num_valid_points,)
 
         try:
-            #print("Trying to process depth maps in one go.")
+            # print("Trying to process depth maps in one go.")
             depth_values = depth_maps[batch_indices_valid, v_valid, u_valid]
             depth_valid_mask = depth_values > 0
-            valid_depths = (torch.abs(depth_values - z_valid) <= vis_depth_threshold) & depth_valid_mask
+            valid_depths = (
+                torch.abs(depth_values - z_valid) <= vis_depth_threshold
+            ) & depth_valid_mask
             valid_points[batch_indices_valid, point_indices_valid] &= valid_depths
-            #debug
+            # debug
             # sparse_map = torch.zeros((H, W, 3), dtype=torch.float32, device="cuda")
             # sparse_map[ v[122][valid_points[122]].long(), u[122][valid_points[122]].long()] = z[122][valid_points[122]].unsqueeze(-1).expand(-1, 3)
             # from nvsmask3d.utils.utils import save_img
@@ -269,12 +317,21 @@ def object_optimal_k_camera_poses_2D_mask(#no sam uses object_optimal_k_camera_p
             # print("Values greater than 0.4 (absolute):", greater_than_04_values)
             # diff_map = torch.where(diff_map.abs() > 0.4, torch.tensor(0.0, device=diff_map.device), diff_map)
             # save_img(diff_map, f"tests/depth_map_diff{122}_thresholded.png")
-            # import pdb; pdb.set_trace() 
-            
-            del u_valid, v_valid, z_valid, valid_indices, batch_indices_valid, point_indices_valid
+            # import pdb; pdb.set_trace()
+
+            del (
+                u_valid,
+                v_valid,
+                z_valid,
+                valid_indices,
+                batch_indices_valid,
+                point_indices_valid,
+            )
             torch.cuda.empty_cache()
         except RuntimeError:
-            print("Runtime error occured during depth map one go processing, switching to chunked processing.")
+            print(
+                "Runtime error occured during depth map one go processing, switching to chunked processing."
+            )
             # 分块处理
             for start in range(0, num_valid_points, chunk_size):
                 end = min(start + chunk_size, num_valid_points)
@@ -291,19 +348,34 @@ def object_optimal_k_camera_poses_2D_mask(#no sam uses object_optimal_k_camera_p
 
                 # 深度值有效性检查
                 depth_valid_mask = depth_values > 0
-                valid_depths = (torch.abs(depth_values - z_chunk) <= vis_depth_threshold) & depth_valid_mask
+                valid_depths = (
+                    torch.abs(depth_values - z_chunk) <= vis_depth_threshold
+                ) & depth_valid_mask
 
                 # 更新 valid_points
                 valid_points[batch_indices_chunk, point_indices_chunk] &= valid_depths
 
                 # 删除中间变量
-            del batch_indices_chunk, point_indices_chunk, u_chunk, v_chunk, z_chunk, depth_values, valid_depths, depth_valid_mask, batch_indices_valid, point_indices_valid, u_valid, v_valid, z_valid
+            del (
+                batch_indices_chunk,
+                point_indices_chunk,
+                u_chunk,
+                v_chunk,
+                z_chunk,
+                depth_values,
+                valid_depths,
+                depth_valid_mask,
+                batch_indices_valid,
+                point_indices_valid,
+                u_valid,
+                v_valid,
+                z_valid,
+            )
             torch.cuda.empty_cache()
-        
+
     if not valid_points.any():
         print("No valid points found")
         return torch.tensor([]), torch.tensor([]), torch.tensor([])
-
 
     # Compute visibility scores for all poses
     num_visible_points = valid_points.float().sum(dim=1)
@@ -311,7 +383,7 @@ def object_optimal_k_camera_poses_2D_mask(#no sam uses object_optimal_k_camera_p
 
     # Select top k scored poses
     _, best_poses_indices = torch.topk(visibility_scores, k_poses)
-    
+
     # for index in best_poses_indices:
     #     sparse_map = torch.zeros((H, W, 3), dtype=torch.float32, device="cuda")
     #     sparse_map[ v[index][valid_points[index]].long(), u[index][valid_points[index]].long()] = 1
@@ -323,15 +395,22 @@ def object_optimal_k_camera_poses_2D_mask(#no sam uses object_optimal_k_camera_p
     # save_img(sparse_map, f"tests/sparse_map.png")
     # import pdb; pdb.set_trace()
     # Get the valid u and v coordinates for the best poses
-    valid_u = [ u[index][valid_points[index]].long() for index in best_poses_indices] # shape (k_poses, num_valid_points) 第二个维度不一定都是3900 全满, occlution原因
-    valid_v = [ v[index][valid_points[index]].long() for index in best_poses_indices] # shape (k_poses, num_valid_points)
+    valid_u = [
+        u[index][valid_points[index]].long() for index in best_poses_indices
+    ]  # shape (k_poses, num_valid_points) 第二个维度不一定都是3900 全满, occlution原因
+    valid_v = [
+        v[index][valid_points[index]].long() for index in best_poses_indices
+    ]  # shape (k_poses, num_valid_points)
     best_poses_indices = best_poses_indices.cpu()
-    #best_poses_indices = torch.sort(best_poses_indices).cpu() #sorted for smooth interpolation
+    # best_poses_indices = torch.sort(best_poses_indices).cpu() #sorted for smooth interpolation
 
     return best_poses_indices, valid_u, valid_v
 
+
 @torch.no_grad()
-def process_depth_maps_in_chunks(depth_maps, u_valid, v_valid, z_valid, chunk_size=100, vis_depth_threshold=0.4):
+def process_depth_maps_in_chunks(
+    depth_maps, u_valid, v_valid, z_valid, chunk_size=100, vis_depth_threshold=0.4
+):
     """
     Processes depth maps in chunks and compares them with the provided z values to filter valid depths.
 
@@ -358,7 +437,7 @@ def process_depth_maps_in_chunks(depth_maps, u_valid, v_valid, z_valid, chunk_si
 
         # Compare depth_at_valid_points with z_valid using the threshold
         valid_chunk = torch.abs(depth_at_valid_points - z_valid) <= vis_depth_threshold
-        
+
         # Update the valid_depths tensor
         valid_depths |= valid_chunk.any(dim=0)
 
@@ -368,8 +447,9 @@ def process_depth_maps_in_chunks(depth_maps, u_valid, v_valid, z_valid, chunk_si
 
     return valid_depths  # Return a flattened tensor
 
+
 @torch.no_grad()
-def object_optimal_k_camera_poses_bounding_box(#SAM uses object_optimal_k_camera_poses_2D_mask
+def object_optimal_k_camera_poses_bounding_box(  # SAM uses object_optimal_k_camera_poses_2D_mask
     seed_points_0,
     optimized_camera_to_world,
     K,
@@ -381,8 +461,8 @@ def object_optimal_k_camera_poses_bounding_box(#SAM uses object_optimal_k_camera
     k_poses=2,
     chunk_size=50,
     vis_depth_threshold=0.4,
-    score_fn=lambda num_visible_points, bounding_box_area: num_visible_points  # 默认是用可见点数作为得分
-
+    score_fn=lambda num_visible_points,
+    bounding_box_area: num_visible_points,  # 默认是用可见点数作为得分
 ):
     """
     Selects the top k optimal camera poses based on the visibility score of the 3D mask.
@@ -404,19 +484,30 @@ def object_optimal_k_camera_poses_bounding_box(#SAM uses object_optimal_k_camera
     """
 
     masked_seed_points = seed_points_0[boolean_mask]  # shape (N, 3)
-    u, v, z = get_points_projected_uv_and_depth(masked_seed_points, optimized_camera_to_world, K)  # shape (M, N)
+    u, v, z = get_points_projected_uv_and_depth(
+        masked_seed_points, optimized_camera_to_world, K
+    )  # shape (M, N)
     valid_points = (u >= 0) & (u < W) & (v >= 0) & (v < H) & (z > 0)
 
     if depth_filenames:
         # Load depth image
-        depth_maps = load_depth_maps(depth_filenames, depth_scale, device=seed_points_0.device).half()
+        depth_maps = load_depth_maps(
+            depth_filenames, depth_scale, device=seed_points_0.device
+        ).half()
         # Calculate valid point indices
         u_valid = u[valid_points].long()
         v_valid = v[valid_points].long()
         z_valid = z[valid_points]  # Keep as float for accuracy
-        
+
         # Process depth maps in chunks
-        valid_depths = process_depth_maps_in_chunks(depth_maps, u_valid, v_valid, z_valid, chunk_size=chunk_size, vis_depth_threshold=vis_depth_threshold)
+        valid_depths = process_depth_maps_in_chunks(
+            depth_maps,
+            u_valid,
+            v_valid,
+            z_valid,
+            chunk_size=chunk_size,
+            vis_depth_threshold=vis_depth_threshold,
+        )
 
         # Update valid_points directly using the valid_depths
         valid_points_clone = valid_points.clone()
@@ -427,16 +518,16 @@ def object_optimal_k_camera_poses_bounding_box(#SAM uses object_optimal_k_camera
         # Cleanup
         del depth_maps, valid_depths, valid_points_clone
         torch.cuda.empty_cache()
-        
+
     if not valid_points.any():
         print("No valid points found")
         return torch.tensor([]), torch.tensor([])
-    
+
     # num_visible_points = valid_points.float().sum(dim=1)
 
     # # valid_u = [ u[index][valid_points[index]].long() for index in best_poses_indices] # shape (k_poses, num_valid_points) 第二个维度不一定都是3900 全满, occlution原因
     # # valid_v = [ v[index][valid_points[index]].long() for index in best_poses_indices] # shape (k_poses, num_valid_points)
-    
+
     # valid_u = []
     # valid_v = []
     # bounding_box_area = []
@@ -459,7 +550,6 @@ def object_optimal_k_camera_poses_bounding_box(#SAM uses object_optimal_k_camera
     #     bounding_box_area.append(area)
     # bounding_box_area = torch.tensor(bounding_box_area)  # Shape: (k_poses,)
 
-
     # if num_visible_points == 0 or len(valid_u) == 0 or len(valid_v) == 0:
     #     return torch.tensor([]), torch.tensor([])
 
@@ -480,7 +570,9 @@ def object_optimal_k_camera_poses_bounding_box(#SAM uses object_optimal_k_camera
 
     # Compute visibility scores for all poses
     num_visible_points = valid_points.float().sum(dim=1)
-    visibility_scores = score_fn(num_visible_points, bounding_box_area)  # 默认是用可见点数作为得分
+    visibility_scores = score_fn(
+        num_visible_points, bounding_box_area
+    )  # 默认是用可见点数作为得分
 
     # Select top k scored poses
     _, best_poses_indices = torch.topk(visibility_scores, k_poses)
@@ -500,6 +592,7 @@ def object_optimal_k_camera_poses_bounding_box(#SAM uses object_optimal_k_camera
     )  # (k_poses, 4)
 
     return best_poses_indices, final_bounding_boxes
+
 
 @torch.no_grad()
 def compute_camera_pose_bounding_boxes(
@@ -528,7 +621,9 @@ def compute_camera_pose_bounding_boxes(
     masked_seed_points = seed_points_0[boolean_mask]  # shape (N, 3)
 
     # Project points to 2D image coordinates for all camera poses
-    u, v, z = get_points_projected_uv_and_depth(masked_seed_points, optimized_camera_to_world, K)  # shape (M, N)
+    u, v, z = get_points_projected_uv_and_depth(
+        masked_seed_points, optimized_camera_to_world, K
+    )  # shape (M, N)
 
     # Filter out invalid points (outside of the image boundaries or behind the camera)
     valid_points = (u >= 0) & (u < W) & (v >= 0) & (v < H) & (z > 0)
@@ -540,7 +635,7 @@ def compute_camera_pose_bounding_boxes(
     if not valid_points.any():
         print("No valid points found")
         return torch.tensor([]), torch.tensor([])
-    
+
     # Calculate min and max u and v for valid points for each camera
     min_u, _ = u.masked_fill(~valid_points, float("inf")).min(dim=1)  # shape (M,)
     max_u, _ = u.masked_fill(~valid_points, float("-inf")).max(dim=1)
@@ -557,6 +652,7 @@ def compute_camera_pose_bounding_boxes(
     bounding_boxes = torch.stack([min_u, min_v, max_u, max_v], dim=1)  # shape (M, 4)
 
     return bounding_boxes
+
 
 @torch.no_grad()
 def compute_camera_pose_2D_masks(
@@ -586,7 +682,9 @@ def compute_camera_pose_2D_masks(
     masked_seed_points = seed_points_0[boolean_mask]  # shape (N, 3)
 
     # Project points to 2D image coordinates for all camera poses
-    u, v, z = get_points_projected_uv_and_depth(masked_seed_points, optimized_camera_to_world, K)  # shape (M, N)
+    u, v, z = get_points_projected_uv_and_depth(
+        masked_seed_points, optimized_camera_to_world, K
+    )  # shape (M, N)
 
     # Filter out invalid points (outside of the image boundaries or behind the camera)
     valid_points = (u >= 0) & (u < W) & (v >= 0) & (v < H) & (z > 0)
@@ -595,10 +693,15 @@ def compute_camera_pose_2D_masks(
         print("No valid points found")
         return torch.tensor([]), torch.tensor([]), torch.tensor([])
 
-    valid_u = [ u[index][valid_points[index]].long() for index in range(u.shape[0])] # shape (k_poses, num_valid_points) 第二个维度不一定都是3900 全满, occlution原因
-    valid_v = [ v[index][valid_points[index]].long() for index in range(u.shape[0])] # shape (k_poses, num_valid_points)
+    valid_u = [
+        u[index][valid_points[index]].long() for index in range(u.shape[0])
+    ]  # shape (k_poses, num_valid_points) 第二个维度不一定都是3900 全满, occlution原因
+    valid_v = [
+        v[index][valid_points[index]].long() for index in range(u.shape[0])
+    ]  # shape (k_poses, num_valid_points)
 
     return valid_u, valid_v
+
 
 def rotate_vector_to_vector(v1: Tensor, v2: Tensor):
     """
@@ -632,7 +735,7 @@ def rotate_vector_to_vector(v1: Tensor, v2: Tensor):
     ans[same_direction_mask] = torch.eye(3, device=v1.device)
     ans[opposite_direction_mask] = -torch.eye(3, device=v1.device)
     return ans
-  
+
 
 def make_cameras(camera: Cameras, poses):
     """
@@ -646,18 +749,19 @@ def make_cameras(camera: Cameras, poses):
         new_camera: Cameras, with the given camera poses
     """
     n = poses.shape[0]  # Number of cameras
-    #poses = get_camera_pose_in_opengl_convention(poses)  # Convert to OpenGL convention
+    # poses = get_camera_pose_in_opengl_convention(poses)  # Convert to OpenGL convention
     new_cameras = Cameras(
-            fx=camera.fx.squeeze(-1).repeat(n),
-            fy=camera.fy.squeeze(-1).repeat(n),
-            cx=camera.cx.squeeze(-1).repeat(n),
-            cy=camera.cy.squeeze(-1).repeat(n),
-            height=camera.height,
-            width=camera.width,
-            camera_to_worlds=poses[:, :3, :4],
-            camera_type=CameraType.PERSPECTIVE,
-        )
+        fx=camera.fx.squeeze(-1).repeat(n),
+        fy=camera.fy.squeeze(-1).repeat(n),
+        cx=camera.cx.squeeze(-1).repeat(n),
+        cy=camera.cy.squeeze(-1).repeat(n),
+        height=camera.height,
+        width=camera.width,
+        camera_to_worlds=poses[:, :3, :4],
+        camera_type=CameraType.PERSPECTIVE,
+    )
     return new_cameras
+
 
 def compute_visibility_score(p, camera_pose, K, W, H):
     """
@@ -693,6 +797,7 @@ def compute_visibility_score(p, camera_pose, K, W, H):
     visibility_score = valid_points.float().mean().item()
     return visibility_score
 
+
 def project_pix(
     p: Tensor,
     fx: float,
@@ -721,6 +826,7 @@ def project_pix(
         return torch.stack([u, v, points_cam[:, 2]], dim=-1)
     return torch.stack([u, v], dim=-1)
 
+
 def c2w_to_w2c(c2w: torch.Tensor) -> torch.Tensor:
     """
     Converts a 3x4 camera-to-world matrix to a 4x4 world-to-camera matrix.
@@ -740,8 +846,11 @@ def c2w_to_w2c(c2w: torch.Tensor) -> torch.Tensor:
 
     return w2c
 
+
 def get_points_projected_uv_and_depth(
-    masked_seed_points: torch.Tensor, optimized_camera_to_world: torch.Tensor, K: torch.Tensor
+    masked_seed_points: torch.Tensor,
+    optimized_camera_to_world: torch.Tensor,
+    K: torch.Tensor,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Projects 3D points to 2D pixel coordinates and depth for multiple camera poses.
@@ -757,18 +866,30 @@ def get_points_projected_uv_and_depth(
         depth: Tensor of shape (M, N) representing depth values. Depth to the camera
     """
     # Transform points to camera coordinates
-    points_cam = masked_seed_points.unsqueeze(0) - optimized_camera_to_world[:, :3, 3].unsqueeze(1)  # (M, N, 3)
-    points_cam = torch.bmm(points_cam, optimized_camera_to_world[:, :3, :3])  # (M, N, 3)
-    
+    points_cam = masked_seed_points.unsqueeze(0) - optimized_camera_to_world[
+        :, :3, 3
+    ].unsqueeze(1)  # (M, N, 3)
+    points_cam = torch.bmm(
+        points_cam, optimized_camera_to_world[:, :3, :3]
+    )  # (M, N, 3)
+
     # Extract depth, avoiding division by zero
     epsilon = 1e-8  # To prevent divide by zero
     depth = points_cam[:, :, 2].clamp(min=epsilon)  # (M, N)
 
     # Project to image plane
-    u = (points_cam[:, :, 0] * K[:, 0, 0].unsqueeze(1) / depth) + K[:, 0, 2].unsqueeze(1)  # (M, N)
-    v = (points_cam[:, :, 1] * K[:, 1, 1].unsqueeze(1) / depth) + K[:, 1, 2].unsqueeze(1)  # (M, N)
+    u = (points_cam[:, :, 0] * K[:, 0, 0].unsqueeze(1) / depth) + K[:, 0, 2].unsqueeze(
+        1
+    )  # (M, N)
+    v = (points_cam[:, :, 1] * K[:, 1, 1].unsqueeze(1) / depth) + K[:, 1, 2].unsqueeze(
+        1
+    )  # (M, N)
     return u, v, depth
-def geometric_median_pytorch_optimized(points, eps_ratio=1e-5, max_iter=1000, device=None):
+
+
+def geometric_median_pytorch_optimized(
+    points, eps_ratio=1e-5, max_iter=1000, device=None
+):
     """
     计算3D点集的几何中位数，使用优化的Weiszfeld算法，并利用PyTorch的高效计算能力。
 
@@ -830,9 +951,11 @@ def geometric_median_pytorch_optimized(points, eps_ratio=1e-5, max_iter=1000, de
     return median
 
 
-def interpolate_camera_poses_with_camera_trajectory(poses, masked_seed_points0, steps_per_transition=10, slerp=False):#, model=None, j=0):
+def interpolate_camera_poses_with_camera_trajectory(
+    poses, masked_seed_points0, steps_per_transition=10, slerp=False
+):  # , model=None, j=0):
     """
-    Interpolates camera poses between the given camera poses on opencv convention by using the possible camera trajectory. 
+    Interpolates camera poses between the given camera poses on opencv convention by using the possible camera trajectory.
     Including start pose amd end pose rotation adjustment based on 3D object center point.
 
     Args:
@@ -843,34 +966,38 @@ def interpolate_camera_poses_with_camera_trajectory(poses, masked_seed_points0, 
     Returns:
         interpolated_camera_poses (torch.Tensor): (M * step_per_transition, 3, 4) interpolated camera-to-world matrices
     """
-       
+
     # prepare object center point (3, ) vector
-    #v2 =  torch.median(masked_seed_points0, dim=0)[0] # openCV convention
-    v2 = geometric_median_pytorch_optimized(masked_seed_points0, eps_ratio=1e-5, device="cuda")
+    # v2 =  torch.median(masked_seed_points0, dim=0)[0] # openCV convention
+    v2 = geometric_median_pytorch_optimized(
+        masked_seed_points0, eps_ratio=1e-5, device="cuda"
+    )
 
     # Interpolate camera poses
     num_poses = poses.shape[0]
     interpolated_camera_poses = []
     for i in range(num_poses - 1):
         # Get the start and end camera poses
-        pose_a = poses[i] # opengl convention
-        pose_b = poses[i + 1] 
-        
-        pose_a[:3, 2] = -pose_a[:3, 2] # z-axis, filipped to opencv convention
+        pose_a = poses[i]  # opengl convention
+        pose_b = poses[i + 1]
+
+        pose_a[:3, 2] = -pose_a[:3, 2]  # z-axis, filipped to opencv convention
         pose_b[:3, 2] = -pose_b[:3, 2]
         # pose_a[:3, 1] = -pose_a[:3, 1] # y-axis, filipped to opencv convention
         # pose_b[:3, 1] = -pose_b[:3, 1]
-        
+
         # 从相机姿态中提取原始的上方向（Up Vector）
         up_vector_a = pose_a[:, 1]  # 第二列y为上方向
         up_vector_a = up_vector_a / torch.norm(up_vector_a)  # 归一化
         # 使用 Look-At 方法计算新的旋转矩阵
-        pose_a[:, :3] = compute_look_at_rotation(pose_a[:, 3], v2, up_vector_a)# pose_a[:, 3] opengl convention, v2 opencv convention, up_vector_a opengl convention
-        
-        #b
+        pose_a[:, :3] = compute_look_at_rotation(
+            pose_a[:, 3], v2, up_vector_a
+        )  # pose_a[:, 3] opengl convention, v2 opencv convention, up_vector_a opengl convention
+
+        # b
         up_vector_b = pose_b[:, 1]  # 第二列为上方向
         up_vector_b = up_vector_b / torch.norm(up_vector_b)  # 归一化
-        pose_b[:, :3] = compute_look_at_rotation( pose_b[:, 3], v2, up_vector_b)
+        pose_b[:, :3] = compute_look_at_rotation(pose_b[:, 3], v2, up_vector_b)
         # #prepare camera (3,) vector.
         # v1_a = -pose_a[:3, 2] # z-axis, filipped to opencv convention
         # v1_a = v1_a / torch.norm(v1_a)
@@ -883,7 +1010,7 @@ def interpolate_camera_poses_with_camera_trajectory(poses, masked_seed_points0, 
         # R_b = rotate_vector_to_vector(v1_b, v2)
         # R_b = pose_b[:3, :3] @ R_b
         # pose_b[:3, :3] = R_b
-        
+
         # camera_a = make_cameras(model.cameras[0:1], pose_a.unsqueeze(0))
         # camera_b = make_cameras(model.cameras[0:1], pose_b.unsqueeze(0))
         # nvs_img_a = model.get_outputs(camera_a)["rgb"]  # (H, W, 3)
@@ -892,20 +1019,27 @@ def interpolate_camera_poses_with_camera_trajectory(poses, masked_seed_points0, 
         # save_img(nvs_img_a, f"tests/object{j}_cam{i}_nvs_image_a.png")
         # save_img(nvs_img_b, f"tests/object{j}_cam{i}_nvs_image_b.png")
 
-        #pose_a, poseb opengl convention
+        # pose_a, poseb opengl convention
         if slerp:
             # Interpolate between the two camera poses
-            poses_ab = get_interpolated_poses(pose_a, pose_b, steps=steps_per_transition)#, direction_to_object=v2)# linear interpolation
-            interpolated_camera_poses.append(poses_ab)# (steps, 3, 4)
+            poses_ab = get_interpolated_poses(
+                pose_a, pose_b, steps=steps_per_transition
+            )  # , direction_to_object=v2)# linear interpolation
+            interpolated_camera_poses.append(poses_ab)  # (steps, 3, 4)
 
         else:
             # 创建一个从1到steps的等间隔序列
-            ts = torch.linspace(1, steps_per_transition, steps_per_transition, device=masked_seed_points0.device)
-            
+            ts = torch.linspace(
+                1,
+                steps_per_transition,
+                steps_per_transition,
+                device=masked_seed_points0.device,
+            )
+
             t_factors = ts.unsqueeze(1) / (steps_per_transition + 1)  # 形状：(N, 1)
 
             # 计算插值位置，形状为 (N, 3)
-            #pose already in opencv convention
+            # pose already in opencv convention
             trans_list = pose_a[:3, 3] + (pose_b[:3, 3] - pose_a[:3, 3]) * t_factors
             up_vectors = up_vector_a.unsqueeze(0).expand(trans_list.shape[0], -1)
 
@@ -923,10 +1057,16 @@ def interpolate_camera_poses_with_camera_trajectory(poses, masked_seed_points0, 
             #     camera_forward_batch,
             #     direction_to_object_normalized
             # )  # (N, 3, 3)
-            rotation_matrices = batch_compute_look_at_rotation(trans_list, v2, up_vectors)  # (steps_per_transition, 3, 3)
-            
+            rotation_matrices = batch_compute_look_at_rotation(
+                trans_list, v2, up_vectors
+            )  # (steps_per_transition, 3, 3)
+
             # 构建相机姿态矩阵（OpenGL 坐标系）
-            camera_poses_gl = torch.eye(4, dtype=torch.float32, device=masked_seed_points0.device).unsqueeze(0).repeat(rotation_matrices.shape[0], 1, 1)
+            camera_poses_gl = (
+                torch.eye(4, dtype=torch.float32, device=masked_seed_points0.device)
+                .unsqueeze(0)
+                .repeat(rotation_matrices.shape[0], 1, 1)
+            )
             camera_poses_gl[:, :3, :3] = rotation_matrices
             camera_poses_gl[:, :3, 3] = trans_list
 
@@ -936,6 +1076,8 @@ def interpolate_camera_poses_with_camera_trajectory(poses, masked_seed_points0, 
     interpolated_camera_poses = torch.cat(interpolated_camera_poses, dim=0)
     # Final shape will be [steps*num_poses, 3, 4]
     return interpolated_camera_poses
+
+
 # 计算旋转矩阵，针对每个插值位置
 def batch_compute_look_at_rotation(eyes, target, ups):
     """
@@ -968,6 +1110,7 @@ def batch_compute_look_at_rotation(eyes, target, ups):
 
     return Rs
 
+
 def compute_look_at_rotation(eye, target, up):
     """
     使用 Look-At 方法计算旋转矩阵，使相机从 eye 位置朝向 target，使用指定的上方向 up。
@@ -998,19 +1141,19 @@ def compute_look_at_rotation(eye, target, up):
     R = torch.stack([s, u, -f], dim=1)  # 形状为 (3, 3)
     return R
 
+
 def ideal_K_inverse(K):
     fx = K[0, 0]
     fy = K[1, 1]
     cx = K[0, 2]
     cy = K[1, 2]
-    
-    K_inv = torch.tensor([
-        [1 / fx, 0, -cx / fx],
-        [0, 1 / fy, -cy / fy],
-        [0, 0, 1]
-    ], device=K.device)
-    
+
+    K_inv = torch.tensor(
+        [[1 / fx, 0, -cx / fx], [0, 1 / fy, -cy / fy], [0, 0, 1]], device=K.device
+    )
+
     return K_inv
+
 
 def quaternion_from_matrix(matrix: Tensor) -> Tensor:
     """Convert a rotation matrix to a quaternion."""
@@ -1045,7 +1188,13 @@ def quaternion_from_matrix(matrix: Tensor) -> Tensor:
     return torch.tensor([qw, qx, qy, qz], device=matrix.device)
 
 
-def quaternion_slerp(quat0: Tensor, quat1: Tensor, fraction: float, spin: int = 0, shortestpath: bool = True) -> Tensor:
+def quaternion_slerp(
+    quat0: Tensor,
+    quat1: Tensor,
+    fraction: float,
+    spin: int = 0,
+    shortestpath: bool = True,
+) -> Tensor:
     """Return spherical linear interpolation between two quaternions.
 
     Args:
@@ -1065,7 +1214,9 @@ def quaternion_slerp(quat0: Tensor, quat1: Tensor, fraction: float, spin: int = 
     if abs(angle) < 1e-6:
         return q0
     isin = 1.0 / torch.sin(angle)  # Ensure angle is a Tensor before using torch.sin
-    return (torch.sin((1.0 - fraction) * angle) * q0 + torch.sin(fraction * angle) * q1) * isin
+    return (
+        torch.sin((1.0 - fraction) * angle) * q0 + torch.sin(fraction * angle) * q1
+    ) * isin
 
 
 def quaternion_matrix(quaternion: Tensor) -> Tensor:
@@ -1076,15 +1227,20 @@ def quaternion_matrix(quaternion: Tensor) -> Tensor:
         return torch.eye(4, device=quaternion.device)
     q *= torch.sqrt(2.0 / n)
     q = torch.outer(q, q)
-    return torch.tensor([
-        [1.0 - q[2, 2] - q[3, 3], q[1, 2] - q[3, 0], q[1, 3] + q[2, 0], 0.0],
-        [q[1, 2] + q[3, 0], 1.0 - q[1, 1] - q[3, 3], q[2, 3] - q[1, 0], 0.0],
-        [q[1, 3] - q[2, 0], q[2, 3] + q[1, 0], 1.0 - q[1, 1] - q[2, 2], 0.0],
-        [0.0, 0.0, 0.0, 1.0]
-    ], device=quaternion.device)
+    return torch.tensor(
+        [
+            [1.0 - q[2, 2] - q[3, 3], q[1, 2] - q[3, 0], q[1, 3] + q[2, 0], 0.0],
+            [q[1, 2] + q[3, 0], 1.0 - q[1, 1] - q[3, 3], q[2, 3] - q[1, 0], 0.0],
+            [q[1, 3] - q[2, 0], q[2, 3] + q[1, 0], 1.0 - q[1, 1] - q[2, 2], 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ],
+        device=quaternion.device,
+    )
 
 
-def get_interpolated_poses(pose_a: Tensor, pose_b: Tensor, steps: int = 10) -> List[Tensor]:#old
+def get_interpolated_poses(
+    pose_a: Tensor, pose_b: Tensor, steps: int = 10
+) -> List[Tensor]:  # old
     """Return interpolation of poses with specified number of steps.
 
     Args:
@@ -1099,11 +1255,13 @@ def get_interpolated_poses(pose_a: Tensor, pose_b: Tensor, steps: int = 10) -> L
     if steps == 1:
         ts = torch.tensor([0.5], device=pose_a.device)  # Set midpoint for steps=1
     else:
-        ts = torch.linspace(0, 1, steps + 2, device=pose_a.device)[1:-1]  # Exclude the start and end points
+        ts = torch.linspace(0, 1, steps + 2, device=pose_a.device)[
+            1:-1
+        ]  # Exclude the start and end points
     quats = [quaternion_slerp(quat_a, quat_b, t.item()) for t in ts]
     trans = [(1 - t) * pose_a[:3, 3] + t * pose_b[:3, 3] for t in ts]
 
-    poses_ab = []  
+    poses_ab = []
     for quat, tran in zip(quats, trans):
         pose = torch.eye(4, device=pose_a.device)
         pose[:3, :3] = quaternion_matrix(quat)[:3, :3]
@@ -1111,6 +1269,7 @@ def get_interpolated_poses(pose_a: Tensor, pose_b: Tensor, steps: int = 10) -> L
         poses_ab.append(pose[:3, :])  # 将每个pose添加到列表中
 
     return torch.stack(poses_ab, dim=0)
+
 
 # def get_interpolated_poses(pose_a: Tensor, pose_b: Tensor, steps: int = 10, direction_to_object: Tensor = None) -> List[Tensor]:
 #     """Return interpolation of poses with specified number of steps.
@@ -1132,7 +1291,7 @@ def get_interpolated_poses(pose_a: Tensor, pose_b: Tensor, steps: int = 10) -> L
 #     # Define the camera's default forward direction (negative Z-axis in OpenCV convention)
 #     camera_forward = torch.tensor([0, 0, -1], device=pose_a.device, dtype=pose_a.dtype)
 
-#     poses_ab = []  
+#     poses_ab = []
 #     for tran in  trans:
 #         pose = torch.eye(4, device=pose_a.device)
 #         pose[:3, :3] = rotate_vector_to_vector(camera_forward, direction_to_object)[:3, :3]
@@ -1375,6 +1534,8 @@ def get_projection_matrix(znear=0.001, zfar=1000, fovx=None, fovy=None, **kwargs
         ],
         **kwargs,
     )
+
+
 def matrix_to_quaternion(rotation_matrix: Tensor):
     """
     Convert a 3x3 rotation matrix to a unit quaternion.
