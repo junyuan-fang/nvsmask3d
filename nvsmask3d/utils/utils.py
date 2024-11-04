@@ -32,6 +32,7 @@ from nerfstudio.utils.rich_utils import CONSOLE
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
 
+
 SCANNET200_CLASSES = [
     "wall",
     "chair",
@@ -1240,168 +1241,76 @@ def log_evaluation_results_to_wandb(avgs, run_name):
     wandb.log({f"{run_name}_evaluation_results": table})
     
 
-def blur(img_tensor):
-    # Using torchvision.transforms.GaussianBlur
-    # img_tensor: (C, H, W), values in [0,1], torch tensor
 
-    # img_tensor is already in (C, H, W)
-    C, H, W = img_tensor.shape
-
-    # Determine the maximum possible kernel size based on image dimensions
-    max_kernel_size = min(H, W)
-    # Ensure kernel size is odd and at least 3
-    if max_kernel_size >= 3:
-        kernel_size = max_kernel_size if max_kernel_size % 2 == 1 else max_kernel_size - 1
-        kernel_size = max(kernel_size, 3)
-    else:
-        # Image is too small to apply GaussianBlur
-        return img_tensor
-
-    # Adjust sigma proportionally to kernel size
-    sigma = kernel_size / 5.0
-
-    # Define GaussianBlur transform
-    gaussian_blur = transforms.GaussianBlur(kernel_size=kernel_size, sigma=sigma)
-
-    # Apply Gaussian blur
-    blurred_img_tensor = gaussian_blur(img_tensor)
-
-    return blurred_img_tensor
-
-# def make_square_image(nvs_img, valid_u, valid_v, min_u, max_u, min_v, max_v):
-#     # nvs_img: (C, H_total, W_total), values in [0,1], torch tensor
-
-#     # Crop the image
-#     # nvs_img is (C, H_total, W_total)
-#     # So to slice height and width, we need to index dimensions 1 and 2
-#     # 1.mask+ blur 
-#     # 2.crop
-    
-#     cropped_nvs_img = nvs_img[:, min_v:max_v, min_u:max_u]  # (C, H_cropped, W_cropped)
-#     C, H_cropped, W_cropped = cropped_nvs_img.shape
-
-#     if H_cropped == W_cropped:
-#         # Image is already square
-#         expanded_img = cropped_nvs_img
-#     else:
-#         if H_cropped > W_cropped:
-#             # Need to increase width
-#             diff = H_cropped - W_cropped
-#             pad_left = diff // 2
-#             pad_right = diff - pad_left
-
-#             # Determine available extra pixels from the original image
-#             extra_left = min(pad_left, min_u)
-#             extra_right = min(pad_right, nvs_img.shape[2] - max_u)  # Width dimension is at index 2
-
-#             # Remaining padding required after using extra pixels
-#             remaining_left_pad = pad_left - extra_left
-#             remaining_right_pad = pad_right - extra_right
-
-#             images_to_concat = []
-
-#             # Left extra region
-#             if extra_left > 0 and (min_u - extra_left) >= 0:
-#                 left_extra = nvs_img[:, min_v:max_v, (min_u - extra_left):min_u]
-#                 if left_extra.shape[2] > 0:
-#                     left_extra = blur(left_extra)
-#                     images_to_concat.append(left_extra)
-#             if remaining_left_pad > 0:
-#                 left_pad = torch.zeros(C, H_cropped, remaining_left_pad, device=nvs_img.device, dtype=nvs_img.dtype)
-#                 images_to_concat.append(left_pad)
-
-#             # Center cropped image
-#             images_to_concat.append(cropped_nvs_img)
-
-#             # Right extra region
-#             if extra_right > 0 and (max_u + extra_right) <= nvs_img.shape[2]:
-#                 right_extra = nvs_img[:, min_v:max_v, max_u:(max_u + extra_right)]
-#                 if right_extra.shape[2] > 0:
-#                     right_extra = blur(right_extra)
-#                     images_to_concat.append(right_extra)
-#             if remaining_right_pad > 0:
-#                 right_pad = torch.zeros(C, H_cropped, remaining_right_pad, device=nvs_img.device, dtype=nvs_img.dtype)
-#                 images_to_concat.append(right_pad)
-
-#             # Concatenate along width (dimension 2)
-#             expanded_img = torch.cat(images_to_concat, dim=2)
-
-#         else:
-#             # Need to increase height
-#             diff = W_cropped - H_cropped
-#             pad_top = diff // 2
-#             pad_bottom = diff - pad_top
-
-#             # Determine available extra pixels from the original image
-#             extra_top = min(pad_top, min_v)
-#             extra_bottom = min(pad_bottom, nvs_img.shape[1] - max_v)  # Height dimension is at index 1
-
-#             # Remaining padding required after using extra pixels
-#             remaining_top_pad = pad_top - extra_top
-#             remaining_bottom_pad = pad_bottom - extra_bottom
-
-#             images_to_concat = []
-
-#             # Top extra region
-#             if extra_top > 0 and (min_v - extra_top) >= 0:
-#                 top_extra = nvs_img[:, (min_v - extra_top):min_v, min_u:max_u]
-#                 if top_extra.shape[1] > 0:
-#                     top_extra = blur(top_extra)
-#                     images_to_concat.append(top_extra)
-#             if remaining_top_pad > 0:
-#                 top_pad = torch.zeros(C, remaining_top_pad, W_cropped, device=nvs_img.device, dtype=nvs_img.dtype)
-#                 images_to_concat.append(top_pad)
-
-#             # Center cropped image
-#             images_to_concat.append(cropped_nvs_img)
-
-#             # Bottom extra region
-#             if extra_bottom > 0 and (max_v + extra_bottom) <= nvs_img.shape[1]:
-#                 bottom_extra = nvs_img[:, max_v:(max_v + extra_bottom), min_u:max_u]
-#                 if bottom_extra.shape[1] > 0:
-#                     bottom_extra = blur(bottom_extra)
-#                     images_to_concat.append(bottom_extra)
-#             if remaining_bottom_pad > 0:
-#                 bottom_pad = torch.zeros(C, remaining_bottom_pad, W_cropped, device=nvs_img.device, dtype=nvs_img.dtype)
-#                 images_to_concat.append(bottom_pad)
-
-#             # Concatenate along height (dimension 1)
-#             expanded_img = torch.cat(images_to_concat, dim=1)
-
-#     # expanded_img is already in (C, H, W)
-#     return expanded_img
-
-def make_square_image(nvs_img, valid_u, valid_v, min_u, max_u, min_v, max_v, expand_factor=0.7):
-    # Create a mask from valid_u and valid_v
+def make_square_image(nvs_img, valid_u, valid_v, min_u, max_u, min_v, max_v, expand_factor=0.7, kernel_size=5):
+    # 创建初始掩码
     mask = torch.zeros((nvs_img.shape[1], nvs_img.shape[2]), dtype=torch.bool, device=nvs_img.device)
     mask[valid_v, valid_u] = True
 
-    # Apply blur to the entire image using torchvision's GaussianBlur with a positive sigma
-    gaussian_blur = GaussianBlur(kernel_size=(41, 41), sigma=5)  # Use a positive sigma value
+    # 使用闭运算填充内部空洞
+    # 先进行膨胀
+    dilated_mask = F.max_pool2d(mask.float().unsqueeze(0).unsqueeze(0), kernel_size=kernel_size, stride=1, padding=kernel_size//2)
+    dilated_mask = (dilated_mask.squeeze(0).squeeze(0) > 0).bool()
+    # 再进行腐蚀
+    eroded_mask = F.max_pool2d((~dilated_mask).float().unsqueeze(0).unsqueeze(0), kernel_size=kernel_size, stride=1, padding=kernel_size//2)
+    eroded_mask = ~(eroded_mask.squeeze(0).squeeze(0) > 0).bool()
+
+    # 应用高斯模糊
+    gaussian_blur = GaussianBlur(kernel_size=(41, 41), sigma=5)
     blurred_img = gaussian_blur(nvs_img.unsqueeze(0)).squeeze(0)
 
-    # Replace the background pixels in the original image with the blurred image
+    # 将背景像素替换为模糊后的图像
     output_img = nvs_img.clone()
-    output_img[:, ~mask] = blurred_img[:, ~mask]
+    output_img[:, ~eroded_mask] = blurred_img[:, ~eroded_mask]
 
-    # Expand the crop region to make the object occupy 50% of the width or height
+    # 计算裁剪区域
     crop_width = max_u - min_u
     crop_height = max_v - min_v
     max_dim = max(crop_width, crop_height)
-
-    expansion_factor = expand_factor  # We want the object to occupy 50% of the image
-    new_dim = int(max_dim / expansion_factor)
-
+    new_dim = int(max_dim / expand_factor)
     center_u = (min_u + max_u) // 2
     center_v = (min_v + max_v) // 2
-
     new_min_u = max(center_u - new_dim // 2, 0)
     new_max_u = min(center_u + new_dim // 2, nvs_img.shape[2])
     new_min_v = max(center_v - new_dim // 2, 0)
     new_max_v = min(center_v + new_dim // 2, nvs_img.shape[1])
 
-    # Crop the expanded region
+    # 裁剪扩展区域
     output_tensor_cropped = output_img[:, new_min_v:new_max_v, new_min_u:new_max_u]
 
     return output_tensor_cropped
- 
+
+
+# def make_square_image(nvs_img, valid_u, valid_v, min_u, max_u, min_v, max_v, expand_factor=0.7, kernel_size=5):
+#     # Create the initial mask from valid_u and valid_v
+#     mask = torch.zeros((nvs_img.shape[1], nvs_img.shape[2]), dtype=torch.bool, device=nvs_img.device)
+#     mask[valid_v, valid_u] = True
+
+#     # Apply morphological closing to fill internal gaps without expanding the mask externally
+#     mask_filled = F.max_pool2d(mask.unsqueeze(0).unsqueeze(0).float(), kernel_size, stride=1, padding=kernel_size // 2)
+#     mask_filled = (mask_filled.squeeze(0).squeeze(0) > 0).bool()
+
+#     # Apply blur to the entire image
+#     gaussian_blur = GaussianBlur(kernel_size=(41, 41), sigma=5)
+#     blurred_img = gaussian_blur(nvs_img.unsqueeze(0)).squeeze(0)
+
+#     # Replace the background pixels in the original image with the blurred image
+#     output_img = nvs_img.clone()
+#     output_img[:, ~mask_filled] = blurred_img[:, ~mask_filled]
+
+#     # Crop the expanded region (same logic as before)
+#     crop_width = max_u - min_u
+#     crop_height = max_v - min_v
+#     max_dim = max(crop_width, crop_height)
+#     new_dim = int(max_dim / expansion_factor)
+#     center_u = (min_u + max_u) // 2
+#     center_v = (min_v + max_v) // 2
+#     new_min_u = max(center_u - new_dim // 2, 0)
+#     new_max_u = min(center_u + new_dim // 2, nvs_img.shape[2])
+#     new_min_v = max(center_v - new_dim // 2, 0)
+#     new_max_v = min(center_v + new_dim // 2, nvs_img.shape[1])
+
+#     # Crop the expanded region
+#     output_tensor_cropped = output_img[:, new_min_v:new_max_v, new_min_u:new_max_u]
+
+#     return output_tensor_cropped
