@@ -98,7 +98,20 @@ scannetpp_config = BenchmarkConfig(
     interpolate_n_camera=0,
 )
 
-configs_to_run = [scannetpp_config]
+# a queue of job configs
+configs_to_run = [
+    (
+        BenchmarkConfig(
+            sam=False,
+            kind="crop",
+            scene_name=scene_name,
+            load_config=load_config,
+            experiment_type="rgb",
+            interpolate_n_camera=0,
+        )
+    )
+    for scene_name, load_config in zip(SCENE_NAMES, LOAD_CONFIGS)
+]
 
 
 def eval_scene(gpu, config: BenchmarkConfig, dry_run):
