@@ -20,10 +20,13 @@
 #     "c5439f4607" "578511c8a9" "d755b3d9d8" "99fa5c25e1" "09c1414f1b"
 #     "5f99900f09" "9071e139d9" "6115eddb86" "27dd4da69e" "c49a8c6cff"
 # )
+# scenes=(
+#     '5748ce6f01' '9071e139d9' '578511c8a9' 'c49a8c6cff' '5f99900f09' '1ada7a0617' '09c1414f1b' '27dd4da69e' '6115eddb86'
+# )
+#'c49a8c6cff'  '5f99900f09' passes
 scenes=(
-    '5748ce6f01' '9071e139d9' '578511c8a9' 'c49a8c6cff' '5f99900f09' '1ada7a0617' '09c1414f1b' '27dd4da69e' '6115eddb86'
+  '5f99900f09'
 )
-
 output_base_dir="/home/fangj1/Code/nerfstudio-nvsmask3d/outputs"
 
 for scene in "${scenes[@]}"; do

@@ -128,29 +128,62 @@
 
 #     print(f"几何中位数: {median.cpu().numpy()}")
 #     print(f"计算时间: {end_time - start_time:.4f} 秒")
-def map_class_indices(top100, top100instance):
-    # Create a list to store index mappings
-    index_mapping = []
+# def map_class_indices(top100, top100instance):
+#     # Create a list to store index mappings
+#     index_mapping = []
 
-    # For each class in `top100instance`, find the index in `top100`
-    for instance_class in top100instance:
-        if instance_class in top100:
-            index_mapping.append(top100.index(instance_class))  # Append index of matching class
-        else:
-            index_mapping.append(None)  # No direct match found, use None
+#     # For each class in `top100instance`, find the index in `top100`
+#     for instance_class in top100instance:
+#         if instance_class in top100:
+#             index_mapping.append(top100.index(instance_class))  # Append index of matching class
+#         else:
+#             index_mapping.append(None)  # No direct match found, use None
 
-    return index_mapping
+#     return index_mapping
 
-def read_txt_to_array(file_path):
-    with open(file_path, 'r') as f:
-        lines = f.readlines()
-    # 去除每行的换行符并返回一个字符串数组
-    return [line.strip() for line in lines]
-# list = read_txt_to_array("/home/fangj1/Code/nerfstudio-nvsmask3d/nvsmask3d/eval/scannetpp/top100.txt")
-top100instance = read_txt_to_array("/home/fangj1/Code/nerfstudio-nvsmask3d/nvsmask3d/eval/scannetpp/top100_instance.txt")
-top100 = read_txt_to_array("/home/fangj1/Code/nerfstudio-nvsmask3d/nvsmask3d/eval/scannetpp/top100.txt")
-print(top100instance)
-print(top100)
+# def read_txt_to_array(file_path):
+#     with open(file_path, 'r') as f:
+#         lines = f.readlines()
+#     # 去除每行的换行符并返回一个字符串数组
+#     return [line.strip() for line in lines]
+# # list = read_txt_to_array("/home/fangj1/Code/nerfstudio-nvsmask3d/nvsmask3d/eval/scannetpp/top100.txt")
+# top100instance = read_txt_to_array("/home/fangj1/Code/nerfstudio-nvsmask3d/nvsmask3d/eval/scannetpp/top100_instance.txt")
+# top100 = read_txt_to_array("/home/fangj1/Code/nerfstudio-nvsmask3d/nvsmask3d/eval/scannetpp/top100.txt")
+# print(top100instance)
+# print(top100)
 
-mapping = map_class_indices(top100, top100instance)
-print(mapping)
+# mapping = map_class_indices(top100, top100instance)
+# print(mapping)
+import os
+SCENE_NAMES = [
+                '5748ce6f01',
+                '9071e139d9',
+                '578511c8a9',
+                'c49a8c6cff',
+                '5f99900f09',
+                '1ada7a0617',
+                '09c1414f1b',
+                '27dd4da69e',
+                '6115eddb86']
+
+# Define the path to the directory where the files are expected to be
+base_path = "/home/fangj1/Code/nerfstudio-nvsmask3d/results/sam_False_interp_cam_0"  # Update this to your specific path
+
+# Check each scene name in the list
+missing_scenes = []
+
+for scene in SCENE_NAMES:
+    # Construct the full path to the expected file (assuming .txt extension)
+    expected_file = os.path.join(base_path, f"{scene}.txt")
+    
+    # Check if the file exists
+    if not os.path.isfile(expected_file):
+        missing_scenes.append(scene)
+
+# Print the missing scene names
+if missing_scenes:
+    print("Missing scene files:")
+    for scene in missing_scenes:
+        print(scene)
+else:
+    print("All scene files are present.")

@@ -651,35 +651,35 @@ class NVSMask3dModel(SplatfactoModel):
         }
 
     def get_gaussian_param_groups(self) -> Dict[str, List[Parameter]]:
-        # param_groups = {
-        #     name: [param]
-        #     for name, param in self.gauss_params.items()
-        #     if name != "means"
-        # }
-        # return param_groups
-        if not self.config.add_means:
-            return {
-                name: [self.gauss_params[name]]
-                for name in [
-                    "scales",
-                    "quats",
-                    "features_dc",
-                    "features_rest",
-                    "opacities",
-                ]
-            }
-        else:
-            return {
-                name: [self.gauss_params[name]]
-                for name in [
-                    "means",
-                    "scales",
-                    "quats",
-                    "features_dc",
-                    "features_rest",
-                    "opacities",
-                ]
-            }
+        param_groups = {
+            name: [param]
+            for name, param in self.gauss_params.items()
+            if name != "means"
+        }
+        return param_groups
+        # if not self.config.add_means:
+        #     return {
+        #         name: [self.gauss_params[name]]
+        #         for name in [
+        #             "scales",
+        #             "quats",
+        #             "features_dc",
+        #             "features_rest",
+        #             "opacities",
+        #         ]
+        #     }
+        # else:
+        #     return {
+        #         name: [self.gauss_params[name]]
+        #         for name in [
+        #             #"means",
+        #             "scales",
+        #             "quats",
+        #             "features_dc",
+        #             "features_rest",
+        #             "opacities",
+        #         ]
+        #     }
 
     # we don't cull or densify gaussians
     def refinement_after(self, optimizers: Optimizers, step):

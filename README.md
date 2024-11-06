@@ -1,4 +1,16 @@
 
+# Installation instructions
+```
+conda create --name nvsmask3d -y python=3.8
+conda activate nvsmask3d
+pip install torch==2.1.2+cu118 torchvision==0.16.2+cu118 --extra-index-url https://download.pytorch.org/whl/cu118
+conda install -c "nvidia/label/cuda-11.8.0" cuda-toolkit
+
+git clone --recurse-submodules git@github.com:junyuan-fang/nvsmask3d.git
+
+```
+
+
 # maturk: Advice for maintaining a readible code repo.
 ### General Advice
 Do not push straight to main branch. Use PRs (pull-requests) as much as possible. PRs serve as ways to track "features". When merging a PR, always use the option `Squash and merge` (click small arrow next to the green "Merge" button). This makes your huge PR, with many comments, a SINGLE commit in the main branch. A PR can consist of many of your commits that you use to implement some feature or logic to your code. Then a large feature from a PR will be recorded as a single commit in the history. This makes understanding repo progress, and features, much easier for people unfamiliar with the code.
@@ -25,15 +37,7 @@ Update dependencies  in the `pyproject.toml` file. This allows a user to just ru
 
 python  results/segmentation/scene.py
 python -m semantic.eval.eval_instance semantic/configs/eval_instance.yml
-# Registering with Nerfstudio
-Ensure that nerfstudio has been installed according to the [instructions](https://docs.nerf.studio/en/latest/quickstart/installation.html). Clone or fork this repository and run the commands:
 
-```
-conda activate nerfstudio
-cd nerfstudio-method-template/
-pip install -e .
-ns-install-cli
-```
 # info
 tran test split = 1
 test_mode = train

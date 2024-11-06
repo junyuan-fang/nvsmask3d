@@ -227,10 +227,8 @@ def object_optimal_k_camera_poses_2D_mask(  # no sam uses object_optimal_k_camer
     depth_filenames=None,
     depth_scale=None,
     k_poses=2,
-    chunk_size=200,
-    vis_depth_threshold=0.4,
-    score_fn=lambda num_visible_points,
-    _: num_visible_points,  # 默认是用可见点数作为得分
+    chunk_size=100,
+    vis_depth_threshold=0.4
 ):
     """
     Selects the top k optimal camera poses based on visibility scores computed for projected 3D points on a 2D mask.
@@ -266,21 +264,11 @@ def object_optimal_k_camera_poses_2D_mask(  # no sam uses object_optimal_k_camer
     valid_points = (
         (u >= 0) & (u < W) & (v >= 0) & (v < H) & (z > 0)
     )  # shape (M, N) #(pose num, point num)
+    num_valid_points = valid_points.sum().item()
+    if num_valid_points == 0:
+        return torch.tensor([]), torch.tensor([]), torch.tensor([])
 
     if depth_filenames:
-        # Load depth image
-        depth_maps = load_depth_maps(
-            depth_filenames, depth_scale, device=seed_points_0.device
-        ).half()  # (M,H,W)
-
-        # Initialize tensor to hold valid depth points
-        H, W = depth_maps.shape[1], depth_maps.shape[2]
-        # 获取有效点的总数
-        num_valid_points = valid_points.sum().item()
-
-        # 如果没有有效点，直接返回
-        if num_valid_points == 0:
-            return torch.tensor([]), torch.tensor([]), torch.tensor([])
 
         # 展平有效点的索引
         valid_indices = valid_points.nonzero(
@@ -294,84 +282,49 @@ def object_optimal_k_camera_poses_2D_mask(  # no sam uses object_optimal_k_camer
         v_valid = v[valid_points].long()  # Shape: (num_valid_points,)
         z_valid = z[valid_points]  # Shape: (num_valid_points,)
 
-        try:
-            # print("Trying to process depth maps in one go.")
-            depth_values = depth_maps[batch_indices_valid, v_valid, u_valid]
+        
+        for start in range(0, len(depth_filenames), chunk_size):
+            depth_filenames_chunk = depth_filenames[start:start + chunk_size]
+            depth_maps_chunk = load_depth_maps(depth_filenames_chunk, depth_scale, seed_points_0.device).half()  # (chunk_size, H, W)
+            end = min(start + chunk_size, num_valid_points)
+
+            # 当前块的索引
+            batch_indices_chunk = batch_indices_valid[start:end]
+            point_indices_chunk = point_indices_valid[start:end]
+            u_chunk = u_valid[start:end]
+            v_chunk = v_valid[start:end]
+            z_chunk = z_valid[start:end]
+
+            # 从深度图中提取对应的深度值
+            depth_values = depth_maps_chunk[batch_indices_chunk, v_chunk, u_chunk]
+
+            # 深度值有效性检查
             depth_valid_mask = depth_values > 0
             valid_depths = (
-                torch.abs(depth_values - z_valid) <= vis_depth_threshold
+                torch.abs(depth_values - z_chunk) <= vis_depth_threshold
             ) & depth_valid_mask
-            valid_points[batch_indices_valid, point_indices_valid] &= valid_depths
-            # debug
-            # sparse_map = torch.zeros((H, W, 3), dtype=torch.float32, device="cuda")
-            # sparse_map[ v[122][valid_points[122]].long(), u[122][valid_points[122]].long()] = z[122][valid_points[122]].unsqueeze(-1).expand(-1, 3)
-            # from nvsmask3d.utils.utils import save_img
-            # save_img(sparse_map, f"tests/sparse_map_orig_{122}.png")
-            # depth_map = torch.zeros((H, W, 3), dtype=torch.float32, device="cuda")
-            # depth_map[ v[122][valid_points[122]].long(), u[122][valid_points[122]].long()] = depth_maps[122][ v[122][valid_points[122]].long(), u[122][valid_points[122]].long()].float().unsqueeze(-1).expand(-1, 3)
-            # save_img(depth_map, f"tests/depth_map_{122}.png")
-            # diff_map = sparse_map - depth_map
-            # save_img(diff_map, f"tests/depth_map_diff{122}.png")
-            # greater_than_04_mask = diff_map.abs() > 0.4
-            # greater_than_04_values = diff_map[greater_than_04_mask]
-            # print("Values greater than 0.4 (absolute):", greater_than_04_values)
-            # diff_map = torch.where(diff_map.abs() > 0.4, torch.tensor(0.0, device=diff_map.device), diff_map)
-            # save_img(diff_map, f"tests/depth_map_diff{122}_thresholded.png")
-            # import pdb; pdb.set_trace()
 
-            del (
-                u_valid,
-                v_valid,
-                z_valid,
-                valid_indices,
-                batch_indices_valid,
-                point_indices_valid,
-            )
-            torch.cuda.empty_cache()
-        except RuntimeError:
-            print(
-                "Runtime error occured during depth map one go processing, switching to chunked processing."
-            )
-            # 分块处理
-            for start in range(0, num_valid_points, chunk_size):
-                end = min(start + chunk_size, num_valid_points)
+            # 更新 valid_points
+            valid_points[batch_indices_chunk, point_indices_chunk] &= valid_depths
 
-                # 当前块的索引
-                batch_indices_chunk = batch_indices_valid[start:end]
-                point_indices_chunk = point_indices_valid[start:end]
-                u_chunk = u_valid[start:end]
-                v_chunk = v_valid[start:end]
-                z_chunk = z_valid[start:end]
-
-                # 从深度图中提取对应的深度值
-                depth_values = depth_maps[batch_indices_chunk, v_chunk, u_chunk]
-
-                # 深度值有效性检查
-                depth_valid_mask = depth_values > 0
-                valid_depths = (
-                    torch.abs(depth_values - z_chunk) <= vis_depth_threshold
-                ) & depth_valid_mask
-
-                # 更新 valid_points
-                valid_points[batch_indices_chunk, point_indices_chunk] &= valid_depths
-
-                # 删除中间变量
-            del (
-                batch_indices_chunk,
-                point_indices_chunk,
-                u_chunk,
-                v_chunk,
-                z_chunk,
-                depth_values,
-                valid_depths,
-                depth_valid_mask,
-                batch_indices_valid,
-                point_indices_valid,
-                u_valid,
-                v_valid,
-                z_valid,
-            )
-            torch.cuda.empty_cache()
+            # 删除中间变量
+        del (
+            batch_indices_chunk,
+            point_indices_chunk,
+            u_chunk,
+            v_chunk,
+            z_chunk,
+            depth_values,
+            valid_depths,
+            depth_valid_mask,
+            batch_indices_valid,
+            depth_maps_chunk,
+            point_indices_valid,
+            u_valid,
+            v_valid,
+            z_valid,
+        )
+        torch.cuda.empty_cache()
 
     if not valid_points.any():
         print("No valid points found")
