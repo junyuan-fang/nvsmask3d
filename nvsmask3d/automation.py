@@ -63,28 +63,28 @@ run_dataset = "scannetpp"
 #     "c49a8c6cff",
 # ]
 
-# SCENE_NAMES = [
-#                 '5748ce6f01',
-#                 '9071e139d9',
-#                 '578511c8a9',
-#                 'c49a8c6cff',
-#                 '5f99900f09',
-#                 '1ada7a0617',
-#                 '09c1414f1b',
-#                 '27dd4da69e',
-#                 '6115eddb86'
-#                 ]
 SCENE_NAMES = [
-                #'5748ce6f01',
-                #'9071e139d9',
-                #'578511c8a9',
-                #'c49a8c6cff',
+                '5748ce6f01',
+                '9071e139d9',
+                '578511c8a9',
+                'c49a8c6cff',
                 '5f99900f09',
-                #'1ada7a0617',
+                '1ada7a0617',
                 '09c1414f1b',
-                #'27dd4da69e',
-                #'6115eddb86'
+                '27dd4da69e',
+                '6115eddb86'
                 ]
+# SCENE_NAMES = [
+#                 #'5748ce6f01',
+#                 #'9071e139d9',
+#                 #'578511c8a9',
+#                 #'c49a8c6cff',
+#                 '5f99900f09',
+#                 #'1ada7a0617',
+#                 '09c1414f1b',
+#                 #'27dd4da69e',
+#                 #'6115eddb86'
+#                 ]
 LOAD_CONFIGS = [
     f"outputs/{scene}_dslr_colmap/nvsmask3d/config.yml" for scene in SCENE_NAMES
 ]

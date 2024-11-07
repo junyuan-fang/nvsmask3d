@@ -6,7 +6,11 @@ conda activate nvsmask3d
 pip install torch==2.1.2+cu118 torchvision==0.16.2+cu118 --extra-index-url https://download.pytorch.org/whl/cu118
 conda install -c "nvidia/label/cuda-11.8.0" cuda-toolkit
 
+# install sam
 git clone --recurse-submodules git@github.com:junyuan-fang/nvsmask3d.git
+cd  segment-anything/ #rememgber to download checkpoints to checkpoints/
+pip install .
+cd ..
 
 ```
 
