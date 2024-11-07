@@ -321,7 +321,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 else None,
                 depth_scale=self.model.depth_scale,
                 k_poses=self.top_k,
-                #score_fn=self.visibility_score,
+                # score_fn=self.visibility_score,
                 vis_depth_threshold=0.05
                 if self.inference_dataset != "replica"
                 else 0.4,
@@ -403,18 +403,24 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                         max_v = v_i.max()
 
                         # ##################SAM logic#####################
-                        proposal_points_coords_2d = torch.stack((v_i, u_i), dim=1)  # (N, 2)
-                        sam_network.set_image(nvs_img.permute(2,0,1))#3,H,W
+                        proposal_points_coords_2d = torch.stack(
+                            (v_i, u_i), dim=1
+                        )  # (N, 2)
+                        sam_network.set_image(nvs_img.permute(2, 0, 1))  # 3,H,W
                         mask_i = sam_network.get_best_mask(proposal_points_coords_2d)
                         if mask_i.sum() == 0:
                             # print(f"Skipping inference for object {i} pose {index} due to no valid camera poses, assign")
                             continue
 
-                        #multilevel mask
+                        # multilevel mask
                         for level in range(self.num_levels):
                             level = 0
-                            min_u, min_v, max_u, max_v = sam_network.mask2box_multi_level(mask_i, level, expansion_ratio = 0.1)
-                            H, W, _ = nvs_img.shape # (H, W, 3)
+                            min_u, min_v, max_u, max_v = (
+                                sam_network.mask2box_multi_level(
+                                    mask_i, level, expansion_ratio=0.1
+                                )
+                            )
+                            H, W, _ = nvs_img.shape  # (H, W, 3)
                             min_u = max(0, min_u)
                             min_v = max(0, min_v)
                             max_u = min(W, max_u)
@@ -438,9 +444,9 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                                         rgb_outputs.append(
                                             cropped_nvs_img
                                         )  # (C, H, W) ------->add to rgb_outputs
-                                        #save_img(cropped_nvs_img.permute(1,2,0), f"tests/crop_cam_interp{self.interpolate_n_camera}/{scene_name}/object{i}/nvs_{interpolation_index}_level_{level}.png")
+                                        # save_img(cropped_nvs_img.permute(1,2,0), f"tests/crop_cam_interp{self.interpolate_n_camera}/{scene_name}/object{i}/nvs_{interpolation_index}_level_{level}.png")
                                         if self.wandb_mode == "online":
-                                        #cropped_nvs_img = cropped_nvs_img.cpu()  # for wandb
+                                            # cropped_nvs_img = cropped_nvs_img.cpu()  # for wandb
                                             nvs_img_pil = transforms.ToPILImage()(
                                                 cropped_nvs_img
                                             )  # for wandb
@@ -475,9 +481,15 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                                         )
 
                                         # result_tensor = transforms.ToTensor()(result)
-                                        rgb_outputs.append(result_tensor.to(device="cuda"))
+                                        rgb_outputs.append(
+                                            result_tensor.to(device="cuda")
+                                        )
 
-                                        nvs_img_pil = transforms.ToPILImage(result_tensor) if self.wandb_mode == "online" else None 
+                                        nvs_img_pil = (
+                                            transforms.ToPILImage(result_tensor)
+                                            if self.wandb_mode == "online"
+                                            else None
+                                        )
 
                                 if self.interpolate_n_gaussian_camera > 0:
                                     # # Process and crop the nvs mask image, seems will make inference worse
@@ -491,16 +503,20 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                                         cropped_nvs_mask_image
                                     )  # (C, H, W)------->add to masked_gaussian_outputs
                                     # nvs_mask_img_label_map = model.image_encoder.return_image_map(cropped_nvs_mask_image)#for wandb
-                                    nvs_mask_img_pil = transforms.ToPILImage()(
-                                        cropped_nvs_mask_image
-                                    )  if self.wandb_mode =="online" else None # for wandb
+                                    nvs_mask_img_pil = (
+                                        transforms.ToPILImage()(cropped_nvs_mask_image)
+                                        if self.wandb_mode == "online"
+                                        else None
+                                    )  # for wandb
                                     # Combine GT image and mask horizontally
                                 if self.wandb_mode == "online":
                                     combined_nvs_image = concat_images_vertically(
                                         [nvs_img_pil, nvs_mask_img_pil]
                                     )  # for wandb
                                     # combined_nvs_image_label_map = concat_images_vertically([nvs_img_label_map, nvs_mask_img_label_map])#for wandb
-                                    interpolated_images.append(combined_nvs_image) # for wandb
+                                    interpolated_images.append(
+                                        combined_nvs_image
+                                    )  # for wandb
                                     # interpolated_images_label_map.append(combined_nvs_image_label_map)#for wandb
                             else:
                                 print(
@@ -582,11 +598,13 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                                         rgb_outputs.append(
                                             cropped_image
                                         )  #######################################################################################rgb#####################
-                                        #save_img(cropped_image.permute(1,2,0), f"tests/crop_cam_interp{self.interpolate_n_camera}/{scene_name}/object{i}/gt_{index}_level_{level}.png")
-                                        #cropped_image = cropped_image.cpu()  # for wandb
-                                        gt_img_pil = transforms.ToPILImage()(
-                                            cropped_image
-                                        ) if self.wandb_mode=="online" else None # for wandb
+                                        # save_img(cropped_image.permute(1,2,0), f"tests/crop_cam_interp{self.interpolate_n_camera}/{scene_name}/object{i}/gt_{index}_level_{level}.png")
+                                        # cropped_image = cropped_image.cpu()  # for wandb
+                                        gt_img_pil = (
+                                            transforms.ToPILImage()(cropped_image)
+                                            if self.wandb_mode == "online"
+                                            else None
+                                        )  # for wandb
 
                                     elif kind == "blur":
                                         result_tensor = make_square_image(
@@ -597,9 +615,11 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                                             result_tensor.to(device="cuda")
                                         )
 
-                                        gt_img_pil = transforms.ToPILImage(
-                                            result_tensor
-                                        ) if self.wandb_mode == "online" else None
+                                        gt_img_pil = (
+                                            transforms.ToPILImage(result_tensor)
+                                            if self.wandb_mode == "online"
+                                            else None
+                                        )
                                 if self.gt_camera_gaussian:
                                     nvs_mask_img = self.model.get_outputs(
                                         single_camera
@@ -614,9 +634,11 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                                         cropped_nvs_mask_image.cpu()
                                     )  # for wandb
                                     # gt_mask_img_label_map = model.image_encoder.return_image_map(cropped_nvs_mask_image)#for wandb
-                                    gt_mask_img_pil = transforms.ToPILImage()(
-                                        cropped_nvs_mask_image
-                                    )  if self.wandb_mode == "online" else None # for wandb
+                                    gt_mask_img_pil = (
+                                        transforms.ToPILImage()(cropped_nvs_mask_image)
+                                        if self.wandb_mode == "online"
+                                        else None
+                                    )  # for wandb
                                 if self.wandb_mode == "online":
                                     # Combine GT image and mask horizontally
                                     combined_gt_image = concat_images_vertically(
@@ -679,11 +701,15 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     # aggregate similarity scores 你目前是将批次中的相似度分数进行求和（sum），这可能会导致信息丢失，尤其是在增强视图之间存在较大差异的情况下。
                     if len(masked_gaussian_outputs) > 0:
                         if self.interpolate_n_camera > 1:
-                            mask_logits[: -(self.top_k*self.num_levels)] /= self.interpolate_n_camera
+                            mask_logits[: -(self.top_k * self.num_levels)] /= (
+                                self.interpolate_n_camera
+                            )
                         scores = mask_logits.sum(dim=0)
                     if len(rgb_outputs) > 0:
                         if self.interpolate_n_camera > 1:
-                            rgb_logits[: -(self.top_k*self.num_levels)] /= self.interpolate_n_camera
+                            rgb_logits[: -(self.top_k * self.num_levels)] /= (
+                                self.interpolate_n_camera
+                            )
                         scores = rgb_logits.sum(dim=0)
 
                 # if self.algorithm == 1:
@@ -862,7 +888,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 else None,
                 depth_scale=model.depth_scale,
                 k_poses=self.top_k,
-                #score_fn=self.visibility_score,
+                # score_fn=self.visibility_score,
                 vis_depth_threshold=0.05
                 if self.inference_dataset != "replica"
                 else 0.4,

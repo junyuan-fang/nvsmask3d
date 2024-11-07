@@ -228,7 +228,7 @@ def object_optimal_k_camera_poses_2D_mask(  # no sam uses object_optimal_k_camer
     depth_scale=None,
     k_poses=2,
     chunk_size=100,
-    vis_depth_threshold=0.4
+    vis_depth_threshold=0.4,
 ):
     """
     Selects the top k optimal camera poses based on visibility scores computed for projected 3D points on a 2D mask.
@@ -260,7 +260,7 @@ def object_optimal_k_camera_poses_2D_mask(  # no sam uses object_optimal_k_camer
     masked_seed_points = seed_points_0[boolean_mask]  # shape (N, 3)
     u, v, z = get_points_projected_uv_and_depth(
         masked_seed_points, optimized_camera_to_world, K
-    )  # shape (M, N)(200,3900) 
+    )  # shape (M, N)(200,3900)
     valid_points = (
         (u >= 0) & (u < W) & (v >= 0) & (v < H) & (z > 0)
     )  # shape (M, N) #(pose num, point num)
@@ -271,10 +271,9 @@ def object_optimal_k_camera_poses_2D_mask(  # no sam uses object_optimal_k_camer
         return (
             torch.empty((0,), device=device, dtype=dtype),
             torch.empty((0,), device=device, dtype=dtype),
-            torch.empty((0,), device=device, dtype=dtype)
+            torch.empty((0,), device=device, dtype=dtype),
         )
     if depth_filenames:
-
         # 展平有效点的索引
         valid_indices = valid_points.nonzero(
             as_tuple=False
@@ -287,16 +286,17 @@ def object_optimal_k_camera_poses_2D_mask(  # no sam uses object_optimal_k_camer
         v_valid = v[valid_points].long()  # Shape: (num_valid_points,)
         z_valid = z[valid_points]  # Shape: (num_valid_points,)
 
-        
         for start in range(400, len(depth_filenames), chunk_size):
             end = min(start + chunk_size, len(depth_filenames))
             depth_filenames_chunk = depth_filenames[start:end]
-            depth_maps_chunk = load_depth_maps(depth_filenames_chunk, depth_scale, seed_points_0.device).half()  # (chunk_size, H, W)
-            
+            depth_maps_chunk = load_depth_maps(
+                depth_filenames_chunk, depth_scale, seed_points_0.device
+            ).half()  # (chunk_size, H, W)
+
             mask = (batch_indices_valid >= start) & (batch_indices_valid < end)
             if not mask.any():
                 continue  # 当前chunk没有对应的有效点
-            
+
             batch_indices_chunk = batch_indices_valid[mask] - start  # 相对索引
             point_indices_chunk = point_indices_valid[mask]
             u_chunk = u_valid[mask]
@@ -304,8 +304,8 @@ def object_optimal_k_camera_poses_2D_mask(  # no sam uses object_optimal_k_camer
             z_chunk = z_valid[mask]
 
             # 确保索引在深度图范围内
-            u_chunk = torch.clamp(u_chunk, 0, W-1)
-            v_chunk = torch.clamp(v_chunk, 0, H-1)
+            u_chunk = torch.clamp(u_chunk, 0, W - 1)
+            v_chunk = torch.clamp(v_chunk, 0, H - 1)
             # 从深度图中提取对应的深度值
             depth_values = depth_maps_chunk[batch_indices_chunk, v_chunk, u_chunk]
 
@@ -316,7 +316,9 @@ def object_optimal_k_camera_poses_2D_mask(  # no sam uses object_optimal_k_camer
             ) & depth_valid_mask
 
             # 更新 valid_points
-            valid_points[batch_indices_chunk + start, point_indices_chunk] &= valid_depths
+            valid_points[batch_indices_chunk + start, point_indices_chunk] &= (
+                valid_depths
+            )
 
             # 删除中间变量
         # del batch_indices_chunk, point_indices_chunk, u_chunk, v_chunk, z_chunk, depth_values, valid_depths, depth_valid_mask, depth_maps_chunk
@@ -331,7 +333,7 @@ def object_optimal_k_camera_poses_2D_mask(  # no sam uses object_optimal_k_camer
         return (
             torch.empty((0,), device=device, dtype=dtype),
             torch.empty((0,), device=device, dtype=dtype),
-            torch.empty((0,), device=device, dtype=dtype)
+            torch.empty((0,), device=device, dtype=dtype),
         )
 
     # Compute visibility scores for all poses

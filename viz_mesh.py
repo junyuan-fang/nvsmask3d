@@ -4,12 +4,16 @@ import numpy as np
 from pathlib import Path
 
 # Load the instance masks
-masks = torch.load("/home/fangj1/Code/nerfstudio-nvsmask3d/nvsmask3d/data/replica/replica_masks/room0.pt")
+masks = torch.load(
+    "/home/fangj1/Code/nerfstudio-nvsmask3d/nvsmask3d/data/replica/replica_masks/room0.pt"
+)
 instance_labels = masks[0]  # Shape: [954492, 36]
 unique_instances = masks[1]  # Shape: [36]
 
 # Load the mesh file
-mesh = o3d.io.read_triangle_mesh("/home/fangj1/Code/nerfstudio-nvsmask3d/nvsmask3d/data/replica/room0/room0_mesh.ply")
+mesh = o3d.io.read_triangle_mesh(
+    "/home/fangj1/Code/nerfstudio-nvsmask3d/nvsmask3d/data/replica/room0/room0_mesh.ply"
+)
 o3d.visualization.draw_geometries([mesh])
 
 # Check if the mesh is loaded correctly
@@ -27,19 +31,24 @@ else:
 
     # Assign colors based on instance labels
     num_instances = unique_instances.shape[0]
-    palette = np.loadtxt("/data/scannetpp/scannetpp_repo/semantic/configs/scannet200.txt", dtype=np.uint8)
+    palette = np.loadtxt(
+        "/data/scannetpp/scannetpp_repo/semantic/configs/scannet200.txt", dtype=np.uint8
+    )
 
     for i in range(num_instances):
         # Get vertices for the current instance
-        current_instance_mask = instance_labels[:, i] > 0  # Boolean mask for the current instance
-        vertex_colors[current_instance_mask] = palette[i % len(palette)] / 255.0  # Scale colors to [0, 1]
+        current_instance_mask = (
+            instance_labels[:, i] > 0
+        )  # Boolean mask for the current instance
+        vertex_colors[current_instance_mask] = (
+            palette[i % len(palette)] / 255.0
+        )  # Scale colors to [0, 1]
 
     # Set the vertex colors for the mesh
     mesh.vertex_colors = o3d.utility.Vector3dVector(vertex_colors)
 
     # Visualize the mesh with instance colors
     o3d.visualization.draw_geometries([mesh])
-
 
 
 # # Get instance labels and unique instances
@@ -73,6 +82,6 @@ if mesh.is_empty():
 else:
     # Optionally, compute vertex normals for better visualization
     mesh.compute_vertex_normals()
-    
+
     # Visualize the loaded mesh
     o3d.visualization.draw_geometries([mesh])
