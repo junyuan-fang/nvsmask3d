@@ -1,4 +1,44 @@
 
+# Installation instructions
+```
+conda create --name nvsmask3d -y python=3.8
+conda activate nvsmask3d
+pip install torch==2.1.2+cu118 torchvision==0.16.2+cu118 --extra-index-url https://download.pytorch.org/whl/cu118
+conda install -c "nvidia/label/cuda-11.8.0" cuda-toolkit
+
+# install sam
+git clone --recurse-submodules git@github.com:junyuan-fang/nvsmask3d.git
+cd  segment-anything/ #rememgber to download checkpoints to checkpoints/
+pip install .
+cd ..
+
+```
+
+
+# maturk: Advice for maintaining a readible code repo.
+### General Advice
+Do not push straight to main branch. Use PRs (pull-requests) as much as possible. PRs serve as ways to track "features". When merging a PR, always use the option `Squash and merge` (click small arrow next to the green "Merge" button). This makes your huge PR, with many comments, a SINGLE commit in the main branch. A PR can consist of many of your commits that you use to implement some feature or logic to your code. Then a large feature from a PR will be recorded as a single commit in the history. This makes understanding repo progress, and features, much easier for people unfamiliar with the code.
+
+Always delete the branch after merging to main. This way, when someone pulls your github repo, they also do not pull all the feature PRs.
+
+To make a branch and commit changes:
+```
+git checkout -b my_name/feature_name
+ruff format .  # more on this below
+git add . && git commit "implemented feature"
+git push
+```
+
+### Before commiting your code. Format your code:
+```
+pip install ruff
+ruff format . # formats files according to PEP8 style guide
+```
+
+### Make your python repo actually usable.
+Update dependencies  in the `pyproject.toml` file. This allows a user to just run `pip install -e .` in the terminal and it will dowload all needed packages and dependencies. Right now, the user has to debug imports and not found files when they run simple commands `python nvsmask3d/scripts/` because dependencies are not taken care of. This helps moving code from local, to csc, and sharing code with others. 
+
+
 python  results/segmentation/scene.py
 python -m semantic.eval.eval_instance semantic/configs/eval_instance.yml
 ## env

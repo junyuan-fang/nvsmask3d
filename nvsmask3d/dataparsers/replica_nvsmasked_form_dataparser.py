@@ -4,7 +4,6 @@ import math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, Type
-import os
 import cv2
 import numpy as np
 from nerfstudio.plugins.registry_dataparser import DataParserSpecification
@@ -56,7 +55,7 @@ class ReplicaNvsmask3DParserConfig(DataParserConfig):
     """Whether to automatically scale the poses to fit in +/- 1 bounding box."""
     train_split_fraction: float = 1
     """The fraction of images to use for training. The remaining images are for eval."""
-    depth_unit_scale_factor: float = 1/6553.5
+    depth_unit_scale_factor: float = 1 / 6553.5
     """Scales the depth values to meters. Default value is 0.001 for a millimeter to meter conversion."""
     load_3D_points: bool = True
     """Whether to load the 3D points from the .ply"""

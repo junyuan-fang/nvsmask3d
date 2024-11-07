@@ -23,7 +23,7 @@ import time
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from threading import Lock
-from typing import Literal, Optional, Tuple, Union
+from typing import Literal, Union
 from typing_extensions import Annotated
 
 
@@ -139,7 +139,6 @@ def _start_viewer(config: TrainerConfig, pipeline: Pipeline, step: int):
 
 @dataclass
 class NVSMask3d:
-
     load_config: Path
     """Path to config YAML file."""
     viewer: ViewerConfigWithoutNumRays = field(

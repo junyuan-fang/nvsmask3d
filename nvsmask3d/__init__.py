@@ -10,5 +10,5 @@ __all__ = [
     ReplicaDataParserSpecification,
     ScanNetDataParserSpecification,
     ReplicaNvsmask3DParserSpecification,
-    ScanNetppNvsmask3DParserSpecification
+    ScanNetppNvsmask3DParserSpecification,
 ]

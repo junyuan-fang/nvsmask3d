@@ -17,7 +17,7 @@ os.environ["TORCH_CUDA_ARCH_LIST"] = "7.5;8.0"
 
 # 启用 TensorFloat32
 torch.set_float32_matmul_precision("high")
-from typing import Dict, List, Literal, Optional, Tuple, Type, Union
+from typing import Dict, List, Literal, Optional, Tuple, Union
 
 try:
     from gsplat.rendering import rasterization
@@ -25,23 +25,17 @@ except ImportError:
     print("Please install gsplat>=1.0.0")
 
 from torch.nn import Parameter
-from nerfstudio.cameras.camera_optimizers import CameraOptimizer
 from nvsmask3d.encoders.image_encoder import BaseImageEncoder
 
-from nerfstudio.utils.colors import get_color
-import math
 from nerfstudio.utils.rich_utils import CONSOLE
-from nerfstudio.data.scene_box import OrientedBox
 from nerfstudio.cameras.cameras import Cameras
 
 # from nvsmask3d.utils.camera_utils import Cameras
 
 
-from nerfstudio.cameras.camera_optimizers import CameraOptimizer, CameraOptimizerConfig
+from nerfstudio.cameras.camera_optimizers import CameraOptimizerConfig
 from nerfstudio.engine.optimizers import Optimizers
-from nerfstudio.models.base_model import Model, ModelConfig  # for custom Model
 from nerfstudio.models.splatfacto import (
-    RGB2SH,
     SplatfactoModel,
     SplatfactoModelConfig,
     get_viewmat,
@@ -53,9 +47,7 @@ from nvsmask3d.utils.camera_utils import (
     make_cameras,
     object_optimal_k_camera_poses_bounding_box,
     interpolate_camera_poses_with_camera_trajectory,
-    get_interpolated_poses,
-    rotate_vector_to_vector,
-    compute_camera_pose_bounding_boxes
+    compute_camera_pose_bounding_boxes,
 )
 
 
@@ -75,7 +67,13 @@ class NVSMask3dModelConfig(SplatfactoModelConfig):
     """Config of the camera optimizer to use"""
     add_means: bool = True
     test_mode: Literal[
-            "test", "val", "inference", "train", "all_replica", "all_scannet", "all_scannetpp"
+        "test",
+        "val",
+        "inference",
+        "train",
+        "all_replica",
+        "all_scannet",
+        "all_scannetpp",
     ] = "train"
     # use_scale_regularization: bool = true
     # max_gauss_ratio: float = 1.5
@@ -83,11 +81,12 @@ class NVSMask3dModelConfig(SplatfactoModelConfig):
     # warmup_length = 500
     use_scale_regularization: bool = True
     """If enabled, a scale regularization introduced in PhysGauss (https://xpandora.github.io/PhysGaussian/) is used for reducing huge spikey gaussians."""
-    
+
     max_gauss_ratio: float = 5
     """threshold of ratio of gaussian max to min scale before applying regularization
     loss from the PhysGaussian paper
     """
+
 
 class NVSMask3dModel(SplatfactoModel):
     """Template Model."""
@@ -101,11 +100,17 @@ class NVSMask3dModel(SplatfactoModel):
         metadata: Optional[Dict] = None,
         cameras: Optional[Cameras] = None,
         test_mode: Literal[
-            "test", "val", "inference", "train", "all_replica", "all_scannet", "all_scannetpp"
+            "test",
+            "val",
+            "inference",
+            "train",
+            "all_replica",
+            "all_scannet",
+            "all_scannetpp",
         ] = "train",
         image_file_names,  # test
         **kwargs,
-    ):  
+    ):
         print("On model side test_mode is", test_mode)
         self.metadata = metadata
         self.cameras = cameras
@@ -123,11 +128,11 @@ class NVSMask3dModel(SplatfactoModel):
             if seed_points
             else None
         )
-        if "replica" in self.test_mode:#assumed scannet200 and replica.
+        if "replica" in self.test_mode:  # assumed scannet200 and replica.
             self.depth_scale = 6553.5
         elif "scannetpp" in self.test_mode:
             self.depth_scale = 1000.0
-        else: 
+        else:
             self.depth_scale = 1000.0
         # Initialize cache
         self._mask_cache = {}
@@ -161,7 +166,7 @@ class NVSMask3dModel(SplatfactoModel):
                 True if self.test_mode == "train" or "all" in self.test_mode else False
             ),
         )
-        
+
         self.segment_gaussian_positives_with_nvs = ViewerButton(
             name="Segmentation with interpolated poses",
             cb_hook=self._segment_gaussians_with_nvs,
@@ -169,23 +174,30 @@ class NVSMask3dModel(SplatfactoModel):
                 True if self.test_mode == "train" or "all" in self.test_mode else False
             ),
         )
-        
-    def _segment_gaussians_with_nvs(self,element):
+
+    def _segment_gaussians_with_nvs(self, element):
         """
         Use only 2 cameras, interpolate extra cameras with NVS.
         """
         self.output_text.value = "Segmenting Gaussians..."
-        
-        #prepare data    
+
+        # prepare data
         camera_to_world_opengl = self.cameras.camera_to_worlds.to(
             device=self.device
         )  # shape (M, 4, 4)
-        camera_to_world_opencv = get_camera_pose_in_opencv_convention(camera_to_world_opengl)
-        K = self.cameras.get_intrinsics_matrices().to(device=self.device)  # shape (M, 3, 3) in default, each K's elements are the same
+        camera_to_world_opencv = get_camera_pose_in_opencv_convention(
+            camera_to_world_opengl
+        )
+        K = self.cameras.get_intrinsics_matrices().to(
+            device=self.device
+        )  # shape (M, 3, 3) in default, each K's elements are the same
         W, H = int(self.cameras.width[0].item()), int(self.cameras.height[0].item())
-        
-        #get optimal camera indeces and bounding boxes for the object proposal
-        best_camera_indices, bounding_boxes = object_optimal_k_camera_poses_bounding_box(
+
+        # get optimal camera indeces and bounding boxes for the object proposal
+        (
+            best_camera_indices,
+            bounding_boxes,
+        ) = object_optimal_k_camera_poses_bounding_box(
             seed_points_0=self.seed_points[0].cuda(),
             optimized_camera_to_world=camera_to_world_opencv,
             K=K,
@@ -199,7 +211,7 @@ class NVSMask3dModel(SplatfactoModel):
         if len(best_camera_indices) < 1:
             print("No optimal camera indices found")
             return
-            
+
         #######################debug #############################
         # with Image.open(self.image_file_names[best_camera_indices[0]]) as img:
         #     img = transforms.ToTensor()(img).cuda()  # (C,H,W)
@@ -208,12 +220,12 @@ class NVSMask3dModel(SplatfactoModel):
         # index_b = best_camera_indices[1]
         # cameara = self.cameras[index_a:index_a+1]
         # camera_b = self.cameras[index_b:index_b+1]
-        
+
         # nvs_imga = self.get_outputs(cameara)["rgb"]#(H,W,3)
         # nvs_imgb = self.get_outputs(camera_b)["rgb"]#(H,W,3)
         # save_img(nvs_imga, f"tests/nvs_imga.png")
         # save_img(nvs_imgb, f"tests/nvs_imgb.png")
-        
+
         # pose_a = camera_to_world_opengl[index_a] #camera_to_world_opengl[index_a]
         # pose_b = camera_to_world_opengl[index_b] #camera_to_world_opengl[index_b]
         # # get bounding box
@@ -225,19 +237,19 @@ class NVSMask3dModel(SplatfactoModel):
         # masked_seed_points0 = self.seed_points[0].cuda()[mask_indices]
         # v2 = masked_seed_points0.mean(dim=0)  #seed_points0_opengl.mean(dim=0)
         # v2 = v2 / torch.norm(v2)
-        
+
         # v1_a = -pose_a[:3, 2]
-        # v1_a = v1_a / torch.norm(v1_a) 
+        # v1_a = v1_a / torch.norm(v1_a)
         # R = rotate_vector_to_vector(v1_a, v2)
         # R_a = R @ pose_a[:3, :3]
         # pose_a[:3, :3] = R_a
-        
+
         # v1_b = -pose_b[:3, 2]
         # v1_b = v1_b / torch.norm(v1_b)
         # R = rotate_vector_to_vector(v1_b, v2)
         # R_b = R @ pose_b[:3, :3]
         # pose_b[:3, :3] = R_b
-        
+
         # camera_a = make_cameras(self.cameras[0:1], pose_a.unsqueeze(0))
         # camera_b = make_cameras(self.cameras[0:1], pose_b.unsqueeze(0))
         # nvs_mask_img_a = self.get_outputs(camera_a)["rgb"]#(H,W,3)
@@ -246,89 +258,91 @@ class NVSMask3dModel(SplatfactoModel):
         # save_img(nvs_mask_img_b, f"tests/nvs_mask_img_b.png")
 
         ##########################################################
-        #get interpolated poses and its corresponding bounding boxes
-        #interpolated_poses = interpolate_camera_poses_with_camera_trajectory(camera_to_world_opengl[best_camera_indices], bounding_boxes, K,W,H, 3)#get_interpolated_poses(adjusted_pose_a, adjusted_pose_b, steps=3)# SLERP interpolation        
-        mask_indices = self.points3D_mask[
-            :, self.cls_index
-        ]
+        # get interpolated poses and its corresponding bounding boxes
+        # interpolated_poses = interpolate_camera_poses_with_camera_trajectory(camera_to_world_opengl[best_camera_indices], bounding_boxes, K,W,H, 3)#get_interpolated_poses(adjusted_pose_a, adjusted_pose_b, steps=3)# SLERP interpolation
+        mask_indices = self.points3D_mask[:, self.cls_index]
         masked_seed_points0 = self.seed_points[0].cuda()[mask_indices]
-        interpolated_poses = interpolate_camera_poses_with_camera_trajectory(camera_to_world_opengl[best_camera_indices], masked_seed_points0, 2)#get_interpolated_poses(adjusted_pose_a, adjusted_pose_b, steps=3)# SLERP interpolation
+        interpolated_poses = interpolate_camera_poses_with_camera_trajectory(
+            camera_to_world_opengl[best_camera_indices], masked_seed_points0, 2
+        )  # get_interpolated_poses(adjusted_pose_a, adjusted_pose_b, steps=3)# SLERP interpolation
         interpolated_cameras = make_cameras(self.cameras[0:1], interpolated_poses)
         interpolated_poses_bounding_boxes = compute_camera_pose_bounding_boxes(
-                                                seed_points_0=self.seed_points[0].cuda(),
-                                                optimized_camera_to_world=get_camera_pose_in_opencv_convention(interpolated_poses),
-                                                K=interpolated_cameras.get_intrinsics_matrices().to(device=self.device), 
-                                                W=W, 
-                                                H=H,
-                                                boolean_mask=self.points3D_mask[:, self.cls_index],
-                                            )
-        #make interpolated cameras
+            seed_points_0=self.seed_points[0].cuda(),
+            optimized_camera_to_world=get_camera_pose_in_opencv_convention(
+                interpolated_poses
+            ),
+            K=interpolated_cameras.get_intrinsics_matrices().to(device=self.device),
+            W=W,
+            H=H,
+            boolean_mask=self.points3D_mask[:, self.cls_index],
+        )
+        # make interpolated cameras
         interpolated_cameras = make_cameras(self.cameras[0:1], interpolated_poses)
-        
-        outputs = []
-        #render nvs images, crop them and save them, add to outputs
-        for i in range(interpolated_cameras.shape[0]):
-            camera = interpolated_cameras[i:i+1]
-            nvs_mask_img = self.get_outputs(camera)["rgb_mask"]#(H,W,3)
-            nvs_img = self.get_outputs(camera)["rgb"]#(H,W,3)
 
-            #croped nvs image
-            min_u, min_v, max_u, max_v = interpolated_poses_bounding_boxes[i]           
-            min_u, min_v, max_u, max_v = map(int, [min_u, min_v, max_u, max_v]) # Convert to integers for slicing
+        outputs = []
+        # render nvs images, crop them and save them, add to outputs
+        for i in range(interpolated_cameras.shape[0]):
+            camera = interpolated_cameras[i : i + 1]
+            nvs_mask_img = self.get_outputs(camera)["rgb_mask"]  # (H,W,3)
+            nvs_img = self.get_outputs(camera)["rgb"]  # (H,W,3)
+
+            # croped nvs image
+            min_u, min_v, max_u, max_v = interpolated_poses_bounding_boxes[i]
+            min_u, min_v, max_u, max_v = map(
+                int, [min_u, min_v, max_u, max_v]
+            )  # Convert to integers for slicing
             min_u, min_v = max(0, min_u), max(0, min_v)
             max_u, max_v = min(W, max_u), min(H, max_v)
-            cropped_nvs_mask_image = nvs_mask_img[
-                min_v:max_v, min_u:max_u
-            ]
-            cropped_nvs_img = nvs_img[
-                min_v:max_v, min_u:max_u
-            ]
-            outputs.append(cropped_nvs_mask_image.permute(2, 0, 1))#(C,H,W)
-            outputs.append(cropped_nvs_img.permute(2, 0, 1))#(C,H,W)
+            cropped_nvs_mask_image = nvs_mask_img[min_v:max_v, min_u:max_u]
+            cropped_nvs_img = nvs_img[min_v:max_v, min_u:max_u]
+            outputs.append(cropped_nvs_mask_image.permute(2, 0, 1))  # (C,H,W)
+            outputs.append(cropped_nvs_img.permute(2, 0, 1))  # (C,H,W)
             save_img(cropped_nvs_img, f"tests/cropped_nvs_image_{i}.png")
             save_img(cropped_nvs_mask_image, f"tests/cropped_nvs_mask_image_{i}.png")
 
-        #ground truth, masked gt rendered by gaussians
+        # ground truth, masked gt rendered by gaussians
         for index, pose_index in enumerate(best_camera_indices):
             camera = self.cameras[pose_index : pose_index + 1]
-            nvs_mask_img = self.get_outputs(camera)["rgb_mask"]#(H,W,3)
+            nvs_mask_img = self.get_outputs(camera)["rgb_mask"]  # (H,W,3)
             with Image.open(self.image_file_names[pose_index]) as img:
                 img = transforms.ToTensor()(img).cuda()  # (C,H,W)
             # Convert to integers for slicing
-            min_u, min_v, max_u, max_v = bounding_boxes[index]           
-            min_u, min_v, max_u, max_v = map(int, [min_u, min_v, max_u, max_v]) # Convert to integers for slicing
+            min_u, min_v, max_u, max_v = bounding_boxes[index]
+            min_u, min_v, max_u, max_v = map(
+                int, [min_u, min_v, max_u, max_v]
+            )  # Convert to integers for slicing
             min_u, min_v = max(0, min_u), max(0, min_v)
             max_u, max_v = min(W, max_u), min(H, max_v)
-            #Crop the image using valid indices
-            cropped_img = img[
-                :,min_v:max_v, min_u:max_u
-            ]
-            cropped_nvs_mask_img = nvs_mask_img[
-                min_v:max_v, min_u:max_u
-            ]
-            outputs.append(cropped_nvs_mask_img.permute(2, 0, 1))#(C,H,W)
-            save_img(cropped_nvs_mask_img, f"tests/cropped_nvs_masked_img_origin_pose_{index}.png")
+            # Crop the image using valid indices
+            cropped_img = img[:, min_v:max_v, min_u:max_u]
+            cropped_nvs_mask_img = nvs_mask_img[min_v:max_v, min_u:max_u]
+            outputs.append(cropped_nvs_mask_img.permute(2, 0, 1))  # (C,H,W)
+            save_img(
+                cropped_nvs_mask_img,
+                f"tests/cropped_nvs_masked_img_origin_pose_{index}.png",
+            )
 
             outputs.append(cropped_img)
-            save_img(cropped_img.permute(1,2,0), f"tests/cropped_img_{index}.png")
+            save_img(cropped_img.permute(1, 2, 0), f"tests/cropped_img_{index}.png")
 
-
-        #output = torch.stack(outputs)
+        # output = torch.stack(outputs)
         # (B,H,W,3)->(B,C,H,W) no more
         # output = output.permute(0, 3, 1, 2)
-        #print gpu memory
+        # print gpu memory
         texts = self.image_encoder.classify_images(outputs)
         self.output_text.value = texts
         return
 
-    def _segment_gaussians(self,element):
+    def _segment_gaussians(self, element):
         self.output_text.value = "Segmenting Gaussians..."
         # get optimal cameraposes use mask proposal and poses
         camera = self.cameras
         optimized_camera_to_world = camera.camera_to_worlds.to(
             "cuda"
         )  # shape (M, 4, 4)
-        optimized_camera_to_world = get_camera_pose_in_opencv_convention(optimized_camera_to_world)
+        optimized_camera_to_world = get_camera_pose_in_opencv_convention(
+            optimized_camera_to_world
+        )
 
         # Move intrinsics to the GPU
         K = camera.get_intrinsics_matrices().to("cuda")  # shape (M, 3, 3)
@@ -347,10 +361,14 @@ class NVSMask3dModel(SplatfactoModel):
         #     depth_scale = self.depth_scale,
         #     k_poses=2,
         #     vis_depth_threshold=0.05 if self.image_encoder.scannet_checkbox.value == True else 0.4,
-            
+
         # )  # image_file_names= self.image_file_names)#seedpoints, mask -> cuda, numpy
-        
-        optimal_camera_indices, valid_u, valid_v = object_optimal_k_camera_poses_2D_mask(#no sam uses object_optimal_k_camera_poses_2D_mask
+
+        (
+            optimal_camera_indices,
+            valid_u,
+            valid_v,
+        ) = object_optimal_k_camera_poses_2D_mask(  # no sam uses object_optimal_k_camera_poses_2D_mask
             seed_points_0=self.seed_points[0].cuda(),
             optimized_camera_to_world=optimized_camera_to_world,
             K=K,
@@ -360,7 +378,9 @@ class NVSMask3dModel(SplatfactoModel):
             depth_filenames=self.metadata["depth_filenames"],
             depth_scale=self.depth_scale,
             k_poses=5,
-            vis_depth_threshold=0.05 if self.image_encoder.scannet_checkbox.value == True else 0.4,
+            vis_depth_threshold=0.05
+            if self.image_encoder.scannet_checkbox.value == True
+            else 0.4,
         )
         outputs = []
         print("optimal_camera_indices", optimal_camera_indices)
@@ -371,20 +391,24 @@ class NVSMask3dModel(SplatfactoModel):
             pose_index = pose_index.item()
             single_camera = self.cameras[pose_index : pose_index + 1]
             assert single_camera.shape[0] == 1, "Only one camera at a time"
-            nvs_mask_img = self.get_outputs(single_camera)["rgb_mask"]  # ["rgb_mask"]  # (H,W,3)
+            nvs_mask_img = self.get_outputs(single_camera)[
+                "rgb_mask"
+            ]  # ["rgb_mask"]  # (H,W,3)
             # instead, use the original image
             with Image.open(self.image_file_names[pose_index]) as img:
                 img = transforms.ToTensor()(img).cuda()  # (C,H,W)
             # crop images with bounding box
-            #min_u, min_v, max_u, max_v = bounding_boxes[index]
-            min_u = min(torch.clamp(valid_u[pose_sorted_index[index]], 0, W-1))
-            min_v = min(torch.clamp(valid_v[pose_sorted_index[index]], 0, H-1))
-            max_u = max(torch.clamp(valid_u[pose_sorted_index[index]], 0, W-1))
-            max_v = max(torch.clamp(valid_v[pose_sorted_index[index]], 0, H-1))
+            # min_u, min_v, max_u, max_v = bounding_boxes[index]
+            min_u = min(torch.clamp(valid_u[pose_sorted_index[index]], 0, W - 1))
+            min_v = min(torch.clamp(valid_v[pose_sorted_index[index]], 0, H - 1))
+            max_u = max(torch.clamp(valid_u[pose_sorted_index[index]], 0, W - 1))
+            max_v = max(torch.clamp(valid_v[pose_sorted_index[index]], 0, H - 1))
             if any(
                 map(lambda x: torch.isinf(x) or x < 0, [min_u, min_v, max_u, max_v])
             ):
-                print(f"Skipping cropping for image {pose_index} due to invalid bounding box")
+                print(
+                    f"Skipping cropping for image {pose_index} due to invalid bounding box"
+                )
                 cropped_image = img  # Use the whole image if bbox is invalid
                 outputs.append(cropped_image)
 
@@ -398,17 +422,21 @@ class NVSMask3dModel(SplatfactoModel):
 
                 # Crop the image using valid indices
                 cropped_image = img[:, min_v:max_v, min_u:max_u]
-                cropped_nvs_mask_image = nvs_mask_img[
-                    min_v:max_v, min_u:max_u
-                ].permute(2, 0, 1)
+                cropped_nvs_mask_image = nvs_mask_img[min_v:max_v, min_u:max_u].permute(
+                    2, 0, 1
+                )
                 outputs.append(cropped_nvs_mask_image)
                 outputs.append(cropped_image)
             ###################save rendered image#################
             from nvsmask3d.utils.utils import save_img
+
             save_img(
                 img.permute(1, 2, 0), f"tests/output_{pose_sorted_index[index]}.png"
             )  # function need (H,W,3)
-            save_img(cropped_image.permute(1, 2, 0), f"tests/cropped_image_{pose_sorted_index[index]}.png")
+            save_img(
+                cropped_image.permute(1, 2, 0),
+                f"tests/cropped_image_{pose_sorted_index[index]}.png",
+            )
             save_img(nvs_mask_img, f"tests/nvs_mask_img_{pose_sorted_index[index]}.png")
             save_img(
                 cropped_nvs_mask_image.permute(1, 2, 0),
@@ -622,37 +650,36 @@ class NVSMask3dModel(SplatfactoModel):
             # "depth_mask": depth_mask,  # type: ignore
         }
 
-    
     def get_gaussian_param_groups(self) -> Dict[str, List[Parameter]]:
-        # param_groups = {
-        #     name: [param]
-        #     for name, param in self.gauss_params.items()
-        #     if name != "means"
-        # }
-        # return param_groups
-        if not self.config.add_means:
-            return {
-                name: [self.gauss_params[name]]
-                for name in [
-                    "scales",
-                    "quats",
-                    "features_dc",
-                    "features_rest",
-                    "opacities",
-                ]
-            }
-        else:
-            return {
-                name: [self.gauss_params[name]]
-                for name in [
-                    "means",
-                    "scales",
-                    "quats",
-                    "features_dc",
-                    "features_rest",
-                    "opacities",
-                ]
-            }
+        param_groups = {
+            name: [param]
+            for name, param in self.gauss_params.items()
+            if name != "means"
+        }
+        return param_groups
+        # if not self.config.add_means:
+        #     return {
+        #         name: [self.gauss_params[name]]
+        #         for name in [
+        #             "scales",
+        #             "quats",
+        #             "features_dc",
+        #             "features_rest",
+        #             "opacities",
+        #         ]
+        #     }
+        # else:
+        #     return {
+        #         name: [self.gauss_params[name]]
+        #         for name in [
+        #             #"means",
+        #             "scales",
+        #             "quats",
+        #             "features_dc",
+        #             "features_rest",
+        #             "opacities",
+        #         ]
+        #     }
 
     # we don't cull or densify gaussians
     def refinement_after(self, optimizers: Optimizers, step):

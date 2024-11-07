@@ -1,12 +1,9 @@
-"""Replica dataparser
-
-"""
+"""Replica dataparser"""
 
 from __future__ import annotations
 
 import glob
 import json
-import os
 import random
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -98,9 +95,7 @@ class ReplicaDataparser(DataParser):
             poses.append(c2w)
         return torch.stack(poses)
 
-    def _generate_dataparser_outputs(
-        self, split="train"
-    ):  # pylint: disable=unused-argument,too-many-statements
+    def _generate_dataparser_outputs(self, split="train"):  # pylint: disable=unused-argument,too-many-statements
         self.input_folder = self.config.data / self.config.sequence
         cam_data = load_from_json(self.config.data / "cam_params.json")["camera"]
         self.pose_path = self.config.data / self.config.sequence / "traj.txt"
@@ -256,8 +251,8 @@ class ReplicaDataparser(DataParser):
 
     def _generate_ply_from_mesh(self):
         mesh = o3d.io.read_point_cloud(self.mesh_path)
-        assert self.config.num_sfm_points < len(
-            mesh.points
+        assert (
+            self.config.num_sfm_points < len(mesh.points)
         ), f"chosen num of sfm points {self.config.num_sfm_points} is larger than gt mesh size {len(mesh.points)}"
         sampling_ratio = (self.config.num_sfm_points + 1) / len(mesh.points)
         pd = mesh.random_down_sample(sampling_ratio)
