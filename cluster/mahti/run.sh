@@ -6,8 +6,8 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=12
 #SBATCH --gres=gpu:a100:1,nvme:2000
-#SBATCH --output=/scratch/project_2003267/junyuan/nvsmask3d/mahti/%x-%j.out  # 保存默认文件名到 /mahti
-##SBATCH --error=/scratch/project_2003267/junyuan/nvsmask3d/mahti/%x-%j.err  # 保存默认文件名到 /mahti
+#SBATCH --output=/scratch/project_2003267/junyuan/nvsmask3d/cluster/mahti/%x-%j.out  # 保存默认文件名到 /mahti
+##SBATCH --error=/scratch/project_2003267/junyuan/nvsmask3d/cluster/mahti/%x-%j.err  # 保存默认文件名到 /mahti
 
 scenes=(
     "7b6477cb95" "c50d2d1d42" "cc5237fd77" "acd95847c5" "fb5a96b1a2"
