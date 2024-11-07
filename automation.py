@@ -72,14 +72,14 @@ run_dataset = "scannetpp"  # "mip_360"
 
 SCENE_NAMES = [
     "5748ce6f01",
-    "9071e139d9",
-    "578511c8a9",
-    "c49a8c6cff",
-    "5f99900f09",
-    "1ada7a0617",
-    "09c1414f1b",
-    "27dd4da69e",
-    "6115eddb86",
+    # "9071e139d9",
+    # "578511c8a9",
+    # "c49a8c6cff",
+    # "5f99900f09",
+    # "1ada7a0617",
+    # "09c1414f1b",
+    # "27dd4da69e",
+    # "6115eddb86",
 ]
 # SCENE_NAMES = [
 #                 #'5748ce6f01',
@@ -120,16 +120,6 @@ class BenchmarkConfig:
 
 
 # Configurations of different options #########################################################################################
-scannetpp_config = BenchmarkConfig(
-    sam=False,
-    kind="crop",
-    scene_name=SCENE_NAMES[0],
-    load_config=LOAD_CONFIGS[
-        0
-    ],  # "outputs/7b6477cb95_dslr_colmap/nvsmask3d/config.yml",
-    experiment_type="rgb",
-    interpolate_n_camera=0,
-)
 # Jobs to run or different "configs" to run
 configs_to_run = [  # from sam_False_interp_cam_0  to  sam_False_interp_cam_4
     BenchmarkConfig(
@@ -144,7 +134,7 @@ configs_to_run = [  # from sam_False_interp_cam_0  to  sam_False_interp_cam_4
         top_k=5,
     )
     for i in range(len(SCENE_NAMES))
-    for j in range(5)
+    for j in range(4)
 ]
 # debug 1ada7a0617
 # configs_to_run = [  #from sam_False_interp_cam_0  to  sam_False_interp_cam_4
