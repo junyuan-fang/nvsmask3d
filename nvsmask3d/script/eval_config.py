@@ -170,7 +170,7 @@ def create_experiments(
             **config,
             # TODO
         )
-        for i in range(0, 5)
+        for i in range(2, 5)
     ]
 
 
@@ -207,9 +207,12 @@ if __name__ == "__main__":
         sam=False,
         algorithm=0,
         project_name="crop",
-        wandb_mode="online",
-        kind="blur",
-    )  # online,offline,disabled
+        wandb_mode="disabled",
+        kind="crop",
+    )
+    
+    
+      # online,offline,disabled
     # run_experiments(experiment_type="rgb", dataset="replica", sam=False, algorithm=0, project_name="blur", wandb_mode="disabled", kind="crop")# online,offline,disabled
     # run_experiments(experiment_type="rgb", dataset="replica", sam=False, algorithm=0, project_name="blur", wandb_mode="disabled", kind="blur")# online,offline,disabled
 
