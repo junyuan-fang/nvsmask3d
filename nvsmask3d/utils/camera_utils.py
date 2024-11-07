@@ -260,14 +260,19 @@ def object_optimal_k_camera_poses_2D_mask(  # no sam uses object_optimal_k_camer
     masked_seed_points = seed_points_0[boolean_mask]  # shape (N, 3)
     u, v, z = get_points_projected_uv_and_depth(
         masked_seed_points, optimized_camera_to_world, K
-    )  # shape (M, N)(200,3900)
+    )  # shape (M, N)(200,3900) 
     valid_points = (
         (u >= 0) & (u < W) & (v >= 0) & (v < H) & (z > 0)
     )  # shape (M, N) #(pose num, point num)
     num_valid_points = valid_points.sum().item()
     if num_valid_points == 0:
-        return torch.tensor([]), torch.tensor([]), torch.tensor([])
-
+        device = seed_points_0.device
+        dtype = seed_points_0.dtype
+        return (
+            torch.empty((0,), device=device, dtype=dtype),
+            torch.empty((0,), device=device, dtype=dtype),
+            torch.empty((0,), device=device, dtype=dtype)
+        )
     if depth_filenames:
 
         # 展平有效点的索引
@@ -283,18 +288,24 @@ def object_optimal_k_camera_poses_2D_mask(  # no sam uses object_optimal_k_camer
         z_valid = z[valid_points]  # Shape: (num_valid_points,)
 
         
-        for start in range(0, len(depth_filenames), chunk_size):
-            depth_filenames_chunk = depth_filenames[start:start + chunk_size]
+        for start in range(400, len(depth_filenames), chunk_size):
+            end = min(start + chunk_size, len(depth_filenames))
+            depth_filenames_chunk = depth_filenames[start:end]
             depth_maps_chunk = load_depth_maps(depth_filenames_chunk, depth_scale, seed_points_0.device).half()  # (chunk_size, H, W)
-            end = min(start + chunk_size, num_valid_points)
+            
+            mask = (batch_indices_valid >= start) & (batch_indices_valid < end)
+            if not mask.any():
+                continue  # 当前chunk没有对应的有效点
+            
+            batch_indices_chunk = batch_indices_valid[mask] - start  # 相对索引
+            point_indices_chunk = point_indices_valid[mask]
+            u_chunk = u_valid[mask]
+            v_chunk = v_valid[mask]
+            z_chunk = z_valid[mask]
 
-            # 当前块的索引
-            batch_indices_chunk = batch_indices_valid[start:end]
-            point_indices_chunk = point_indices_valid[start:end]
-            u_chunk = u_valid[start:end]
-            v_chunk = v_valid[start:end]
-            z_chunk = z_valid[start:end]
-
+            # 确保索引在深度图范围内
+            u_chunk = torch.clamp(u_chunk, 0, W-1)
+            v_chunk = torch.clamp(v_chunk, 0, H-1)
             # 从深度图中提取对应的深度值
             depth_values = depth_maps_chunk[batch_indices_chunk, v_chunk, u_chunk]
 
@@ -305,30 +316,23 @@ def object_optimal_k_camera_poses_2D_mask(  # no sam uses object_optimal_k_camer
             ) & depth_valid_mask
 
             # 更新 valid_points
-            valid_points[batch_indices_chunk, point_indices_chunk] &= valid_depths
+            valid_points[batch_indices_chunk + start, point_indices_chunk] &= valid_depths
 
             # 删除中间变量
-        del (
-            batch_indices_chunk,
-            point_indices_chunk,
-            u_chunk,
-            v_chunk,
-            z_chunk,
-            depth_values,
-            valid_depths,
-            depth_valid_mask,
-            batch_indices_valid,
-            depth_maps_chunk,
-            point_indices_valid,
-            u_valid,
-            v_valid,
-            z_valid,
-        )
-        torch.cuda.empty_cache()
+        # del batch_indices_chunk, point_indices_chunk, u_chunk, v_chunk, z_chunk, depth_values, valid_depths, depth_valid_mask, depth_maps_chunk
+        # torch.cuda.empty_cache()
 
-    if not valid_points.any():
+    # 重新计算有效点的数量
+    final_num_valid_points = valid_points.sum().item()
+    if final_num_valid_points == 0:
         print("No valid points found")
-        return torch.tensor([]), torch.tensor([]), torch.tensor([])
+        device = seed_points_0.device
+        dtype = seed_points_0.dtype
+        return (
+            torch.empty((0,), device=device, dtype=dtype),
+            torch.empty((0,), device=device, dtype=dtype),
+            torch.empty((0,), device=device, dtype=dtype)
+        )
 
     # Compute visibility scores for all poses
     num_visible_points = valid_points.float().sum(dim=1)

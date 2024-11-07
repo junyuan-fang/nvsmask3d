@@ -154,36 +154,62 @@
 
 # mapping = map_class_indices(top100, top100instance)
 # print(mapping)
-import os
-SCENE_NAMES = [
-                '5748ce6f01',
-                '9071e139d9',
-                '578511c8a9',
-                'c49a8c6cff',
-                '5f99900f09',
-                '1ada7a0617',
-                '09c1414f1b',
-                '27dd4da69e',
-                '6115eddb86']
+# import os
+# SCENE_NAMES = [
+#                 '5748ce6f01',
+#                 '9071e139d9',
+#                 '578511c8a9',
+#                 'c49a8c6cff',
+#                 '5f99900f09',
+#                 '1ada7a0617',
+#                 '09c1414f1b',
+#                 '27dd4da69e',
+#                 '6115eddb86']
 
-# Define the path to the directory where the files are expected to be
-base_path = "/home/fangj1/Code/nerfstudio-nvsmask3d/results/sam_False_interp_cam_0"  # Update this to your specific path
+# # Define the path to the directory where the files are expected to be
+# base_path = "/home/fangj1/Code/nerfstudio-nvsmask3d/results/sam_False_interp_cam_0"  # Update this to your specific path
 
-# Check each scene name in the list
-missing_scenes = []
+# # Check each scene name in the list
+# missing_scenes = []
 
-for scene in SCENE_NAMES:
-    # Construct the full path to the expected file (assuming .txt extension)
-    expected_file = os.path.join(base_path, f"{scene}.txt")
+# for scene in SCENE_NAMES:
+#     # Construct the full path to the expected file (assuming .txt extension)
+#     expected_file = os.path.join(base_path, f"{scene}.txt")
     
-    # Check if the file exists
-    if not os.path.isfile(expected_file):
-        missing_scenes.append(scene)
+#     # Check if the file exists
+#     if not os.path.isfile(expected_file):
+#         missing_scenes.append(scene)
 
-# Print the missing scene names
-if missing_scenes:
-    print("Missing scene files:")
-    for scene in missing_scenes:
-        print(scene)
-else:
-    print("All scene files are present.")
+# # Print the missing scene names
+# if missing_scenes:
+#     print("Missing scene files:")
+#     for scene in missing_scenes:
+#         print(scene)
+# else:
+#     print("All scene files are present.")
+
+
+import torch
+import numpy as np
+
+# Load the masks tensor
+masks = torch.load("/home/fangj1/Code/nerfstudio-nvsmask3d/nvsmask3d/data/ScannetPP/mask3d_processed/7b6477cb95.pt")
+door_mask = masks[0][:, 13]  # Extract the 'door' mask as a boolean mask
+
+# Load the GT labels from the .txt file (assuming one label per vertex in point cloud)
+gt_path = "/data/scannetpp/semantics/sem_gt_val/7b6477cb95.txt"
+gt_labels = np.loadtxt(gt_path, dtype=int)
+
+# Ensure the door_mask is a boolean array
+door_mask_np = door_mask.numpy().astype(bool)
+
+# Apply the door mask to the GT labels
+door_gt_values = gt_labels[door_mask_np]
+
+# Convert the result to a tensor if needed
+door_gt_values_tensor = torch.from_numpy(door_gt_values)
+import pdb; pdb.set_trace()
+unique_values, counts = torch.unique(door_gt_values_tensor, return_counts=True)
+print("Unique values in door mask region:", unique_values)
+print("Counts of unique values in door mask region:", counts)
+print("Ground truth values for door mask region:", door_gt_values_tensor)
