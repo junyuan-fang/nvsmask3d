@@ -1,6 +1,16 @@
 
 python  results/segmentation/scene.py
 python -m semantic.eval.eval_instance semantic/configs/eval_instance.yml
+## env
+salloc --job-name=scannetpp_eval --account=project_2003267 --partition=gpu --time=4:15:00 --ntasks=1 --cpus-per-task=6 --mem=30G --gres=gpu:v100:1,nvme:30
+
+conda activate /scratch/project_2003267/miniforge/envs/nerfstudio
+
+source /scratch/project_2003267/miniforge/bin/activate /scratch/project_2003267/miniforge/envs/nerfstudio
+cd /scratch/project_2003267/nvsmask3d
+
+python nvsmask3d/automation_test.py 
+
 ## Registering with Nerfstudio
 Ensure that nerfstudio has been installed according to the [instructions](https://docs.nerf.studio/en/latest/quickstart/installation.html). Clone or fork this repository and run the commands:
 

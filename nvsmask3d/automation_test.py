@@ -16,27 +16,15 @@ run_dataset = "scannetpp"  # "mip_360"
 # path to datasets
 
 # scenes to run from dataset
-# SCENE_NAMES = ['7b6477cb95', 'c50d2d1d42', 'cc5237fd77', 'acd95847c5', 'fb5a96b1a2', 'a24f64f7fb',
-#             '1ada7a0617', '5eb31827b7', '3e8bba0176', '3f15a9266d', '21d970d8de', '5748ce6f01',
-#             'c4c04e6d6c', '7831862f02', 'bde1e479ad', '38d58a7a31', '5ee7c22ba0', 'f9f95681fd',
-#             '3864514494', '40aec5fffa', '13c3e046d7', 'e398684d27', 'a8bf42d646', '45b0dac5e3',
-#             '31a2c91c43', 'e7af285f7d', '286b55a2bf', '7bc286c1b6', 'f3685d06a9', 'b0a08200c9',
-#             '825d228aec', 'a980334473', 'f2dc06b1d2', '5942004064', '25f3b7a318', 'bcd2436daf',
-#             'f3d64c30f8', '0d2ee665be', '3db0a1c8f3', 'ac48a9b736', 'c5439f4607', '578511c8a9',
-#             'd755b3d9d8', '99fa5c25e1', '09c1414f1b', '5f99900f09', '9071e139d9', '6115eddb86',
-#             '27dd4da69e', 'c49a8c6cff']
-
-SCENE_NAMES = [
-                '5748ce6f01',
-                # '9071e139d9',
-                # '578511c8a9',
-                # 'c49a8c6cff',
-                # '5f99900f09',
-                # '1ada7a0617',
-                # '09c1414f1b',
-                # '27dd4da69e',
-                # '6115eddb86'
-                ]
+SCENE_NAMES = ['7b6477cb95', 'c50d2d1d42', 'cc5237fd77', 'acd95847c5', 'fb5a96b1a2', 'a24f64f7fb',
+            '1ada7a0617', '5eb31827b7', '3e8bba0176', '3f15a9266d', '21d970d8de', '5748ce6f01',
+            'c4c04e6d6c', '7831862f02', 'bde1e479ad', '38d58a7a31', '5ee7c22ba0', 'f9f95681fd',
+            '3864514494', '40aec5fffa', '13c3e046d7', 'e398684d27', 'a8bf42d646', '45b0dac5e3',
+            '31a2c91c43', 'e7af285f7d', '286b55a2bf', '7bc286c1b6', 'f3685d06a9', 'b0a08200c9',
+            '825d228aec', 'a980334473', 'f2dc06b1d2', '5942004064', '25f3b7a318', 'bcd2436daf',
+            'f3d64c30f8', '0d2ee665be', '3db0a1c8f3', 'ac48a9b736', 'c5439f4607', '578511c8a9',
+            'd755b3d9d8', '99fa5c25e1', '09c1414f1b', '5f99900f09', '9071e139d9', '6115eddb86',
+            '27dd4da69e', 'c49a8c6cff']
 
 LOAD_CONFIGS = [ f"outputs/{scene}_dslr_colmap/nvsmask3d/config.yml" for scene in SCENE_NAMES
             ]
@@ -45,7 +33,7 @@ LOAD_CONFIGS = [ f"outputs/{scene}_dslr_colmap/nvsmask3d/config.yml" for scene i
 class BenchmarkConfig:
     """Baseline benchmark config"""
     # trainer to run
-    function: str = "nvsmask3d/script/eval_scannetpp.py"
+    function: str = "nvsmask3d/script/eval_scannetpp_test.py"
     # path to data
     dataset : str = "scannetpp"
     kind : str = "crop"
@@ -71,29 +59,29 @@ scannetpp_config = BenchmarkConfig(
     interpolate_n_camera=0,
     )
 # Jobs to run or different "configs" to run
-configs_to_run = [  #from sam_False_interp_cam_0  to  sam_False_interp_cam_4
-    BenchmarkConfig(
-    sam = False,
-    kind="crop",
-    scene_name = SCENE_NAMES[i],
-    load_config = LOAD_CONFIGS[i],#"outputs/7b6477cb95_dslr_colmap/nvsmask3d/config.yml",
-    experiment_type = "rgb",
-    interpolate_n_camera=j,
-    )
-    for i in range (len(SCENE_NAMES)) 
-    for j in range (5)
-]
-# debug 1ada7a0617
 # configs_to_run = [  #from sam_False_interp_cam_0  to  sam_False_interp_cam_4
 #     BenchmarkConfig(
 #     sam = False,
 #     kind="crop",
-#     scene_name = SCENE_NAMES[6],
-#     load_config = LOAD_CONFIGS[6],#"outputs/1ada7a0617_dslr_colmap/nvsmask3d/config.yml",
+#     scene_name = SCENE_NAMES[i],
+#     load_config = LOAD_CONFIGS[i],#"outputs/7b6477cb95_dslr_colmap/nvsmask3d/config.yml",
 #     experiment_type = "rgb",
-#     interpolate_n_camera=0,
+#     interpolate_n_camera=j,
 #     )
+#     for i in range (len(SCENE_NAMES)) 
+#     for j in range (5)
 # ]
+# debug 1ada7a0617
+configs_to_run = [  #from sam_False_interp_cam_0  to  sam_False_interp_cam_4
+    BenchmarkConfig(
+    sam = False,
+    kind="crop",
+    scene_name = SCENE_NAMES[6],
+    load_config = LOAD_CONFIGS[6],#"outputs/1ada7a0617_dslr_colmap/nvsmask3d/config.yml",
+    experiment_type = "rgb",
+    interpolate_n_camera=0,
+    )
+]
 
 
 SKIP_TRAIN = False
