@@ -79,6 +79,7 @@ configs_to_run = [  #from sam_False_interp_cam_0  to  sam_False_interp_cam_4
     load_config = LOAD_CONFIGS[i],#"outputs/7b6477cb95_dslr_colmap/nvsmask3d/config.yml",
     experiment_type = "rgb",
     interpolate_n_camera=j,
+    top_k=5,
     )
     for i in range (len(SCENE_NAMES)) 
     for j in range (5)
@@ -122,6 +123,7 @@ def eval_scene(gpu, config: BenchmarkConfig):
               f"--wandb_mode {config.wandb_mode} " \
               f"--kind {config.kind} " \
               f"--output_dir {output_dir} " \
+                f"--top_k {config.top_k} " \
               f"--interpolate_n_camera {config.interpolate_n_camera}"
 
         print("Generated command:", cmd)  # Debugging print
