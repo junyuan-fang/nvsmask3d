@@ -272,7 +272,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
         seed_points_0 (torch.Tensor): The seed points (N,3)
         k_poses (int): The number of poses to render
         """
-        print("pred_classes_with_sam")
+        print(f"pred_classes_with_sam top {self.top_k} views")
         class_agnostic_3d_mask = self.model.points3D_mask
         seed_points_0 = self.model.seed_points[0].cuda()
 
