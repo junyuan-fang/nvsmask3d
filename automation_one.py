@@ -70,12 +70,6 @@ SCENE_NAMES = [
     "c49a8c6cff",
 ]
 
-SCENE_NAMES = [
-    #"578511c8a9",
-    #"09c1414f1b",
-    "7b6477cb95",
-]
-
 LOAD_CONFIGS = [
     f"outputs/{scene}_dslr_colmap/nvsmask3d/config.yml" for scene in SCENE_NAMES
 ]

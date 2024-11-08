@@ -116,7 +116,7 @@ configs_to_run = [  # from sam_False_interp_cam_0  to  sam_False_interp_cam_4
         top_k=5,
     )
     for i in range(len(SCENE_NAMES))
-    for j in range(1,4)
+    for j in range(0,3)
 ]
 # debug 1ada7a0617
 # configs_to_run = [  #from sam_False_interp_cam_0  to  sam_False_interp_cam_4
