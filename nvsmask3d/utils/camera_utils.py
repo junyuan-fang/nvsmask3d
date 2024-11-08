@@ -320,10 +320,9 @@ def object_optimal_k_camera_poses_2D_mask(  # no sam uses object_optimal_k_camer
                 valid_depths
             )
 
-            # 删除中间变量
-        # del batch_indices_chunk, point_indices_chunk, u_chunk, v_chunk, z_chunk, depth_values, valid_depths, depth_valid_mask, depth_maps_chunk
-        # torch.cuda.empty_cache()
-
+                # 删除中间变量
+            del batch_indices_chunk, point_indices_chunk, u_chunk, v_chunk, z_chunk, depth_values, valid_depths, depth_valid_mask, depth_maps_chunk
+            torch.cuda.empty_cache()
     # 重新计算有效点的数量
     final_num_valid_points = valid_points.sum().item()
     if final_num_valid_points == 0:
