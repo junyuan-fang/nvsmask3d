@@ -70,9 +70,9 @@ SCENE_NAMES = [
     "c49a8c6cff",
 ]
 
-# SCENE_NAMES = [
-#     "5748ce6f01",
-# ]
+SCENE_NAMES = [
+    "ac48a9b736",
+]
 
 LOAD_CONFIGS = [
     f"outputs/{scene}_dslr_colmap/nvsmask3d/config.yml" for scene in SCENE_NAMES
@@ -116,19 +116,8 @@ configs_to_run = [  # from sam_False_interp_cam_0  to  sam_False_interp_cam_4
         top_k=5,
     )
     for i in range(len(SCENE_NAMES))
-    for j in range(1,4)
+    for j in range(0,4)
 ]
-# debug 1ada7a0617
-# configs_to_run = [  #from sam_False_interp_cam_0  to  sam_False_interp_cam_4
-#     BenchmarkConfig(
-#     sam = False,
-#     kind="crop",
-#     scene_name = SCENE_NAMES[6],
-#     load_config = LOAD_CONFIGS[6],#"outputs/1ada7a0617_dslr_colmap/nvsmask3d/config.yml",
-#     experiment_type = "rgb",
-#     interpolate_n_camera=0,
-#     )
-# ]
 
 
 SKIP_TRAIN = False
@@ -144,8 +133,10 @@ def eval_scene(gpu, config: BenchmarkConfig):
 
         """Train a single scene with config on current gpu"""
         sam_flag = "--sam" if config.sam else ""
-        #output_dir = f"results/top_{config.top_k}_sam_{config.sam}_interp_cam_{config.interpolate_n_camera}" tested
-        output_dir = f"results/top_{config.top_k}_sam_{config.sam}_and_3d_interp_cam_{config.interpolate_n_camera}"
+        #only SAM
+        output_dir = f"results/top_{config.top_k}_sam_{config.sam}_interp_cam_{config.interpolate_n_camera}" #tested
+        #SAM but 3d interp 
+        #output_dir = f"results/top_{config.top_k}_sam_{config.sam}_and_3d_interp_cam_{config.interpolate_n_camera}"
         # 生成命令
         cmd = (
             f"OMP_NUM_THREADS=4 "
