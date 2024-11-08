@@ -1354,6 +1354,59 @@ def make_square_image(
 
     return output_tensor_cropped
 
+def make_blur_image(
+    nvs_img,
+    valid_u,
+    valid_v,
+    min_u,
+    max_u,
+    min_v,
+    max_v,
+    kernel_size=5,
+):
+    # 创建初始掩码
+    mask = torch.zeros(
+        (nvs_img.shape[1], nvs_img.shape[2]), dtype=torch.bool, device=nvs_img.device
+    )
+    mask[valid_v, valid_u] = True
+
+    # 使用闭运算填充内部空洞
+    # 先进行膨胀
+    dilated_mask = F.max_pool2d(
+        mask.float().unsqueeze(0).unsqueeze(0),
+        kernel_size=kernel_size,
+        stride=1,
+        padding=kernel_size // 2,
+    )
+    dilated_mask = (dilated_mask.squeeze(0).squeeze(0) > 0).bool()
+    # 再进行腐蚀
+    eroded_mask = F.max_pool2d(
+        (~dilated_mask).float().unsqueeze(0).unsqueeze(0),
+        kernel_size=kernel_size,
+        stride=1,
+        padding=kernel_size // 2,
+    )
+    eroded_mask = ~(eroded_mask.squeeze(0).squeeze(0) > 0).bool()
+
+    # 应用高斯模糊
+    gaussian_blur = GaussianBlur(kernel_size=(41, 41), sigma=5)
+    blurred_img = gaussian_blur(nvs_img.unsqueeze(0)).squeeze(0)
+
+    # 将背景像素替换为模糊后的图像
+    output_img = nvs_img.clone()
+    output_img[:, ~eroded_mask] = blurred_img[:, ~eroded_mask]
+
+    # 按有效区域的边界进行裁剪
+    new_min_u = max(min_u, 0)
+    new_max_u = min(max_u, nvs_img.shape[2])
+    new_min_v = max(min_v, 0)
+    new_max_v = min(max_v, nvs_img.shape[1])
+
+    # 裁剪指定区域
+    output_tensor_cropped = output_img[:, new_min_v:new_max_v, new_min_u:new_max_u]
+
+    return output_tensor_cropped
+
 
 # def make_square_image(nvs_img, valid_u, valid_v, min_u, max_u, min_v, max_v, expand_factor=0.7, kernel_size=5):
 #     # Create the initial mask from valid_u and valid_v

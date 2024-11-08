@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Optional, List
 from typing import Literal, Union
 import torch
-from nvsmask3d.utils.utils import make_square_image, save_predictions
+from nvsmask3d.utils.utils import make_square_image, save_predictions, make_blur_image
 from nvsmask3d.utils.camera_utils import (
     get_camera_pose_in_opencv_convention,
     object_optimal_k_camera_poses_2D_mask,
@@ -849,7 +849,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
 
         cls_num = class_agnostic_3d_mask.shape[1]
         pred_classes = np.full(cls_num, 0)  # -1)
-
+        depth_filenames = model.metadata["depth_filenames"] if self.occlusion_aware else None
         # index = 0
 
         # Loop through each mask
@@ -886,7 +886,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 W=W,
                 H=H,
                 boolean_mask=boolean_mask,  # select i_th mask
-                depth_filenames=model.metadata["depth_filenames"]
+                depth_filenames=depth_filenames
                 if self.occlusion_aware
                 else None,
                 depth_scale=model.depth_scale,
@@ -899,7 +899,13 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
             # sorted camera indices and its index
             # this is for smoother interpolation, keep the order of camera indices
             # Note! pose_sorted_index is not aligned with valid_u and valid_v's index anymore
-            best_camera_indices, pose_sorted_index = torch.sort(best_camera_indices)
+
+            best_depth_filenames = [depth_filenames[i] for i in best_camera_indices]
+            order_indices = torch.tensor([depth_filenames.index(name) for name in best_depth_filenames])
+            pose_sorted_index = torch.argsort(order_indices)
+            best_camera_indices_sorted = best_camera_indices[pose_sorted_index]
+
+            #best_camera_indices, pose_sorted_index = torch.sort(best_camera_indices)#because depth and img file is not sorted, so we change code here to differ with the replica
 
             if (
                 best_camera_indices.shape[0] == 0
@@ -1001,7 +1007,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                                 if self.kind == "blur":
                                     nvs_img = model.get_outputs(camera)["rgb"]
                                     nvs_img = torch.permute(nvs_img, (2, 0, 1))
-                                    result_tensor = make_square_image(
+                                    result_tensor = make_blur_image(
                                         nvs_img,
                                         u_i,
                                         v_i,
@@ -1016,7 +1022,6 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                                     # save_img(cropped_nvs_img.permute(1,2,0), f"tests/blur_{0.7}_cam_interp{self.interpolate_n_camera}/{scene_name}/object{i}/nvs_{interpolation_index}.png")
                                     # import pdb;pdb.set_trace()
                             if self.interpolate_n_gaussian_camera > 0:
-                                # # Process and crop the nvs mask image, seems will make inference worse
                                 nvs_mask_img = model.get_outputs(camera)[
                                     "rgb_mask"
                                 ]  # (H, W, 3)
@@ -1108,7 +1113,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                                     cropped_image
                                 )  # for wandb
                             if self.kind == "blur":
-                                result_tensor = make_square_image(
+                                result_tensor = make_blur_image(
                                     img,
                                     valid_u[index],
                                     valid_v[index],
@@ -1116,7 +1121,6 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                                     max_u,
                                     min_v,
                                     max_v,
-                                    0.7,
                                 )  # CHW
                                 # save img to debug
                                 # save_img(result_tensor.permute(1,2,0), f"tests/blur_{0.7}_cam_interp{self.interpolate_n_camera}/{scene_name}/object{i}/gt_{index}.png")
@@ -1209,13 +1213,13 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 if algorithm == 0:
                     # aggregate similarity scores 你目前是将批次中的相似度分数进行求和（sum），这可能会导致信息丢失，尤其是在增强视图之间存在较大差异的情况下。
                     if len(masked_gaussian_outputs) > 0:
-                        # if self.interpolate_n_camera > 1:
-                        #     mask_logits[: -self.top_k] /= self.interpolate_n_camera
+                        if self.interpolate_n_camera > 1:
+                            mask_logits[: -self.top_k] /= self.interpolate_n_camera
                         scores = mask_logits.sum(dim=0)
                         # scores = select_low_entropy_logits(mask_logits, self.top_k, apply_softmax=True).sum(dim=0)
                     if len(rgb_outputs) > 0:
-                        # if self.interpolate_n_camera > 1:
-                        #     rgb_logits[: -self.top_k] /= self.interpolate_n_camera
+                        if self.interpolate_n_camera > 1:
+                            rgb_logits[: -self.top_k] /= self.interpolate_n_camera
                         scores = rgb_logits.sum(dim=0)
 
                         # scores = select_low_entropy_logits(rgb_logits, self.top_k, apply_softmax=True).sum(dim=0)

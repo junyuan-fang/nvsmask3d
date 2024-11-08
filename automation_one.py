@@ -71,7 +71,9 @@ SCENE_NAMES = [
 ]
 
 SCENE_NAMES = [
-    "ac48a9b736",
+    #"578511c8a9",
+    #"09c1414f1b",
+    "7b6477cb95",
 ]
 
 LOAD_CONFIGS = [
@@ -105,8 +107,8 @@ class BenchmarkConfig:
 # Jobs to run or different "configs" to run
 configs_to_run = [  # from sam_False_interp_cam_0  to  sam_False_interp_cam_4
     BenchmarkConfig(
-        sam=True,
-        kind="crop",
+        sam=False,
+        kind="blur",
         scene_name=SCENE_NAMES[i],
         load_config=LOAD_CONFIGS[
             i

@@ -264,9 +264,7 @@ class ScanNetpp(ColmapDataParser):
                     key=lambda x: int(x.name.split("_")[1].split(".")[0]),
                 )
             )
-            # mask_filenames = list(
-            #     sorted(mask_dir.iterdir(), key=lambda x: int(x.name.split(".")[0]))
-            # )
+            
             for _, frame_data in data.items():
                 intrinsics.append(np.array(frame_data["intrinsic"]))
                 pose = np.array(frame_data["aligned_pose"])
