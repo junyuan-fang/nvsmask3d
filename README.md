@@ -12,6 +12,8 @@ cd  segment-anything/ #rememgber to download checkpoints to checkpoints/
 pip install .
 cd ..
 
+pip install -e .
+
 ```
 
 
