@@ -405,125 +405,125 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                         max_v = v_i.max()
 
                         # # ##################SAM logic#####################
-                        proposal_points_coords_2d = torch.stack(
-                            (v_i, u_i), dim=1
-                        )  # (N, 2)
-                        sam_network.set_image(nvs_img.permute(2, 0, 1))  # 3,H,W
-                        mask_i = sam_network.get_best_mask(proposal_points_coords_2d)
-                        if mask_i.sum() == 0:
-                            # print(f"Skipping inference for object {i} pose {index} due to no valid camera poses, assign")
-                            continue
+                        # proposal_points_coords_2d = torch.stack(
+                        #     (v_i, u_i), dim=1
+                        # )  # (N, 2)
+                        # sam_network.set_image(nvs_img.permute(2, 0, 1))  # 3,H,W
+                        # mask_i = sam_network.get_best_mask(proposal_points_coords_2d)
+                        # if mask_i.sum() == 0:
+                        #     # print(f"Skipping inference for object {i} pose {index} due to no valid camera poses, assign")
+                        #     continue
 
-                        # multilevel mask
-                        for level in range(self.num_levels):
-                            min_u, min_v, max_u, max_v = (
-                                sam_network.mask2box_multi_level(
-                                    mask_i, level, expansion_ratio=0.1
-                                )
-                            )
-                            H, W, _ = nvs_img.shape  # (H, W, 3)
-                            min_u = max(0, min_u)
-                            min_v = max(0, min_v)
-                            max_u = min(W, max_u)
-                            max_v = min(H, max_v)
+                        # # multilevel mask
+                        # for level in range(self.num_levels):
+                        #     min_u, min_v, max_u, max_v = (
+                        #         sam_network.mask2box_multi_level(
+                        #             mask_i, level, expansion_ratio=0.1
+                        #         )
+                        #     )
+                        #     H, W, _ = nvs_img.shape  # (H, W, 3)
+                        #     min_u = max(0, min_u)
+                        #     min_v = max(0, min_v)
+                        #     max_u = min(W, max_u)
+                        #     max_v = min(H, max_v)
                         ########################################################### when you use SAM logic, please uncomment the above code and tab the code to the next long "###" line"
                         # Check if bounding box is valid
-                            if min_u < max_u and min_v < max_v:
-                                nvs_mask_img_pil = None
-                                nvs_img_pil = None
-                                # nvs_img_label_map = None
-                                # nvs_mask_img_label_map = None
-                                if self.interpolate_n_rgb_camera > 0:
-                                    if kind == "crop":
-                                        # Get output dimensions to validate bounding box
-                                        cropped_nvs_img = nvs_img[
-                                            min_v:max_v, min_u:max_u
-                                        ]  # (H, W, 3)
-                                        cropped_nvs_img = cropped_nvs_img.permute(
-                                            2, 0, 1
-                                        )  # (C, H, W)
-                                        rgb_outputs.append(
-                                            cropped_nvs_img
-                                        )  # (C, H, W) ------->add to rgb_outputs
-                                        # save_img(cropped_nvs_img.permute(1,2,0), f"tests/crop_cam_interp{self.interpolate_n_camera}/{scene_name}/object{i}/nvs_{interpolation_index}_level_{level}.png")
-                                        if self.wandb_mode == "online":
-                                            # cropped_nvs_img = cropped_nvs_img.cpu()  # for wandb
-                                            nvs_img_pil = transforms.ToPILImage()(
-                                                cropped_nvs_img
-                                            )  # for wandb
-                                        #############debug################
-                                        # try:
-                                        #     sparse_map = torch.zeros((H, W, 3), dtype=torch.float32, device="cuda")
-                                        #     # sparse_map[ v_i, u_i] = 1
-                                        #     sparse_map[mask_i] = 1
-                                        #     from nvsmask3d.utils.utils import save_img
-                                        #     save_img(nvs_img, f"tests/interp_object_{i}_camera_{interpolation_index}.png")
-                                        #     save_img(sparse_map, f"tests/interp_sparse_map_object_{i}_camera_{interpolation_index}.png")
-                                        #     save_img(cropped_nvs_img.permute(1,2,0), f"tests/interp_object_{i}_cropped_camera_{interpolation_index}.png")
-                                        # except Exception as e:
-                                        #     print(f"Failed to save image {interpolation_index}: {e}")
-                                        #     continue
-                                        ##################################
-
-                                    elif kind == "blur":
-                                        # temp = transforms.ToPILImage()(nvs_img.permute(2, 0, 1).cpu())
-
-                                        # result = temp.copy()
-                                        # result = result.filter(ImageFilter.GaussianBlur(blur_std_dev))
-
-                                        # width, height = temp.size
-                                        # mask = Image.new("L", (width, height), 0)
-                                        # draw = ImageDraw.Draw(mask)
-                                        # draw.rectangle((min_u, min_v, max_u, max_v), fill=255)
-
-                                        # result.paste(temp, mask=mask)
-                                        result_tensor = make_square_image(
-                                            nvs_img, min_v, max_v, min_u, max_u
-                                        )
-
-                                        # result_tensor = transforms.ToTensor()(result)
-                                        rgb_outputs.append(
-                                            result_tensor.to(device="cuda")
-                                        )
-
-                                        nvs_img_pil = (
-                                            transforms.ToPILImage(result_tensor)
-                                            if self.wandb_mode == "online"
-                                            else None
-                                        )
-
-                                if self.interpolate_n_gaussian_camera > 0:
-                                    # # Process and crop the nvs mask image, seems will make inference worse
-                                    nvs_mask_img = self.model.get_outputs(camera)[
-                                        "rgb_mask"
-                                    ]  # (H, W, 3)
-                                    cropped_nvs_mask_image = nvs_mask_img[
+                        if min_u < max_u and min_v < max_v:
+                            nvs_mask_img_pil = None
+                            nvs_img_pil = None
+                            # nvs_img_label_map = None
+                            # nvs_mask_img_label_map = None
+                            if self.interpolate_n_rgb_camera > 0:
+                                if kind == "crop":
+                                    # Get output dimensions to validate bounding box
+                                    cropped_nvs_img = nvs_img[
                                         min_v:max_v, min_u:max_u
-                                    ].permute(2, 0, 1)  # (C, H, W)
-                                    masked_gaussian_outputs.append(
-                                        cropped_nvs_mask_image
-                                    )  # (C, H, W)------->add to masked_gaussian_outputs
-                                    # nvs_mask_img_label_map = model.image_encoder.return_image_map(cropped_nvs_mask_image)#for wandb
-                                    nvs_mask_img_pil = (
-                                        transforms.ToPILImage()(cropped_nvs_mask_image)
+                                    ]  # (H, W, 3)
+                                    cropped_nvs_img = cropped_nvs_img.permute(
+                                        2, 0, 1
+                                    )  # (C, H, W)
+                                    rgb_outputs.append(
+                                        cropped_nvs_img
+                                    )  # (C, H, W) ------->add to rgb_outputs
+                                    # save_img(cropped_nvs_img.permute(1,2,0), f"tests/crop_cam_interp{self.interpolate_n_camera}/{scene_name}/object{i}/nvs_{interpolation_index}_level_{level}.png")
+                                    if self.wandb_mode == "online":
+                                        # cropped_nvs_img = cropped_nvs_img.cpu()  # for wandb
+                                        nvs_img_pil = transforms.ToPILImage()(
+                                            cropped_nvs_img
+                                        )  # for wandb
+                                    #############debug################
+                                    # try:
+                                    #     sparse_map = torch.zeros((H, W, 3), dtype=torch.float32, device="cuda")
+                                    #     # sparse_map[ v_i, u_i] = 1
+                                    #     sparse_map[mask_i] = 1
+                                    #     from nvsmask3d.utils.utils import save_img
+                                    #     save_img(nvs_img, f"tests/interp_object_{i}_camera_{interpolation_index}.png")
+                                    #     save_img(sparse_map, f"tests/interp_sparse_map_object_{i}_camera_{interpolation_index}.png")
+                                    #     save_img(cropped_nvs_img.permute(1,2,0), f"tests/interp_object_{i}_cropped_camera_{interpolation_index}.png")
+                                    # except Exception as e:
+                                    #     print(f"Failed to save image {interpolation_index}: {e}")
+                                    #     continue
+                                    ##################################
+
+                                elif kind == "blur":
+                                    # temp = transforms.ToPILImage()(nvs_img.permute(2, 0, 1).cpu())
+
+                                    # result = temp.copy()
+                                    # result = result.filter(ImageFilter.GaussianBlur(blur_std_dev))
+
+                                    # width, height = temp.size
+                                    # mask = Image.new("L", (width, height), 0)
+                                    # draw = ImageDraw.Draw(mask)
+                                    # draw.rectangle((min_u, min_v, max_u, max_v), fill=255)
+
+                                    # result.paste(temp, mask=mask)
+                                    result_tensor = make_square_image(
+                                        nvs_img, min_v, max_v, min_u, max_u
+                                    )
+
+                                    # result_tensor = transforms.ToTensor()(result)
+                                    rgb_outputs.append(
+                                        result_tensor.to(device="cuda")
+                                    )
+
+                                    nvs_img_pil = (
+                                        transforms.ToPILImage(result_tensor)
                                         if self.wandb_mode == "online"
                                         else None
-                                    )  # for wandb
-                                    # Combine GT image and mask horizontally
-                                if self.wandb_mode == "online":
-                                    combined_nvs_image = concat_images_vertically(
-                                        [nvs_img_pil, nvs_mask_img_pil]
-                                    )  # for wandb
-                                    # combined_nvs_image_label_map = concat_images_vertically([nvs_img_label_map, nvs_mask_img_label_map])#for wandb
-                                    interpolated_images.append(
-                                        combined_nvs_image
-                                    )  # for wandb
-                                    # interpolated_images_label_map.append(combined_nvs_image_label_map)#for wandb
-                            else:
-                                print(
-                                    f"Invalid bounding box for image {interpolation_index}: "
-                                    f"min_u={min_u}, max_u={max_u}, min_v={min_v}, max_v={max_v}"
-                                )
+                                    )
+
+                            if self.interpolate_n_gaussian_camera > 0:
+                                # # Process and crop the nvs mask image, seems will make inference worse
+                                nvs_mask_img = self.model.get_outputs(camera)[
+                                    "rgb_mask"
+                                ]  # (H, W, 3)
+                                cropped_nvs_mask_image = nvs_mask_img[
+                                    min_v:max_v, min_u:max_u
+                                ].permute(2, 0, 1)  # (C, H, W)
+                                masked_gaussian_outputs.append(
+                                    cropped_nvs_mask_image
+                                )  # (C, H, W)------->add to masked_gaussian_outputs
+                                # nvs_mask_img_label_map = model.image_encoder.return_image_map(cropped_nvs_mask_image)#for wandb
+                                nvs_mask_img_pil = (
+                                    transforms.ToPILImage()(cropped_nvs_mask_image)
+                                    if self.wandb_mode == "online"
+                                    else None
+                                )  # for wandb
+                                # Combine GT image and mask horizontally
+                            if self.wandb_mode == "online":
+                                combined_nvs_image = concat_images_vertically(
+                                    [nvs_img_pil, nvs_mask_img_pil]
+                                )  # for wandb
+                                # combined_nvs_image_label_map = concat_images_vertically([nvs_img_label_map, nvs_mask_img_label_map])#for wandb
+                                interpolated_images.append(
+                                    combined_nvs_image
+                                )  # for wandb
+                                # interpolated_images_label_map.append(combined_nvs_image_label_map)#for wandb
+                        else:
+                            print(
+                                f"Invalid bounding box for image {interpolation_index}: "
+                                f"min_u={min_u}, max_u={max_u}, min_v={min_v}, max_v={max_v}"
+                            )
             #################################################################################################GT################################################################################################
             # gt camera pose
             if self.gt_camera_rgb or self.gt_camera_gaussian:
