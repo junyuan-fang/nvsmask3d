@@ -63,10 +63,11 @@ ssh -L 7007:localhost:7007 <username>@<remote_machine_ip>
 ```
 ##dslr colmap (Use this, dump scenes to bash)
 ns-train nvsmask3d --experiment-name 7b6477cb95_dslr_colmap --timestamp ""  --vis viewer scannetpp_nvsmask3d --data nvsmask3d/data/ScannetPP   --sequence 7b6477cb95 --mode dslr_colmap
+
+ns-train nvsmask3d --experiment-name 578511c8a9_dslr_colmap --timestamp ""  --vis viewer scannetpp_nvsmask3d --data nvsmask3d/data/ScannetPP   --sequence 578511c8a9 --mode dslr_colmap
 ```
 ### view scannetpp scene
 ```
-ns-viewer nvsmask3d --load_config /home/fangj1/Code/nerfstudio-nvsmask3d/outputs/7b6477cb95/nvsmask3d/config.yml #iphone
 ns-viewer nvsmask3d --load_config /home/fangj1/Code/nerfstudio-nvsmask3d/outputs/7b6477cb95_dslr_colmap/nvsmask3d/config.yml #dslr better pnsr. poses are from colmap
 
 ```

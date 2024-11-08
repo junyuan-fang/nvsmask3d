@@ -189,27 +189,27 @@
 #     print("All scene files are present.")
 
 
-import torch
-import numpy as np
+# import torch
+# import numpy as np
 
-# Load the masks tensor
-masks = torch.load("/home/fangj1/Code/nerfstudio-nvsmask3d/nvsmask3d/data/ScannetPP/mask3d_processed/7b6477cb95.pt")
-door_mask = masks[0][:, 13]  # Extract the 'door' mask as a boolean mask
+# # Load the masks tensor
+# masks = torch.load("/home/fangj1/Code/nerfstudio-nvsmask3d/nvsmask3d/data/ScannetPP/mask3d_processed/7b6477cb95.pt")
+# door_mask = masks[0][:, 13]  # Extract the 'door' mask as a boolean mask
 
-# Load the GT labels from the .txt file (assuming one label per vertex in point cloud)
-gt_path = "/data/scannetpp/semantics/sem_gt_val/7b6477cb95.txt"
-gt_labels = np.loadtxt(gt_path, dtype=int)
+# # Load the GT labels from the .txt file (assuming one label per vertex in point cloud)
+# gt_path = "/data/scannetpp/semantics/sem_gt_val/7b6477cb95.txt"
+# gt_labels = np.loadtxt(gt_path, dtype=int)
 
-# Ensure the door_mask is a boolean array
-door_mask_np = door_mask.numpy().astype(bool)
+# # Ensure the door_mask is a boolean array
+# door_mask_np = door_mask.numpy().astype(bool)
 
-# Apply the door mask to the GT labels
-door_gt_values = gt_labels[door_mask_np]
+# # Apply the door mask to the GT labels
+# door_gt_values = gt_labels[door_mask_np]
 
-# Convert the result to a tensor if needed
-door_gt_values_tensor = torch.from_numpy(door_gt_values)
-import pdb; pdb.set_trace()
-unique_values, counts = torch.unique(door_gt_values_tensor, return_counts=True)
-print("Unique values in door mask region:", unique_values)
-print("Counts of unique values in door mask region:", counts)
-print("Ground truth values for door mask region:", door_gt_values_tensor)
+# # Convert the result to a tensor if needed
+# door_gt_values_tensor = torch.from_numpy(door_gt_values)
+# import pdb; pdb.set_trace()
+# unique_values, counts = torch.unique(door_gt_values_tensor, return_counts=True)
+# print("Unique values in door mask region:", unique_values)
+# print("Counts of unique values in door mask region:", counts)
+# print("Ground truth values for door mask region:", door_gt_values_tensor)

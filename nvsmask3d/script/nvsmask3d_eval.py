@@ -1271,13 +1271,13 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 if algorithm == 0:
                     # aggregate similarity scores 你目前是将批次中的相似度分数进行求和（sum），这可能会导致信息丢失，尤其是在增强视图之间存在较大差异的情况下。
                     if len(masked_gaussian_outputs) > 0:
-                        # if self.interpolate_n_camera > 1:
-                        #     mask_logits[: -self.top_k] /= self.interpolate_n_camera
+                        if self.interpolate_n_camera > 1:
+                            mask_logits[: -self.top_k] /= self.interpolate_n_camera
                         scores = mask_logits.sum(dim=0)
                         # scores = select_low_entropy_logits(mask_logits, self.top_k, apply_softmax=True).sum(dim=0)
                     if len(rgb_outputs) > 0:
-                        # if self.interpolate_n_camera > 1:
-                        #     rgb_logits[: -self.top_k] /= self.interpolate_n_camera
+                        if self.interpolate_n_camera > 1:
+                            rgb_logits[: -self.top_k] /= self.interpolate_n_camera
                         scores = rgb_logits.sum(dim=0)
 
                         # scores = select_low_entropy_logits(rgb_logits, self.top_k, apply_softmax=True).sum(dim=0)
