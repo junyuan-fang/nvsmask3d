@@ -10,6 +10,8 @@ wandb/*
 nvsmask3d/checkpoints
 test*
 combined*
+vis/
+experiments/
 *.err
 # Byte-compiled / optimized / DLL files
 __pycache__/
