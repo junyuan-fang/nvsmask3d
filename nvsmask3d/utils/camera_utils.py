@@ -580,13 +580,23 @@ def object_optimal_k_camera_poses_2D_mask(
             topk_scores, topk_indices, topk_uv, k_poses
         )
 
-    # Filter out invalid entries
+    
+        # 筛选有效条目
     valid_mask = topk_indices >= 0
     best_poses_indices = topk_indices[valid_mask].cpu()
-    valid_u = [uv[0] for uv, m in zip(topk_uv, valid_mask) if m and uv is not None]
-    valid_v = [uv[1] for uv, m in zip(topk_uv, valid_mask) if m and uv is not None]
+
+    # 筛选有效的 UV 坐标
+    valid_u = [topk_uv[i][0] for i, m in enumerate(valid_mask) if m and topk_uv[i] is not None]
+    valid_v = [topk_uv[i][1] for i, m in enumerate(valid_mask) if m and topk_uv[i] is not None]
 
     return best_poses_indices, valid_u, valid_v
+    # # Filter out invalid entries
+    # valid_mask = topk_indices >= 0
+    # best_poses_indices = topk_indices[valid_mask].cpu()
+    # valid_u = [uv[0] for uv, m in zip(topk_uv, valid_mask) if m and uv is not None]
+    # valid_v = [uv[1] for uv, m in zip(topk_uv, valid_mask) if m and uv is not None]
+
+    # return best_poses_indices, valid_u, valid_v
 
 
 def validate_points_with_depth(valid_points, u, v, z, depth_maps, depth_threshold, W, H):

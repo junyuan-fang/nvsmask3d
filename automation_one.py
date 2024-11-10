@@ -69,7 +69,7 @@ SCENE_NAMES = [
     "27dd4da69e",
     "c49a8c6cff",
 ]
-
+SCENE_NAMES = SCENE_NAMES[1]
 LOAD_CONFIGS = [
     f"outputs/{scene}_dslr_colmap/nvsmask3d/config.yml" for scene in SCENE_NAMES
 ]

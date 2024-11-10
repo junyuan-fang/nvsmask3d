@@ -118,6 +118,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
     algorithm: int = 0
     sam: bool = True
     kind: Literal["crop", "blur"] = "crop"
+    interp_kind: Optional[str]= "same"
     prompt_threshold: float = 0.1
     wandb_mode: Literal["online", "offline", "disabled"] = "disabled"
     # inference
@@ -299,7 +300,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     preds, gt_dir, output_file="output.txt", dataset="replica"
                 )
                 # Create folder if it doesn't exist
-                folder_name = "results"
+                folder_name = "experiments"
                 if not os.path.exists(folder_name):
                     os.makedirs(folder_name)
 
@@ -375,7 +376,6 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 else None,
                 depth_scale=self.model.depth_scale,
                 k_poses=self.top_k,
-                score_fn=self.visibility_score,
                 vis_depth_threshold=0.05
                 if self.inference_dataset != "replica"
                 else 0.4,
@@ -398,8 +398,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
 
             # kind = "crop"
             kind = self.kind
-            blur_std_dev = 100.0
-
+            interp_kind = kind if self.interp_kind == "same" else self.interp_kind
             rgb_outputs = []
             masked_gaussian_outputs = []
             # Interpolate camera poses and bounding boxes
@@ -439,7 +438,6 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     ]
                     valid = valid_points[interpolation_index]  # 形状：(N,)
                     if valid_points[interpolation_index].any():
-                        nvs_img = self.model.get_outputs(camera)["rgb"]  # (H, W, 3)
                         u_i = u[interpolation_index][valid]  # (N,)
                         v_i = v[interpolation_index][valid]
 
@@ -456,110 +454,125 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                         min_v = v_i.min()
                         max_v = v_i.max()
 
-                        # ##################SAM logic#####################
-                        proposal_points_coords_2d = torch.stack(
-                            (v_i, u_i), dim=1
-                        )  # (N, 2)
-                        sam_network.set_image(nvs_img.permute(2, 0, 1))  # 3,H,W
-                        mask_i = sam_network.get_best_mask(proposal_points_coords_2d)
-                        if mask_i.sum() == 0:
-                            # print(f"Skipping inference for object {i} pose {index} due to no valid camera poses, assign")
-                            continue
+                        # # ##################SAM logic#####################
+                        # proposal_points_coords_2d = torch.stack(
+                        #     (v_i, u_i), dim=1
+                        # )  # (N, 2)
+                        # sam_network.set_image(nvs_img.permute(2, 0, 1))  # 3,H,W
+                        # mask_i = sam_network.get_best_mask(proposal_points_coords_2d)
+                        # if mask_i.sum() == 0:
+                        #     # print(f"Skipping inference for object {i} pose {index} due to no valid camera poses, assign")
+                        #     continue
 
-                        # multilevel mask
-                        for level in range(self.num_levels):
-                            level = 0
-                            min_u, min_v, max_u, max_v = (
-                                sam_network.mask2box_multi_level(
-                                    mask_i, level, expansion_ratio=0.1
-                                )
-                            )
-                            H, W, _ = nvs_img.shape  # (H, W, 3)
-                            min_u = max(0, min_u)
-                            min_v = max(0, min_v)
-                            max_u = min(W, max_u)
-                            max_v = min(H, max_v)
+                        # # multilevel mask
+                        # for level in range(self.num_levels):
+                        #     level = 0
+                        #     min_u, min_v, max_u, max_v = (
+                        #         sam_network.mask2box_multi_level(
+                        #             mask_i, level, expansion_ratio=0.1
+                        #         )
+                        #     )
+                        #     H, W, _ = nvs_img.shape  # (H, W, 3)
+                        #     min_u = max(0, min_u)
+                        #     min_v = max(0, min_v)
+                        #     max_u = min(W, max_u)
+                        #     max_v = min(H, max_v)
+                        #########################################################
 
-                            # Check if bounding box is valid
-                            if min_u < max_u and min_v < max_v:
-                                nvs_mask_img_pil = None
-                                nvs_img_pil = None
-                                # nvs_img_label_map = None
-                                # nvs_mask_img_label_map = None
-                                if self.interpolate_n_rgb_camera > 0:
-                                    if kind == "crop":
-                                        # Get output dimensions to validate bounding box
-                                        cropped_nvs_img = nvs_img[
-                                            min_v:max_v, min_u:max_u
-                                        ]  # (H, W, 3)
-                                        cropped_nvs_img = cropped_nvs_img.permute(
-                                            2, 0, 1
-                                        )  # (C, H, W)
-                                        rgb_outputs.append(
-                                            cropped_nvs_img
-                                        )  # (C, H, W) ------->add to rgb_outputs
-                                        cropped_nvs_img = (
-                                            cropped_nvs_img.cpu()
-                                        )  # for wandb
-                                        # nvs_img_label_map = model.image_encoder.return_image_map(cropped_nvs_img)#for wandb
-                                        nvs_img_pil = transforms.ToPILImage()(
-                                            cropped_nvs_img
-                                        )  # for wandb
-                                        #############debug################
-                                        # try:
-                                        #     sparse_map = torch.zeros((H, W, 3), dtype=torch.float32, device="cuda")
-                                        #     # sparse_map[ v_i, u_i] = 1
-                                        #     sparse_map[mask_i] = 1
-                                        #     from nvsmask3d.utils.utils import save_img
-                                        #     save_img(nvs_img, f"tests/interp_object_{i}_camera_{interpolation_index}.png")
-                                        #     save_img(sparse_map, f"tests/interp_sparse_map_object_{i}_camera_{interpolation_index}.png")
-                                        #     save_img(cropped_nvs_img.permute(1,2,0), f"tests/interp_object_{i}_cropped_camera_{interpolation_index}.png")
-                                        # except Exception as e:
-                                        #     print(f"Failed to save image {interpolation_index}: {e}")
-                                        #     continue
-                                        ##################################
-
-                                    elif kind == "blur":
-                                        # temp = transforms.ToPILImage()(nvs_img.permute(2, 0, 1).cpu())
-
-                                        # result = temp.copy()
-                                        # result = result.filter(ImageFilter.GaussianBlur(blur_std_dev))
-
-                                        # width, height = temp.size
-                                        # mask = Image.new("L", (width, height), 0)
-                                        # draw = ImageDraw.Draw(mask)
-                                        # draw.rectangle((min_u, min_v, max_u, max_v), fill=255)
-
-                                        # result.paste(temp, mask=mask)
-                                        result_tensor = make_square_image(
-                                            nvs_img, min_v, max_v, min_u, max_u
-                                        )
-
-                                        # result_tensor = transforms.ToTensor()(result)
-                                        rgb_outputs.append(
-                                            result_tensor.to(device="cuda")
-                                        )
-
-                                        nvs_img_pil = transforms.ToPILImage(
-                                            result_tensor
-                                        )
-
-                                if self.interpolate_n_gaussian_camera > 0:
-                                    # # Process and crop the nvs mask image, seems will make inference worse
-                                    nvs_mask_img = self.model.get_outputs(camera)[
-                                        "rgb_mask"
-                                    ]  # (H, W, 3)
-                                    cropped_nvs_mask_image = nvs_mask_img[
+                        # Check if bounding box is valid
+                        if min_u < max_u and min_v < max_v:
+                            nvs_mask_img_pil = None
+                            nvs_img_pil = None
+                            # nvs_img_label_map = None
+                            # nvs_mask_img_label_map = None
+                            if self.interpolate_n_rgb_camera > 0:
+                                if interp_kind == "crop":
+                                    nvs_img = self.model.get_outputs(camera)["rgb"]  # (H, W, 3)
+                                    # Get output dimensions to validate bounding box
+                                    cropped_nvs_img = nvs_img[
                                         min_v:max_v, min_u:max_u
-                                    ].permute(2, 0, 1)  # (C, H, W)
-                                    masked_gaussian_outputs.append(
-                                        cropped_nvs_mask_image
-                                    )  # (C, H, W)------->add to masked_gaussian_outputs
-                                    # nvs_mask_img_label_map = model.image_encoder.return_image_map(cropped_nvs_mask_image)#for wandb
-                                    nvs_mask_img_pil = transforms.ToPILImage()(
-                                        cropped_nvs_mask_image
+                                    ]  # (H, W, 3)
+                                    cropped_nvs_img = cropped_nvs_img.permute(
+                                        2, 0, 1
+                                    )  # (C, H, W)
+                                    rgb_outputs.append(
+                                        cropped_nvs_img
+                                    )  # (C, H, W) ------->add to rgb_outputs
+                                    cropped_nvs_img = (
+                                        cropped_nvs_img.cpu()
                                     )  # for wandb
-                                    # Combine GT image and mask horizontally
+                                    # nvs_img_label_map = model.image_encoder.return_image_map(cropped_nvs_img)#for wandb
+                                    nvs_img_pil = transforms.ToPILImage()(
+                                        cropped_nvs_img
+                                    )  # for wandb
+                                    #############debug################
+                                    # try:
+                                    #     sparse_map = torch.zeros((H, W, 3), dtype=torch.float32, device="cuda")
+                                    #     # sparse_map[ v_i, u_i] = 1
+                                    #     sparse_map[mask_i] = 1
+                                    #     from nvsmask3d.utils.utils import save_img
+                                    #     save_img(nvs_img, f"tests/interp_object_{i}_camera_{interpolation_index}.png")
+                                    #     save_img(sparse_map, f"tests/interp_sparse_map_object_{i}_camera_{interpolation_index}.png")
+                                    #     save_img(cropped_nvs_img.permute(1,2,0), f"tests/interp_object_{i}_cropped_camera_{interpolation_index}.png")
+                                    # except Exception as e:
+                                    #     print(f"Failed to save image {interpolation_index}: {e}")
+                                    #     continue
+                                    ##################################
+
+                                elif interp_kind == "blur":
+                                    # temp = transforms.ToPILImage()(nvs_img.permute(2, 0, 1).cpu())
+
+                                    # result = temp.copy()
+                                    # result = result.filter(ImageFilter.GaussianBlur(blur_std_dev))
+
+                                    # width, height = temp.size
+                                    # mask = Image.new("L", (width, height), 0)
+                                    # draw = ImageDraw.Draw(mask)
+                                    # draw.rectangle((min_u, min_v, max_u, max_v), fill=255)
+
+                                    # # result.paste(temp, mask=mask)
+                                    # result_tensor = make_square_image(
+                                    #     nvs_img, min_v, max_v, min_u, max_u
+                                    # )
+
+                                    # # result_tensor = transforms.ToTensor()(result)
+                                    # rgb_outputs.append(
+                                    #     result_tensor.to(device="cuda")
+                                    # )
+
+                                    # nvs_img_pil = transforms.ToPILImage(
+                                    #     result_tensor
+                                    # )
+                                    # no logic for now
+                                    pass
+                                elif interp_kind == "masked_gaussian":
+                                    nvs_mask_img = self.model.get_outputs(
+                                        camera
+                                    )["rgb_mask"]  # ["rgb_mask"]  # (H,W,3)
+                                    cropped_nvs_mask_image = nvs_mask_img[
+                                        min_v:max_v, min_u:max_u, :
+                                    ].permute(2, 0, 1)  # (C,H,W)
+                                    rgb_outputs.append(
+                                        cropped_nvs_mask_image
+                                    )
+
+                            if self.interpolate_n_gaussian_camera > 0:
+                                # # Process and crop the nvs mask image, seems will make inference worse
+                                nvs_mask_img = self.model.get_outputs(camera)[
+                                    "rgb_mask"
+                                ]  # (H, W, 3)
+                                cropped_nvs_mask_image = nvs_mask_img[
+                                    min_v:max_v, min_u:max_u
+                                ].permute(2, 0, 1)  # (C, H, W)
+                                masked_gaussian_outputs.append(
+                                    cropped_nvs_mask_image
+                                )  # (C, H, W)------->add to masked_gaussian_outputs
+                                # nvs_mask_img_label_map = model.image_encoder.return_image_map(cropped_nvs_mask_image)#for wandb
+                                nvs_mask_img_pil = transforms.ToPILImage()(
+                                    cropped_nvs_mask_image
+                                )  # for wandb
+                                # Combine GT image and mask horizontally
+                            if self.wandb_mode != "disabled":
                                 combined_nvs_image = concat_images_vertically(
                                     [nvs_img_pil, nvs_mask_img_pil]
                                 )  # for wandb
@@ -568,21 +581,26 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                                     combined_nvs_image
                                 )  # for wandb
                                 # interpolated_images_label_map.append(combined_nvs_image_label_map)#for wandb
-                            else:
-                                print(
-                                    f"Invalid bounding box for image {interpolation_index}: "
-                                    f"min_u={min_u}, max_u={max_u}, min_v={min_v}, max_v={max_v}"
-                                )
-            #################################################################################################GT################################################################################################
+                        else:
+                            print(
+                                f"Invalid bounding box for image {interpolation_index}: "
+                                f"min_u={min_u}, max_u={max_u}, min_v={min_v}, max_v={max_v}"
+                            )
+        #################################################################################################GT################################################################################################
             # gt camera pose
             if self.gt_camera_rgb or self.gt_camera_gaussian:
                 gt_images = []
                 # gt_images_label_map = []
 
                 for pose_index, index in zip(best_camera_indices, pose_sorted_index):
-                    if valid_u[index].shape[0] == 0 or valid_v[index].shape[0] == 0:
-                        # print(f"Skipping inference for object {i} pose {index} due to no valid camera poses, assign")
-                        continue
+                    try:
+                        if (index+1) > len(valid_u) or (index+1) > len(valid_v):
+                            continue
+                        if valid_u[index].shape[0] == 0 or valid_v[index].shape[0] == 0:
+                            # print(f"Skipping inference for object {i} pose {index} due to no valid camera poses, assign")
+                            continue
+                    except:
+                        import pdb;pdb.set_trace()
                     pose_index = pose_index.item()
                     single_camera = self.model.cameras[pose_index : pose_index + 1]
                     assert single_camera.shape[0] == 1, "Only one camera at a time"
@@ -630,7 +648,6 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                                 if self.gt_camera_rgb:
                                     if kind == "crop":
                                         cropped_image = img[:, min_v:max_v, min_u:max_u]
-                                        cropped_mask = mask_i[min_v:max_v, min_u:max_u]
                                         # blurred_image = blur_non_masked_areas(img, mask_i)
                                         # cropped_image = blur_non_masked_areas(cropped_image, cropped_mask)
                                         #############debug################
@@ -743,38 +760,61 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
 
             #################################################################################################inference################################################################################################
             with torch.no_grad():
+                algorithm = self.algorithm
                 T = 1.0  # refer to temperature
                 if len(rgb_outputs) > 0:
                     rgb_features = self.model.image_encoder.encode_batch_list_image(
                         rgb_outputs
                     )
-                    rgb_logits = torch.mm(
-                        rgb_features, self.model.image_encoder.pos_embeds.T
-                    )
-                    # pretrained text prompt
-                    # rgb_logits_pretrain_text = torch.mm(rgb_features, self.pretrain_embeddings.T)
+
                 if len(masked_gaussian_outputs) > 0:
                     mask_features = self.model.image_encoder.encode_batch_list_image(
                         masked_gaussian_outputs
                     )
-                    mask_logits = torch.mm(
-                        mask_features, self.model.image_encoder.pos_embeds.T
-                    )
-                    # mask_logits_pretrain_text = torch.mm(mask_features, self.pretrain_embeddings.T)
-
-                if self.algorithm == 0:
+                if algorithm == -1:
+                    # average rgb_features
+                    print("inferencing with algo -1\n")
+                    # rgb_features[:-self.top_k] /= self.interpolate_n_rgb_camera
+                    # scores = torch.mm(rgb_features.mean(dim=0).unsqueeze(0), self.model.image_encoder.pos_embeds.T)
+                    # features_num = rgb_features.shape[0]
+                    # if features_num > 2*self.top_k:
+                    #     rgb_logits = torch.mm(
+                    #         rgb_features, self.model.image_encoder.pos_embeds.T
+                    #     )
+                    #     rgb_logits[: -(self.num_levels*self.top_k)] /= ((features_num-self.top_k*self.num_levels) / (self.top_k-1))
+                    # features_num = mask_features.shape[0]
+                    # scores = rgb_logits.sum(dim=0)
+                    scores = torch.mm(rgb_features.mean(dim=0).unsqueeze(0), self.model.image_encoder.pos_embeds.T)
+                if algorithm == 0:
                     # aggregate similarity scores 你目前是将批次中的相似度分数进行求和（sum），这可能会导致信息丢失，尤其是在增强视图之间存在较大差异的情况下。
-                    if len(masked_gaussian_outputs) > 0:
-                        if self.interpolate_n_camera > 1:
-                            mask_logits[: -(self.top_k * self.num_levels)] /= (
-                                self.interpolate_n_camera
-                            )
-                        scores = mask_logits.sum(dim=0)
+                    #if len(masked_gaussian_outputs) > 0:
+                        # if self.interpolate_n_camera > 1:
+                        #     mask_logits = torch.mm(
+                        #         mask_features, self.model.image_encoder.pos_embeds.T
+                        #     )
+                        #     mask_logits[: -self.top_k] /= self.interpolate_n_camera
+                        # scores = mask_logits.sum(dim=0)
+                        # rgb_logits = torch.mm(
+                        #     rgb_features, self.model.image_encoder.pos_embeds.T
+                        # )
+                        # rgb_features[: -(self.num_levels*self.top_k)]/=self.interpolate_n_rgb_camera
+                        # scores = rgb_logits.sum(dim=0)
+                
+                            
+                        # scores = select_low_entropy_logits(mask_logits, self.top_k, apply_softmax=True).sum(dim=0)
                     if len(rgb_outputs) > 0:
-                        if self.interpolate_n_camera > 1:
-                            rgb_logits[: -(self.top_k * self.num_levels)] /= (
-                                self.interpolate_n_camera
+                        # if self.interpolate_n_camera > 1:
+                        #     rgb_logits = torch.mm(
+                        #     rgb_features, self.model.image_encoder.pos_embeds.T
+                        # )
+                        #     rgb_logits[: -self.top_k] /= self.interpolate_n_camera
+                        # scores = rgb_logits.sum(dim=0)
+                        features_num = rgb_features.shape[0]
+                        if features_num > self.top_k:
+                            rgb_logits = torch.mm(
+                                rgb_features, self.model.image_encoder.pos_embeds.T
                             )
+                            rgb_logits[: -self.top_k] /= (features_num / (self.top_k-1))
                         scores = rgb_logits.sum(dim=0)
 
                 # if self.algorithm == 1:
@@ -894,7 +934,7 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
         k_poses (int): The number of poses to render
         """
         # Move camera transformations to the GPU
-
+        print("pred without SAM")
         camera_to_world_opengl = model.cameras.camera_to_worlds.to(
             "cuda"
         )  # shape (M, 4, 4)
@@ -1120,6 +1160,8 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                 gt_images = []
                 # gt_images_label_map = []
                 for pose_index, index in zip(best_camera_indices, pose_sorted_index):
+                    if index >= len(valid_u) or index >= len(valid_v):
+                        continue
                     if valid_u[index].shape[0] == 0 or valid_v[index].shape[0] == 0:
                         continue
                     pose_index = pose_index.item()
@@ -1254,32 +1296,36 @@ class ComputeForAP:  # pred_masks.shape, pred_scores.shape, pred_classes.shape #
                     rgb_features = model.image_encoder.encode_batch_list_image(
                         rgb_outputs
                     )
-                    rgb_logits = torch.mm(
-                        rgb_features, model.image_encoder.pos_embeds.T
-                    )
                     # pretrained text prompt
                     # rgb_logits_pretrain_text = torch.mm(rgb_features, self.pretrain_embeddings.T)
                 if len(masked_gaussian_outputs) > 0:
                     mask_features = model.image_encoder.encode_batch_list_image(
                         masked_gaussian_outputs
                     )
-                    mask_logits = torch.mm(
-                        mask_features, model.image_encoder.pos_embeds.T
-                    )
+                if algorithm == -1:
+                    # average rgb_features
+                    #shape
+                    rgb_logits = torch.mm(
+                            rgb_features, model.image_encoder.pos_embeds.T
+                        )
+                    if rgb_features.shape[0] > self.top_k:
+
+                            rgb_logits[: -self.top_k] /= (rgb_features.shape[0] / (self.top_k))
+                    scores = rgb_logits.sum(dim=0)
+
                     # mask_logits_pretrain_text = torch.mm(mask_features, self.pretrain_embeddings.T)
                 # if self.run_name_for_wandb == "test":
                 if algorithm == 0:
-                    # aggregate similarity scores 你目前是将批次中的相似度分数进行求和（sum），这可能会导致信息丢失，尤其是在增强视图之间存在较大差异的情况下。
-                    if len(masked_gaussian_outputs) > 0:
-                        if self.interpolate_n_camera > 1:
-                            mask_logits[: -self.top_k] /= self.interpolate_n_camera
-                        scores = mask_logits.sum(dim=0)
                         # scores = select_low_entropy_logits(mask_logits, self.top_k, apply_softmax=True).sum(dim=0)
                     if len(rgb_outputs) > 0:
-                        if self.interpolate_n_camera > 1:
-                            rgb_logits[: -self.top_k] /= self.interpolate_n_camera
+                        rgb_logits = torch.mm(
+                            rgb_features, model.image_encoder.pos_embeds.T
+                        )
+                        if self.interpolate_n_camera > 0:
+                            rgb_logits[: -self.top_k] /= (self.interpolate_n_camera*2)
                         scores = rgb_logits.sum(dim=0)
-
+                if algorithm == 1:
+                    scores = torch.mm(rgb_features.mean(dim=0).unsqueeze(0), model.image_encoder.pos_embeds.T)
                         # scores = select_low_entropy_logits(rgb_logits, self.top_k, apply_softmax=True).sum(dim=0)
 
                         # weighted with entropy cant increase the performance
