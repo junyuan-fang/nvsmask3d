@@ -91,8 +91,13 @@ ns-viewer nvsmask3d --load_config outputs/7b6477cb95/nvsmask3d/config.yml  #scan
 
 ns-eval for_ap --load_config nvsmask3d/data/replica
 
-
 ```
+## ScanNet++ eval
+```
+cd scannetpp
+python -m semantic.eval.eval_instance semantic/configs/eval_instance.yml 
+```
+
 # Run evaluation in script
 ```
 python nvsmask3d/script/eval_all.py

@@ -18,40 +18,40 @@ run_dataset = "scannetpp"  # "mip_360"
 
 # scenes to run from dataset
 SCENE_NAMES = [
-    "7b6477cb95",
-    "c50d2d1d42",
-    "cc5237fd77",
-    "acd95847c5",
-    "fb5a96b1a2",
-    "a24f64f7fb",
-    "1ada7a0617",
-    "5eb31827b7",
-    "3e8bba0176",
-    "3f15a9266d",
-    "21d970d8de",
-    "5748ce6f01",
-    "c4c04e6d6c",
-    "7831862f02",
-    "bde1e479ad",
-    "38d58a7a31",
-    "5ee7c22ba0",
-    "f9f95681fd",
-    "3864514494",
-    "40aec5fffa",
-    "13c3e046d7",
-    "e398684d27",
-    "a8bf42d646",
-    "45b0dac5e3",
-    "31a2c91c43",
-    "e7af285f7d",
-    "286b55a2bf",
-    "7bc286c1b6",
-    "f3685d06a9",
-    "b0a08200c9",
-    "825d228aec",
-    "a980334473",
-    "f2dc06b1d2",
-    "5942004064",
+    # "7b6477cb95",
+    # "c50d2d1d42",
+    # "cc5237fd77",
+    # "acd95847c5",
+    # "fb5a96b1a2",
+    # "a24f64f7fb",
+    # "1ada7a0617",
+    # "5eb31827b7",
+    # "3e8bba0176",
+    # "3f15a9266d",
+    # "21d970d8de",
+    # "5748ce6f01",
+    # "c4c04e6d6c",
+    # "7831862f02",
+    # "bde1e479ad",
+    # "38d58a7a31",
+    # "5ee7c22ba0",
+    # "f9f95681fd",
+    # "3864514494",
+    # "40aec5fffa",
+    # "13c3e046d7",
+    # "e398684d27",
+    # "a8bf42d646",
+    # "45b0dac5e3",
+    # "31a2c91c43",
+    # "e7af285f7d",
+    # "286b55a2bf",
+    # "7bc286c1b6",
+    # "f3685d06a9",
+    # "b0a08200c9",
+    # "825d228aec",
+    # "a980334473",
+    # "f2dc06b1d2",
+    # "5942004064",
     "25f3b7a318",
     "bcd2436daf",
     "f3d64c30f8",
@@ -70,9 +70,7 @@ SCENE_NAMES = [
     "c49a8c6cff",
 ]
 
-# SCENE_NAMES = [
-#     "5748ce6f01",
-# ]
+
 
 LOAD_CONFIGS = [
     f"outputs/{scene}_dslr_colmap/nvsmask3d/config.yml" for scene in SCENE_NAMES
@@ -96,6 +94,7 @@ class BenchmarkConfig:
     load_config: str = None  # Accept either str or List
     interpolate_n_camera: int = 0
     top_k: int = 5
+    interp_kind: str = "masked_gaussian"
     dry_run: bool = False
     excluded_gpus: set = field(default_factory=set)
     output_dir: str = None
@@ -107,6 +106,7 @@ configs_to_run = [  # from sam_False_interp_cam_0  to  sam_False_interp_cam_4
     BenchmarkConfig(
         sam=True,
         kind="crop",
+        interp_kind="masked_gaussian",
         scene_name=SCENE_NAMES[i],
         load_config=LOAD_CONFIGS[
             i
@@ -116,7 +116,7 @@ configs_to_run = [  # from sam_False_interp_cam_0  to  sam_False_interp_cam_4
         top_k=5,
     )
     for i in range(len(SCENE_NAMES))
-    for j in range(0,3)
+    for j in range(1,2) #for j in range(1,2)
 ]
 # debug 1ada7a0617
 # configs_to_run = [  #from sam_False_interp_cam_0  to  sam_False_interp_cam_4
@@ -145,7 +145,9 @@ def eval_scene(gpu, config: BenchmarkConfig):
         """Train a single scene with config on current gpu"""
         sam_flag = "--sam" if config.sam else ""
         #output_dir = f"results/top_{config.top_k}_sam_{config.sam}_interp_cam_{config.interpolate_n_camera}" tested
-        output_dir = f"results/top_{config.top_k}_sam_{config.sam}_and_3d_interp_cam_{config.interpolate_n_camera}"
+        #output_dir = f"results/top_{config.top_k}_sam_{config.sam}_and_3d_interp_cam_{config.interpolate_n_camera}"
+        output_dir = f"results/top_{config.top_k}_sam_{config.sam}_and_interp_masked_gaussian_cam_{config.interpolate_n_camera}"
+
         # 生成命令
         cmd = (
             f"OMP_NUM_THREADS=4 "
@@ -158,6 +160,7 @@ def eval_scene(gpu, config: BenchmarkConfig):
             f"{sam_flag} "
             f"--project_name {config.project_name} "
             f"--wandb_mode {config.wandb_mode} "
+            f"--interp_kind {config.interp_kind} "
             f"--kind {config.kind} "
             f"--output_dir {output_dir} "
             f"--top_k {config.top_k} "

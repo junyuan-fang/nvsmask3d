@@ -13,6 +13,7 @@ def scannetpp_run_experiment(
     wandb_mode: str = "disabled",  # online,offline,disabled
     kind: str = "crop",
     top_k: int = 15,
+    interp_kind: str = "masked_gaussian",
     interpolate_n_camera: int = 0,
     output_dir: str = None,
 ):
@@ -61,6 +62,7 @@ def scannetpp_run_experiment(
         algorithm=algorithm,
         wandb_mode=wandb_mode,
         kind=kind,
+        interp_kind=interp_kind,
         scene_name=scene_name,
         load_config=load_config,
         output_dir=output_dir,  # Customize as needed
