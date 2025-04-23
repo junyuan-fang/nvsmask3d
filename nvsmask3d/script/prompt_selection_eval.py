@@ -1,6 +1,6 @@
 from pathlib import Path
 from typing import Optional
-from nvsmask3d.script.nvsmask3d_eval import ComputeForAP  # 导入你的 ComputeForAP 类
+from nvsmask3d.script.nvsmask3d_eval_old import ComputeForAP  # 导入你的 ComputeForAP 类
 import wandb
 
 VISIBILITY_SCORES = {

@@ -55,6 +55,7 @@ class Experiment:
         sam: bool = False,
         wandb_mode: str = "online",
         kind="crop",
+        interp_kind = "same",
         **kwargs,
     ):
         self.top_k = top_k
@@ -77,11 +78,12 @@ class Experiment:
         self.kind = kind
         self.scene_names = scene_names
         self.load_configs = load_configs
+        self.interp_kind = interp_kind
         self.run_name_for_wandb = self.generate_run_name()  # bottom always
 
     def generate_run_name(self) -> str:
         mode_info = f"MODE: {'rgb' if self.gt_camera_rgb else ''}-{'masked_gaussian' if self.gt_camera_gaussian else ''}"
-        return f"{self.dataset} SAM:{self.sam} algo:{self.algorithm} topk:{self.top_k} {mode_info} CAMERA_INTERP:{self.interpolate_n_camera} VIS:{self.visibility_score_description} OCC_AWARE:{self.occlusion_aware} kind:{self.kind}"
+        return f"{self.dataset} SAM:{self.sam} algo:{self.algorithm} topk:{self.top_k} {mode_info} CAMERA_INTERP:{self.interpolate_n_camera} VIS:{self.visibility_score_description} OCC_AWARE:{self.occlusion_aware} kind:{self.kind} interp_kind:{self.interp_kind}"
 
     def run(self):
         """Run the experiment and log results with WandB."""
@@ -122,6 +124,7 @@ class Experiment:
             algorithm=self.algorithm,
             wandb_mode=self.wandb_mode,
             kind=self.kind,
+            interp_kind=self.interp_kind,
             scene_names=self.scene_names,
             load_configs=self.load_configs,
         )
@@ -140,6 +143,7 @@ def create_experiments(
     algorithm: int,
     wandb_mode: str = "online",
     kind="crop",
+    interp_kind = "same",
 ):
     """Creates experiments based on experiment type."""
     config_map = {
@@ -167,10 +171,11 @@ def create_experiments(
             scene_names=scene_names,
             load_configs=load_configs,
             kind=kind,
+            interp_kind=interp_kind,
             **config,
             # TODO
         )
-        for i in range(1, 5)
+        for i in range(1, 4)
     ]
 
 
@@ -184,6 +189,7 @@ def run_experiments(
     project_name: str = "depth_corrected",
     wandb_mode: str = "online",
     kind="crop",
+    interp_kind = "same",
 ):
     experiments = create_experiments(
         scene_names,
@@ -195,6 +201,7 @@ def run_experiments(
         algorithm,
         wandb_mode,
         kind,
+        interp_kind,
     )
     for experiment in tqdm(experiments):
         experiment.run()
@@ -204,12 +211,75 @@ if __name__ == "__main__":
     run_experiments(
         experiment_type="rgb",
         dataset="replica",
-        sam=False,
+        sam=True,
         algorithm=0,
         project_name="crop",
         wandb_mode="disabled",
         kind="crop",
+        interp_kind = "masked_gaussian", #average
     )
+    # run_experiments(
+    #     experiment_type="rgb",
+    #     dataset="replica",
+    #     sam=False,
+    #     algorithm=0,
+    #     project_name="crop",
+    #     wandb_mode="disabled",
+    #     kind="crop",
+    #     interp_kind = "same", #average
+    # )
+    # run_experiments(
+    #     experiment_type="rgb",
+    #     dataset="replica",
+    #     sam=False,
+    #     algorithm=-1,
+    #     project_name="crop",
+    #     wandb_mode="disabled",
+    #     kind="crop",
+    #     interp_kind = "same", #average
+    # )
+    
+    # run_experiments(
+    #     experiment_type="rgb",
+    #     dataset="replica",
+    #     sam=False,
+    #     algorithm=1,
+    #     project_name="crop",
+    #     wandb_mode="disabled",
+    #     kind="crop",
+    #     interp_kind = "masked_gaussian", #average
+    # )
+    
+    # run_experiments(
+    #     experiment_type="rgb",
+    #     dataset="replica",
+    #     sam=False,
+    #     algorithm=0,
+    #     project_name="crop",
+    #     wandb_mode="disabled",
+    #     kind="crop",
+    #     interp_kind = "masked_gaussian",
+    # )
+    # run_experiments(
+    #     experiment_type="rgb",
+    #     dataset="replica",
+    #     sam=True,
+    #     algorithm=0,
+    #     project_name="crop",
+    #     wandb_mode="disabled",
+    #     kind="crop",
+    #     interp_kind = "same",
+    # )
+    # run_experiments(
+    #     experiment_type="rgb",
+    #     dataset="replica",
+    #     sam=False,
+    #     algorithm=0,
+    #     project_name="crop",
+    #     wandb_mode="disabled",
+    #     kind="crop",
+    #     interp_kind = "same",
+    # )
 
     # online,offline,disabled
     # run_experiments(experiment_type="rgb", dataset="replica", sam=False, algorithm=0, project_name="blur", wandb_mode="disabled", kind="crop")# online,offline,disabled
