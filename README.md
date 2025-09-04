@@ -33,4 +33,18 @@ effectively augmenting existing hard visual prompts by enforcing geometric consi
 
 ---
 
+# Citation
+If you find our work helpful, please consider citing:
+
+```bibtex
+@inproceedings{fang2025nvsmask3d,
+  title={NVSMask3D: Hard Visual Prompting with Camera Pose Interpolation for 3D Open Vocabulary Instance Segmentation},
+  author={Fang, Junyuan and Wang, Zihan and Zhang, Yejun and Wang, Shuzhe and Melekhov, Iaroslav and Kannala, Juho},
+  booktitle={Scandinavian Conference on Image Analysis},
+  pages={353--367},
+  year={2025},
+  organization={Springer}
+}
+```
+
 ⚠️ **Code status:** The codebase is currently being cleaned and organized and will be publicly released soon. Stay tuned!
